@@ -5,8 +5,8 @@ let package = Package(
     name: "VoiceEditor",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(path: "FluidAudio"),
-        .package(path: "mlx-swift-lm"),
+        .package(path: "examples/FluidAudio"),
+        .package(path: "examples/mlx-swift-lm"),
         .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMinor(from: "0.30.6")),
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0"),
     ],

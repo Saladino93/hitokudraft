@@ -1,5 +1,6 @@
 import AVFoundation
 import Accelerate
+import os
 
 final class AudioCaptureService {
     private let silenceThreshold: Float = 0.015
@@ -13,24 +14,37 @@ final class AudioCaptureService {
     /// Below this, the audio is just ambient noise / silence — reject before transcription.
     private static let minRMSEnergy: Float = 0.005
 
+    /// Target format for STT: 16 kHz, mono, Float32, non-interleaved.
+    private static let sttFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: 16_000,
+        channels: 1,
+        interleaved: false
+    )!
+
+    private static let log = Logger(subsystem: "com.voiceeditor.audio", category: "capture")
+
     /// Serial queue for off-RT-thread resampling and buffer accumulation.
     private let processingQueue = DispatchQueue(label: "com.voiceeditor.audio-processing")
 
     /// Records microphone input until silence is detected and returns 16 kHz mono Float32 samples.
     func recordUntilSilence() async throws -> [Float] {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            Self.log.error("Microphone permission not granted")
             throw AudioCaptureError.microphoneNotGranted
         }
 
-        let (engine, inputNode, hwFormat) = try startEngineWithRetries()
+        let (engine, inputNode, tapFormat) = try startEngineWithRetries()
 
         let audioBuffer = ThreadSafeAudioBuffer()
-        let hwSampleRate = hwFormat.sampleRate
+        let tapSampleRate = tapFormat.sampleRate
         let processingQ = self.processingQueue
 
         let threshold = self.silenceThreshold
         let silenceLimit = self.silenceDurationLimit
         let maxDuration = self.maxRecordingDuration
+
+        Self.log.info("recordUntilSilence: starting with tapFormat=\(tapFormat, privacy: .public)")
 
         let stream = AsyncStream<Void> { continuation in
             var silenceDuration: TimeInterval = 0
@@ -39,12 +53,13 @@ final class AudioCaptureService {
 
             inputNode.removeTap(onBus: 0)
 
-            // Tap callback: ultra-lightweight — RMS + buffer copy, then dispatch heavy work
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { buffer, _ in
+            // Tap callback: ultra-lightweight — RMS + buffer copy, then dispatch heavy work.
+            // format: tapFormat guarantees Float32 non-interleaved delivery.
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { buffer, _ in
                 let frames = buffer.frameLength
                 guard frames > 0 else { return }
 
-                let duration = Double(frames) / hwSampleRate
+                let duration = Double(frames) / tapSampleRate
                 totalDuration += duration
 
                 // RMS via Accelerate — safe on RT thread
@@ -58,11 +73,14 @@ final class AudioCaptureService {
                 }
 
                 // Copy buffer before dispatching — Core Audio reuses memory after callback
-                guard let copy = Self.copyBuffer(buffer) else { return }
+                guard let copy = Self.copyBuffer(buffer) else {
+                    Self.log.warning("copyBuffer failed — skipping \(frames) frames")
+                    return
+                }
 
-                // Resample to 16 kHz mono on background queue
+                // Resample to 16 kHz mono on background queue — fresh converter per buffer
                 processingQ.async {
-                    let samples = Self.toMono16k(buffer: copy)
+                    let samples = Self.convertToSTT(copy)
                     audioBuffer.append(samples)
                 }
 
@@ -71,6 +89,7 @@ final class AudioCaptureService {
                     || totalDuration >= maxDuration
 
                 if shouldStop {
+                    Self.log.info("recordUntilSilence: stopping — hasAudio=\(hasReceivedAudio) silenceDur=\(silenceDuration, format: .fixed(precision: 2))s totalDur=\(totalDuration, format: .fixed(precision: 2))s")
                     continuation.yield()
                     continuation.finish()
                 }
@@ -90,7 +109,10 @@ final class AudioCaptureService {
         processingQueue.sync {}
 
         let samples = audioBuffer.getAll()
+        Self.log.info("recordUntilSilence: total accumulated samples=\(samples.count)")
+
         guard samples.count >= Self.minSamples else {
+            Self.log.warning("recordUntilSilence: too few samples (\(samples.count) < \(Self.minSamples)) — emptyRecording")
             throw AudioCaptureError.emptyRecording
         }
 
@@ -98,9 +120,11 @@ final class AudioCaptureService {
         // (prevents Whisper hallucinations on ambient noise)
         let rms = Self.calculateRMSOfSamples(samples)
         guard rms >= Self.minRMSEnergy else {
+            Self.log.warning("recordUntilSilence: RMS \(rms) < minEnergy \(Self.minRMSEnergy) — tooQuiet")
             throw AudioCaptureError.tooQuiet
         }
 
+        Self.log.info("recordUntilSilence: success — \(samples.count) samples, RMS=\(rms)")
         return samples
     }
 
@@ -125,7 +149,8 @@ final class AudioCaptureService {
         private let _audioLevel = LockedFloat()
         var audioLevel: Float { _audioLevel.value }
 
-        fileprivate init(engine: AVAudioEngine, inputNode: AVAudioInputNode, hwFormat: AVAudioFormat) {
+        fileprivate init(engine: AVAudioEngine, inputNode: AVAudioInputNode,
+                         tapFormat: AVAudioFormat) {
             self.engine = engine
             self.inputNode = inputNode
 
@@ -133,21 +158,25 @@ final class AudioCaptureService {
             let queue = self.processingQueue
             let flag = self.silenceFlag
             let level = self._audioLevel
-            let hwSampleRate = hwFormat.sampleRate
+            let tapSampleRate = tapFormat.sampleRate
 
             // Mutable state captured by the tap closure (audio thread only)
             var hasReceivedAudio = false
             var silenceDuration: TimeInterval = 0
             let silenceThreshold: Float = 0.015
             let silenceLimit: TimeInterval = 1.5
+            var cumulativeSamples = 0
+
+            AudioCaptureService.log.info("ContinuousSession: starting with tapFormat=\(tapFormat, privacy: .public)")
 
             inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { pcmBuffer, _ in
+            // format: tapFormat guarantees Float32 non-interleaved delivery
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { pcmBuffer, _ in
                 let frames = pcmBuffer.frameLength
                 guard frames > 0 else { return }
 
                 // Silence detection
-                let duration = Double(frames) / hwSampleRate
+                let duration = Double(frames) / tapSampleRate
                 let rms = AudioCaptureService.calculateRMS(buffer: pcmBuffer)
 
                 // Publish level for waveform visualization
@@ -159,15 +188,25 @@ final class AudioCaptureService {
                 } else if hasReceivedAudio {
                     silenceDuration += duration
                     if silenceDuration >= silenceLimit {
+                        AudioCaptureService.log.info("ContinuousSession: silence detected after \(silenceDuration, format: .fixed(precision: 2))s")
                         flag.set()
                     }
                 }
 
-                guard let copy = AudioCaptureService.copyBuffer(pcmBuffer) else { return }
+                guard let copy = AudioCaptureService.copyBuffer(pcmBuffer) else {
+                    AudioCaptureService.log.warning("ContinuousSession: copyBuffer failed — skipping \(frames) frames")
+                    return
+                }
 
+                // Fresh converter per buffer — no statefulness
                 queue.async {
-                    let samples = AudioCaptureService.toMono16k(buffer: copy)
+                    let samples = AudioCaptureService.convertToSTT(copy)
                     buffer.append(samples)
+                    cumulativeSamples += samples.count
+                    // Log periodically (~every 2 seconds at 16 kHz)
+                    if cumulativeSamples % 32_000 < samples.count {
+                        AudioCaptureService.log.info("ContinuousSession: cumulative STT samples=\(cumulativeSamples)")
+                    }
                 }
             }
         }
@@ -179,6 +218,7 @@ final class AudioCaptureService {
             inputNode.removeTap(onBus: 0)
             engine.stop()
             processingQueue.sync {}
+            AudioCaptureService.log.info("ContinuousSession: stopped")
         }
     }
 
@@ -187,17 +227,22 @@ final class AudioCaptureService {
     /// Call `session.stop()` when done.
     func startContinuousRecording() throws -> ContinuousSession {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            Self.log.error("Microphone permission not granted")
             throw AudioCaptureError.microphoneNotGranted
         }
 
-        let (engine, inputNode, hwFormat) = try startEngineWithRetries()
-        return ContinuousSession(engine: engine, inputNode: inputNode, hwFormat: hwFormat)
+        let (engine, inputNode, tapFormat) = try startEngineWithRetries()
+        return ContinuousSession(engine: engine, inputNode: inputNode, tapFormat: tapFormat)
     }
 
     // MARK: - Engine Start with Retries
 
     /// Attempts to start AVAudioEngine up to 3 times, recreating between attempts.
-    /// Returns the started engine, its input node, and the hardware format.
+    /// Returns the started engine, its input node, and a Float32 tap format.
+    ///
+    /// The tap format is Float32/non-interleaved at the hardware sample rate and channel count.
+    /// Passing this to `installTap(format:)` makes AVAudioEngine normalize audio internally,
+    /// guaranteeing `floatChannelData` is always non-nil in the tap callback.
     private func startEngineWithRetries() throws -> (AVAudioEngine, AVAudioInputNode, AVAudioFormat) {
         var lastError: Error?
 
@@ -210,17 +255,31 @@ final class AudioCaptureService {
             let hwFormat = inputNode.outputFormat(forBus: 0)
 
             guard hwFormat.sampleRate > 0 else {
+                Self.log.warning("Attempt \(attempt): hwFormat.sampleRate is 0 — no audio input")
                 lastError = AudioCaptureError.noAudioInput
                 if attempt < 3 { engine.stop() }
                 continue
             }
 
+            // Negotiate a Float32 tap format at hardware sample rate / channel count.
+            // AVAudioEngine handles the conversion from hardware format internally.
+            let tapFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: hwFormat.sampleRate,
+                channels: hwFormat.channelCount,
+                interleaved: false
+            )!
+
+            Self.log.info("Attempt \(attempt): hwFormat=\(hwFormat, privacy: .public) → tapFormat=\(tapFormat, privacy: .public)")
+
             engine.prepare()
 
             do {
                 try engine.start()
-                return (engine, inputNode, hwFormat)
+                Self.log.info("Engine started successfully on attempt \(attempt)")
+                return (engine, inputNode, tapFormat)
             } catch {
+                Self.log.error("Attempt \(attempt): engine.start() failed — \(error.localizedDescription, privacy: .public)")
                 lastError = error
 
                 if attempt < 3 {
@@ -239,61 +298,52 @@ final class AudioCaptureService {
         )
     }
 
-    // MARK: - Manual Resampling (matches FluidVoice pattern)
+    // MARK: - Format Conversion
 
-    /// Converts an AVAudioPCMBuffer to 16 kHz mono [Float].
-    /// Fast-path: if already 16 kHz mono, just copies the data.
-    private static func toMono16k(buffer: AVAudioPCMBuffer) -> [Float] {
-        let format = buffer.format
-        if format.sampleRate == 16_000.0,
-           format.commonFormat == .pcmFormatFloat32,
-           format.channelCount == 1,
-           let channelData = buffer.floatChannelData
-        {
-            let frameCount = Int(buffer.frameLength)
-            return Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
-        }
-        let mono = downmixToMono(buffer)
-        return resampleTo16k(mono, sourceSampleRate: format.sampleRate)
-    }
+    /// Converts a tap-format PCM buffer to 16 kHz mono Float32 samples for STT.
+    ///
+    /// Creates a **fresh** AVAudioConverter per call to avoid statefulness bugs.
+    /// The old shared-converter approach broke after the first buffer because
+    /// `.endOfStream` put the converter in a terminal state.
+    static func convertToSTT(_ source: AVAudioPCMBuffer) -> [Float] {
+        let frameCount = source.frameLength
+        guard frameCount > 0 else { return [] }
 
-    /// Downmixes multi-channel audio to mono using vDSP.
-    private static func downmixToMono(_ buffer: AVAudioPCMBuffer) -> [Float] {
-        guard let channelData = buffer.floatChannelData else { return [] }
-        let frameCount = Int(buffer.frameLength)
-        let channels = Int(buffer.format.channelCount)
-        if channels == 1 {
-            return Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
+        guard let converter = AVAudioConverter(from: source.format, to: sttFormat) else {
+            log.error("convertToSTT: cannot create converter from \(source.format, privacy: .public) to \(sttFormat, privacy: .public)")
+            return []
         }
-        var mono = [Float](repeating: 0, count: frameCount)
-        for c in 0..<channels {
-            let src = channelData[c]
-            vDSP_vadd(src, 1, mono, 1, &mono, 1, vDSP_Length(frameCount))
-        }
-        var div = Float(channels)
-        vDSP_vsdiv(mono, 1, &div, &mono, 1, vDSP_Length(frameCount))
-        return mono
-    }
 
-    /// Linear-interpolation resample to 16 kHz.
-    private static func resampleTo16k(_ samples: [Float], sourceSampleRate: Double) -> [Float] {
-        guard !samples.isEmpty else { return [] }
-        if sourceSampleRate == 16_000.0 { return samples }
-        let ratio = 16_000.0 / sourceSampleRate
-        let outCount = Int(Double(samples.count) * ratio)
-        guard outCount > 0 else { return [] }
-        var output = [Float](repeating: 0, count: outCount)
-        for i in 0..<outCount {
-            let srcPos = Double(i) / ratio
-            let idx = Int(srcPos)
-            let frac = Float(srcPos - Double(idx))
-            if idx + 1 < samples.count {
-                output[i] = samples[idx] + (samples[idx + 1] - samples[idx]) * frac
-            } else if idx < samples.count {
-                output[i] = samples[idx]
+        let ratio = sttFormat.sampleRate / source.format.sampleRate
+        let capacity = AVAudioFrameCount(ceil(Double(frameCount) * ratio)) + 1
+        guard let output = AVAudioPCMBuffer(pcmFormat: sttFormat, frameCapacity: capacity) else {
+            log.error("convertToSTT: cannot allocate output buffer with capacity \(capacity)")
+            return []
+        }
+
+        var inputConsumed = false
+        var conversionError: NSError?
+        converter.convert(to: output, error: &conversionError) { _, outStatus in
+            if inputConsumed {
+                outStatus.pointee = .endOfStream
+                return nil
             }
+            inputConsumed = true
+            outStatus.pointee = .haveData
+            return source
         }
-        return output
+
+        if let error = conversionError {
+            log.error("convertToSTT: conversion error — \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+
+        guard let data = output.floatChannelData, output.frameLength > 0 else {
+            log.warning("convertToSTT: output has 0 frames from \(frameCount) input frames")
+            return []
+        }
+
+        return Array(UnsafeBufferPointer(start: data[0], count: Int(output.frameLength)))
     }
 
     // MARK: - Helpers
@@ -329,8 +379,13 @@ final class AudioCaptureService {
         return sqrtf(meanSquare)
     }
 
-    private static func calculateRMS(buffer: AVAudioPCMBuffer) -> Float {
-        guard let channelData = buffer.floatChannelData else { return 0 }
+    /// RMS of a PCM buffer. Fast path uses `floatChannelData` (guaranteed non-nil
+    /// when tap format is Float32). Fallback logs a warning and returns 0.
+    static func calculateRMS(buffer: AVAudioPCMBuffer) -> Float {
+        guard let channelData = buffer.floatChannelData else {
+            log.warning("calculateRMS: floatChannelData is nil — format may not be Float32 (\(buffer.format, privacy: .public))")
+            return 0
+        }
         let count = Int(buffer.frameLength)
         guard count > 0 else { return 0 }
         var meanSquare: Float = 0
@@ -338,20 +393,40 @@ final class AudioCaptureService {
         return sqrtf(meanSquare)
     }
 
-    private static func copyBuffer(_ source: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+    /// Copies a PCM buffer so we can dispatch it off the real-time audio thread.
+    /// Fast path uses `floatChannelData` (guaranteed non-nil with Float32 tap format).
+    /// Fallback uses raw memcpy via AudioBufferList for any sample format.
+    static func copyBuffer(_ source: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
         guard let copy = AVAudioPCMBuffer(pcmFormat: source.format, frameCapacity: source.frameLength) else {
             return nil
         }
         copy.frameLength = source.frameLength
 
-        guard let srcChannels = source.floatChannelData,
-              let dstChannels = copy.floatChannelData else { return nil }
-
-        let channelCount = Int(source.format.channelCount)
-        let byteCount = Int(source.frameLength) * MemoryLayout<Float>.size
-        for ch in 0..<channelCount {
-            memcpy(dstChannels[ch], srcChannels[ch], byteCount)
+        // Fast path: Float32 non-interleaved (guaranteed by tap format negotiation)
+        if let srcChannels = source.floatChannelData,
+           let dstChannels = copy.floatChannelData {
+            let channelCount = Int(source.format.channelCount)
+            let byteCount = Int(source.frameLength) * MemoryLayout<Float>.size
+            for ch in 0..<channelCount {
+                memcpy(dstChannels[ch], srcChannels[ch], byteCount)
+            }
+            return copy
         }
+
+        // Format-safe fallback: raw memcpy via AudioBufferList — works for any sample format
+        log.warning("copyBuffer: floatChannelData nil — using raw AudioBufferList copy (format: \(source.format, privacy: .public))")
+        let srcBufs = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: source.audioBufferList))
+        let dstBufs = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+        for i in 0..<srcBufs.count {
+            let src = srcBufs[i]
+            let dst = dstBufs[i]
+            guard let srcData = src.mData, let dstData = dst.mData else {
+                log.warning("copyBuffer: mData is nil for buffer \(i)")
+                continue
+            }
+            memcpy(dstData, srcData, Int(src.mDataByteSize))
+        }
+
         return copy
     }
 }

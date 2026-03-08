@@ -153,6 +153,13 @@ struct SettingsView: View {
 
     private var modelTab: some View {
         Form {
+            Label(
+                "AI models can make mistakes. Review all outputs before use.",
+                systemImage: "info.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
             Section {
                 Picker("Model", selection: $modelManager.selectedModel) {
                     ForEach(ModelRegistry.availableModels) { model in

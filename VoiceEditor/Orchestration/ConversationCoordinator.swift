@@ -185,7 +185,7 @@ final class ConversationCoordinator: ObservableObject {
                 throw VoiceEditorError.emptyTranscription
             }
 
-            let draftMode = selectedText.isEmpty || DraftDetector.isDraftCommand(trimmedCommand)
+            let draftMode = selectedText.isEmpty
 
             // Phase 3: LLM generation
             state = .generating

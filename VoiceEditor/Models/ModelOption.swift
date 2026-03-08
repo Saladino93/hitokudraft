@@ -76,6 +76,11 @@ enum ModelRegistry {
             extraEOSTokens: ["<|im_end|>"]
         ),
         ModelOption(
+            name: "Qwen3 8B 4-bit",
+            path: "mlx-community/Qwen3-8B-4bit",
+            extraEOSTokens: ["<|im_end|>"]
+        ),
+        ModelOption(
             name: "Gemma 3 4B 4-bit",
             path: "mlx-community/gemma-3-text-4b-it-4bit",
             extraEOSTokens: ["<end_of_turn>"]
