@@ -1,0 +1,6 @@
+examples/
+VoiceEditor.app/
+.text.txt.swp
+.DS_Store
+.build/
+.swiftpm/
