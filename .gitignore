@@ -4,3 +4,4 @@ VoiceEditor.app/
 .DS_Store
 .build/
 .swiftpm/
+mlx-swift-lm/
