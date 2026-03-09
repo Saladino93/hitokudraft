@@ -20,6 +20,10 @@ final class PermissionsCoordinator: ObservableObject {
         checkAccessibility()
         checkMicrophone()
         startPolling()
+
+        if !accessibilityGranted {
+            requestAccessibility()
+        }
     }
 
     func checkAccessibility() {

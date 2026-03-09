@@ -18,6 +18,9 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 2.0.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.0.0
 
 schemes:
   HitokuDraft:
@@ -69,3 +72,5 @@ targets:
       - package: mlx-swift
         product: MLX
       - package: KeyboardShortcuts
+      - package: Sparkle
+        product: Sparkle
