@@ -5,3 +5,5 @@ VoiceEditor.app/
 .build/
 .swiftpm/
 mlx-swift-lm/
+HitokuDraft.xcodeproj/
+text.txt

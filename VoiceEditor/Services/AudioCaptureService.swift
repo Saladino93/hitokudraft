@@ -5,7 +5,10 @@ import os
 final class AudioCaptureService {
     private let silenceThreshold: Float = 0.015
     private let silenceDurationLimit: TimeInterval = 1.5
-    private let maxRecordingDuration: TimeInterval = 30.0
+    private var maxRecordingDuration: TimeInterval {
+        let v = UserDefaults.standard.double(forKey: "maxRecordingDuration")
+        return v > 0 ? v : 30.0
+    }
 
     /// Minimum samples (1 second at 16 kHz) before we attempt transcription.
     private static let minSamples = 16_000
@@ -22,10 +25,10 @@ final class AudioCaptureService {
         interleaved: false
     )!
 
-    private static let log = Logger(subsystem: "com.voiceeditor.audio", category: "capture")
+    private static let log = Logger(subsystem: "com.hitokudraft.audio", category: "capture")
 
     /// Serial queue for off-RT-thread resampling and buffer accumulation.
-    private let processingQueue = DispatchQueue(label: "com.voiceeditor.audio-processing")
+    private let processingQueue = DispatchQueue(label: "com.hitokudraft.audio-processing")
 
     /// Records microphone input until silence is detected and returns 16 kHz mono Float32 samples.
     func recordUntilSilence() async throws -> [Float] {
@@ -137,7 +140,7 @@ final class AudioCaptureService {
         let audioBuffer = ThreadSafeAudioBuffer()
         private let engine: AVAudioEngine
         private let inputNode: AVAudioInputNode
-        private let processingQueue = DispatchQueue(label: "com.voiceeditor.dictation-processing")
+        private let processingQueue = DispatchQueue(label: "com.hitokudraft.dictation-processing")
         private var stopped = false
 
         /// Thread-safe flag set when silence is detected after speech.

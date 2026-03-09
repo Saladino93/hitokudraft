@@ -7,6 +7,12 @@ final class TextCaptureService {
         let items: [(type: NSPasteboard.PasteboardType, data: Data)]
     }
 
+    private var targetApp: NSRunningApplication?
+
+    func rememberTargetApp() {
+        targetApp = NSWorkspace.shared.frontmostApplication
+    }
+
     func saveClipboard() -> ClipboardSnapshot {
         let pasteboard = NSPasteboard.general
         var items: [(NSPasteboard.PasteboardType, Data)] = []
@@ -32,11 +38,13 @@ final class TextCaptureService {
     }
 
     func captureSelectedText() async throws -> String {
+        rememberTargetApp()
         let pasteboard = NSPasteboard.general
         let previousChangeCount = pasteboard.changeCount
 
+        try await Task.sleep(for: .milliseconds(50))   // let run loop settle
         simulateKeyPress(keyCode: 0x08, flags: .maskCommand)  // Cmd+C
-        try await Task.sleep(for: .milliseconds(150))
+        try await Task.sleep(for: .milliseconds(300))
 
         guard pasteboard.changeCount != previousChangeCount else {
             return ""  // No selection captured
@@ -50,8 +58,11 @@ final class TextCaptureService {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
-        simulateKeyPress(keyCode: 0x09, flags: .maskCommand)  // Cmd+V
+        targetApp?.activate()
         try await Task.sleep(for: .milliseconds(100))
+
+        simulateKeyPress(keyCode: 0x09, flags: .maskCommand)  // Cmd+V
+        try await Task.sleep(for: .milliseconds(250))
     }
 
     private func simulateKeyPress(keyCode: CGKeyCode, flags: CGEventFlags) {
@@ -60,6 +71,8 @@ final class TextCaptureService {
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
         keyDown?.flags = flags
         keyDown?.post(tap: .cghidEventTap)
+
+        usleep(40_000)  // 40ms — let native apps process keyDown before keyUp
 
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
         keyUp?.flags = flags

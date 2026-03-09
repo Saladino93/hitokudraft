@@ -3,24 +3,28 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.voiceeditor.app</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleExecutable</key>
-    <string>VoiceEditor</string>
+    <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleName</key>
-    <string>VoiceEditor</string>
+    <string>$(PRODUCT_NAME)</string>
     <key>CFBundleDisplayName</key>
-    <string>VoiceEditor</string>
+    <string>Hitoku Draft</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>VoiceEditor needs microphone access to record voice commands for text editing.</string>
+    <string>Hitoku Draft needs microphone access to record voice commands for text editing.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>VoiceEditor uses speech recognition as a fallback transcription engine.</string>
+    <string>Hitoku Draft uses speech recognition as a fallback transcription engine.</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 Hitoku Draft</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
 </dict>
 </plist>

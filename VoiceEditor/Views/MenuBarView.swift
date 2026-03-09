@@ -15,7 +15,20 @@ struct MenuBarMenu: View {
 
         Divider()
 
-        Button("Quit VoiceEditor") {
+        Button("About Hitoku Draft") {
+            NSApp.activate()
+            NSApp.orderFrontStandardAboutPanel(options: [
+                .applicationURL: URL(string: "https://hitoku.me")!
+            ])
+        }
+
+        Button("Acknowledgments\u{2026}") {
+            AcknowledgmentsWindowController.shared.show()
+        }
+
+        Divider()
+
+        Button("Quit Hitoku Draft") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")

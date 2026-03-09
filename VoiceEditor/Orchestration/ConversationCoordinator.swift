@@ -63,7 +63,10 @@ final class ConversationCoordinator: ObservableObject {
             try await modelManager.loadAll()
 
             if let container = modelManager.modelContainer {
-                llm = MLXLLMService(container: container)
+                llm = MLXLLMService(
+                    container: container,
+                    disableThinking: modelManager.selectedModel.disableThinking
+                )
             }
             if let models = modelManager.asrModels {
                 stt = try await FluidAudioSTT(models: models)
@@ -98,7 +101,10 @@ final class ConversationCoordinator: ObservableObject {
             try await modelManager.reloadLLM()
 
             if let container = modelManager.modelContainer {
-                llm = MLXLLMService(container: container)
+                llm = MLXLLMService(
+                    container: container,
+                    disableThinking: modelManager.selectedModel.disableThinking
+                )
             }
 
             state = .warmingUp
@@ -136,7 +142,7 @@ final class ConversationCoordinator: ObservableObject {
             let selectedText = try await textCapture.captureSelectedText()
 
             // Phase 1: Record with live waveform + streaming transcription
-            SoundPlayer.shared.play(.tink)
+            SoundPlayer.shared.playActivation()
             state = .listening
 
             let session = try audioCapture.startContinuousRecording()
@@ -215,12 +221,12 @@ final class ConversationCoordinator: ObservableObject {
             try await textCapture.pasteText(cleaned)
 
             // Audio cue: done
-            SoundPlayer.shared.play(.pop)
+            SoundPlayer.shared.playCompletion()
             dictationOverlay.hide()
 
             if let saved = savedClipboard {
                 // Small delay before restore so paste completes
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: .milliseconds(300))
                 textCapture.restoreClipboard(saved)
             }
 
@@ -254,7 +260,7 @@ final class ConversationCoordinator: ObservableObject {
             }
 
             // Audio cue: start
-            SoundPlayer.shared.play(.tink)
+            SoundPlayer.shared.playActivation()
 
             state = .generating
             dictationOverlay.show(text: "Fixing grammar...")
@@ -277,11 +283,11 @@ final class ConversationCoordinator: ObservableObject {
             try await textCapture.pasteText(cleaned)
 
             // Audio cue: done
-            SoundPlayer.shared.play(.pop)
+            SoundPlayer.shared.playCompletion()
             dictationOverlay.hide()
 
             if let saved = savedClipboard {
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: .milliseconds(300))
                 textCapture.restoreClipboard(saved)
             }
 
@@ -314,10 +320,11 @@ final class ConversationCoordinator: ObservableObject {
         }
 
         do {
+            textCapture.rememberTargetApp()
             let session = try audioCapture.startContinuousRecording()
             dictationSession = session
 
-            SoundPlayer.shared.play(.tink)
+            SoundPlayer.shared.playActivation()
             state = .dictating("")
             dictationOverlay.show(text: "Dictating...")
             dictationOverlay.startLevelPolling(session: session)
@@ -380,7 +387,7 @@ final class ConversationCoordinator: ObservableObject {
         // Final transcription on the complete buffer
         let samples = session.audioBuffer.getAll()
         guard samples.count >= 16_000, let stt else {
-            SoundPlayer.shared.play(.pop)
+            SoundPlayer.shared.playCompletion()
             dictationOverlay.hide()
             state = .idle
             return
@@ -402,10 +409,10 @@ final class ConversationCoordinator: ObservableObject {
             let savedClipboard = textCapture.saveClipboard()
             try await textCapture.pasteText(trimmed)
 
-            SoundPlayer.shared.play(.pop)
+            SoundPlayer.shared.playCompletion()
             dictationOverlay.hide()
 
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await Task.sleep(for: .milliseconds(300))
             textCapture.restoreClipboard(savedClipboard)
 
             state = .idle
