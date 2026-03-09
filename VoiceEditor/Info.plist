@@ -26,5 +26,9 @@
     <string>© 2026 Hitoku Draft</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
+    <key>SUFeedURL</key>
+    <string>https://hitoku.me/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
 </dict>
 </plist>

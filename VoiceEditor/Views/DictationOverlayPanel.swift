@@ -92,18 +92,35 @@ final class DictationOverlayPanel {
             containerView.layer?.shadowOffset = CGSize(width: 0, height: -2)
         }
 
-        // Inner visual effect: clips content to capsule shape
+        // Inner visual effect: clips content to capsule shape.
+        // NSVisualEffectView ignores layer.mask for blur calculation, producing a
+        // rectangular shadow artifact. maskImage is the correct API.
         let visualEffect = NSVisualEffectView(frame: containerView.bounds)
         visualEffect.material = .hudWindow
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
-        visualEffect.wantsLayer = true
-        let maskLayer = CAShapeLayer()
-        maskLayer.path = capsulePath
-        visualEffect.layer?.mask = maskLayer
         visualEffect.autoresizingMask = [.width, .height]
 
-        // Glassy variant: ultra-subtle inner stroke
+        // Clip the foreground material tint to the capsule shape
+        visualEffect.wantsLayer = true
+        visualEffect.layer?.cornerRadius = cornerRadius
+        visualEffect.layer?.masksToBounds = true
+
+        // Clip the background window-server blur (maskImage is the correct API;
+        // layer.mask is ignored by NSVisualEffectView's blur compositor)
+        let maskImage = NSImage(size: CGSize(width: panelWidth, height: panelHeight), flipped: false) { rect in
+            let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+            NSColor.black.setFill()
+            path.fill()
+            return true
+        }
+        maskImage.capInsets = NSEdgeInsets(top: cornerRadius, left: cornerRadius,
+                                           bottom: cornerRadius, right: cornerRadius)
+        maskImage.resizingMode = .stretch
+        visualEffect.maskImage = maskImage
+
+        // Glassy variant: ultra-subtle inner stroke — added to containerView so
+        // visualEffect.masksToBounds doesn't clip the outer half of the stroke line
         if style == .glassy {
             let strokeLayer = CAShapeLayer()
             strokeLayer.path = capsulePath
@@ -111,7 +128,7 @@ final class DictationOverlayPanel {
             strokeLayer.strokeColor = NSColor.white.withAlphaComponent(0.10).cgColor
             strokeLayer.lineWidth = 0.5
             strokeLayer.frame = visualEffect.bounds
-            visualEffect.layer?.addSublayer(strokeLayer)
+            containerView.layer?.addSublayer(strokeLayer)
         }
 
         containerView.addSubview(visualEffect)
@@ -245,11 +262,15 @@ private struct WaveformBar: View {
     let height: CGFloat
     let color: Color
 
+    private let maxHeight: CGFloat = 18.0
+
     var body: some View {
         Capsule()
             .fill(color)
             .shadow(color: color.opacity(0.6), radius: 4, x: 0, y: 0)
-            .frame(width: 3, height: height)
-            .animation(.spring(response: 0.15, dampingFraction: 0.6), value: height)
+            .drawingGroup()
+            .frame(width: 3, height: maxHeight)
+            .scaleEffect(y: height / maxHeight, anchor: .center)
+            .animation(.linear(duration: 0.05), value: height)
     }
 }

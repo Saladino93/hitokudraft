@@ -1,30 +1,50 @@
 import SwiftUI
+import Sparkle
 
 struct MenuBarMenu: View {
     @ObservedObject var coordinator: ConversationCoordinator
+    let updater: SPUUpdater
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Text(statusText)
 
         Divider()
 
-        SettingsLink {
-            Text("Preferences...")
+        Button("Preferences...") {
+            openSettings()
+            ActivationPolicyManager.shared.bringWindowsToFront()
         }
         .keyboardShortcut(",")
 
         Divider()
 
         Button("About Hitoku Draft") {
-            NSApp.activate()
+            let websiteURL = URL(string: "https://hitoku.me")!
+            let credits = NSAttributedString(
+                string: "hitoku.me",
+                attributes: [
+                    .link: websiteURL,
+                    .foregroundColor: NSColor.linkColor
+                ]
+            )
             NSApp.orderFrontStandardAboutPanel(options: [
-                .applicationURL: URL(string: "https://hitoku.me")!
+                .credits: credits
             ])
+            ActivationPolicyManager.shared.bringWindowsToFront()
         }
 
         Button("Acknowledgments\u{2026}") {
             AcknowledgmentsWindowController.shared.show()
+            ActivationPolicyManager.shared.bringWindowsToFront()
         }
+
+        Divider()
+
+        Button("Check for Updates\u{2026}") {
+            updater.checkForUpdates()
+        }
+        .disabled(!updater.canCheckForUpdates)
 
         Divider()
 
