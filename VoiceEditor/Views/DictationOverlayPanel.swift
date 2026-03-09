@@ -2,12 +2,23 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// HUD visual style variants.
+enum HUDStyle {
+    /// Ultra-clean minimal capsule: no border, very soft shadow.
+    case minimal
+    /// Glassy macOS capsule: ultra-subtle inner stroke, slightly more defined shadow.
+    case glassy
+}
+
 /// A floating, non-activating panel that shows live dictation text
 /// with an animated waveform visualization driven by real-time audio level.
 @MainActor
 final class DictationOverlayPanel {
     private var panel: NSPanel?
     private let viewModel = OverlayViewModel()
+
+    /// Change this to switch between `.minimal` and `.glassy` capsule styles.
+    var style: HUDStyle = .minimal
 
     func show(text: String) {
         viewModel.text = text
@@ -30,8 +41,12 @@ final class DictationOverlayPanel {
     }
 
     private func createPanel() {
+        let panelWidth: CGFloat = 320
+        let panelHeight: CGFloat = 44
+        let cornerRadius: CGFloat = panelHeight / 2  // true capsule
+
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 44),
+            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -40,26 +55,66 @@ final class DictationOverlayPanel {
         panel.level = .floating
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false  // no rectangular window shadow
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // Position at top-center of the main screen (below menu bar)
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
-            let x = frame.midX - 160
+            let x = frame.midX - panelWidth / 2
             let y = frame.maxY - 60
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-        // Frosted glass background via NSVisualEffectView
-        let visualEffect = NSVisualEffectView()
+        let capsulePath = CGPath(
+            roundedRect: CGRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
+            cornerWidth: cornerRadius,
+            cornerHeight: cornerRadius,
+            transform: nil
+        )
+
+        // Outer container: holds the shadow (not clipped)
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+        containerView.wantsLayer = true
+        containerView.layer?.masksToBounds = false
+        containerView.layer?.shadowPath = capsulePath
+        containerView.layer?.shadowColor = NSColor.black.cgColor
+
+        switch style {
+        case .minimal:
+            containerView.layer?.shadowOpacity = 0.15
+            containerView.layer?.shadowRadius = 16
+            containerView.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        case .glassy:
+            containerView.layer?.shadowOpacity = 0.25
+            containerView.layer?.shadowRadius = 10
+            containerView.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        }
+
+        // Inner visual effect: clips content to capsule shape
+        let visualEffect = NSVisualEffectView(frame: containerView.bounds)
         visualEffect.material = .hudWindow
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 12
-        visualEffect.layer?.masksToBounds = true
+        let maskLayer = CAShapeLayer()
+        maskLayer.path = capsulePath
+        visualEffect.layer?.mask = maskLayer
+        visualEffect.autoresizingMask = [.width, .height]
+
+        // Glassy variant: ultra-subtle inner stroke
+        if style == .glassy {
+            let strokeLayer = CAShapeLayer()
+            strokeLayer.path = capsulePath
+            strokeLayer.fillColor = nil
+            strokeLayer.strokeColor = NSColor.white.withAlphaComponent(0.10).cgColor
+            strokeLayer.lineWidth = 0.5
+            strokeLayer.frame = visualEffect.bounds
+            visualEffect.layer?.addSublayer(strokeLayer)
+        }
+
+        containerView.addSubview(visualEffect)
 
         let hostingView = NSHostingView(rootView: DictationOverlayContent(viewModel: viewModel))
         hostingView.translatesAutoresizingMaskIntoConstraints = false
@@ -70,7 +125,7 @@ final class DictationOverlayPanel {
             hostingView.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
         ])
-        panel.contentView = visualEffect
+        panel.contentView = containerView
         self.panel = panel
     }
 }

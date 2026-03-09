@@ -1,40 +1,34 @@
 import Foundation
+import os
 
-/// A thread-safe wrapper around a float array to prevent data races between
-/// the audio engine (background thread) and the main thread.
+/// A high-performance thread-safe buffer for accumulating Float audio samples.
+/// Uses OSAllocatedUnfairLock (a spin lock) for synchronous, low-latency access
+/// from real-time CoreAudio tap callbacks where await is not permitted.
 final class ThreadSafeAudioBuffer: @unchecked Sendable {
-    private var buffer: [Float] = []
-    private let lock = NSLock()
+    private var samples: [Float] = []
+    private let lock = OSAllocatedUnfairLock()
 
     func append(_ newSamples: [Float]) {
-        lock.lock()
-        defer { lock.unlock() }
-        buffer.append(contentsOf: newSamples)
+        lock.withLock {
+            samples.append(contentsOf: newSamples)
+        }
     }
 
     func clear(keepingCapacity: Bool = false) {
-        lock.lock()
-        defer { lock.unlock() }
-        buffer.removeAll(keepingCapacity: keepingCapacity)
+        lock.withLock {
+            samples.removeAll(keepingCapacity: keepingCapacity)
+        }
     }
 
     var count: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return buffer.count
+        lock.withLock { samples.count }
     }
 
     func getAll() -> [Float] {
-        lock.lock()
-        defer { lock.unlock() }
-        return buffer
+        lock.withLock { samples }
     }
 
-    /// Returns the first `count` samples without clearing.
-    /// If the buffer has fewer samples, returns everything available.
     func getPrefix(_ count: Int) -> [Float] {
-        lock.lock()
-        defer { lock.unlock() }
-        return Array(buffer.prefix(count))
+        lock.withLock { Array(samples.prefix(count)) }
     }
 }

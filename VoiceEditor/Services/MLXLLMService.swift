@@ -5,13 +5,16 @@ import MLXLMCommon
 
 final class MLXLLMService: LLMService, Sendable {
     private let modelContainer: ModelContainer
+    private let disableThinking: Bool
 
-    init(container: ModelContainer) {
+    init(container: ModelContainer, disableThinking: Bool = false) {
         self.modelContainer = container
+        self.disableThinking = disableThinking
     }
 
     func generate(prompt: String, maxTokens: Int) async throws -> String {
-        let userInput = UserInput(prompt: .chat([.user(prompt)]))
+        let effectivePrompt = disableThinking ? prompt + " /no_think" : prompt
+        let userInput = UserInput(prompt: .chat([.user(effectivePrompt)]))
         let lmInput = try await modelContainer.prepare(input: userInput)
 
         let parameters = GenerateParameters(

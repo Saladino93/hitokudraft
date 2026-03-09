@@ -21,7 +21,8 @@ let package = Package(
                 "KeyboardShortcuts",
             ],
             path: "VoiceEditor",
-            exclude: ["Info.plist", "VoiceEditor.entitlements"]
+            exclude: ["Info.plist", "VoiceEditor.entitlements"],
+            resources: [.process("Assets.xcassets")]
         ),
     ]
 )
