@@ -21,6 +21,6 @@ enum Instructions {
     ]
 
     static func forLanguage(_ code: String) -> String {
-        byLanguage[code] ?? byLanguage["en"]!
+        byLanguage[code] ?? "Fix all grammar, punctuation, and spelling errors. Preserve the original meaning and tone. Reply in the same language as the input."
     }
 }

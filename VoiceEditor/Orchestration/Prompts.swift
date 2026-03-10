@@ -2,6 +2,12 @@ import Foundation
 import NaturalLanguage
 
 enum Prompts {
+    static let systemPrompt = """
+        You are a precise, concise text editor and writing assistant. \
+        Follow instructions exactly. Output ONLY the requested text — \
+        no commentary, no explanations, no preamble.
+        """
+
     static func edit(text: String, instruction: String) -> String {
         let langCode = LanguageDetector.detect(text)
         let langRule = languageRule(for: langCode)
@@ -32,9 +38,12 @@ enum Prompts {
 
         return """
         \(langRule)
-        Write exactly what the user asks for. Output ONLY the final text. No commentary.
+        You are a writing assistant. The user asked you to write something via voice.
+        Produce ONLY the requested content — no preamble, no commentary.
+        Do NOT repeat or paraphrase the user's request.
+        Write directly, as if the text will be pasted into a document.
 
-        User: \(instruction)
+        Request: \(instruction)
 
         """
     }
@@ -69,4 +78,22 @@ enum Prompts {
     }
 
     static let draftMaxTokens = 800
+
+    // MARK: - Voice-clean prompt (for small models that echo labeled fields)
+
+    /// Stronger system prompt for small models (e.g. LFM2.5 1.2B) that echo
+    /// labeled prompt fields instead of generating content.
+    static let voiceCleanSystemPrompt = """
+        You are a writing assistant. The user's input was dictated via voice — \
+        it may contain filler words, hesitations, or minor transcription errors. \
+        Rewrite it as clear, polished text ready to use.
+
+        Rules:
+        - Fix grammar, spelling, and punctuation. Remove fillers and repetitions.
+        - Keep the meaning and intent exactly as the user expressed it.
+        - Reply in the SAME language as the input.
+        """
+
+    /// Returns the raw transcription as-is; the system prompt carries all instructions.
+    static func voiceCleanDraft(instruction: String) -> String { instruction }
 }
