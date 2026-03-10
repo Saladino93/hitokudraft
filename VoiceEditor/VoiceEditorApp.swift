@@ -14,14 +14,14 @@ struct VoiceEditorApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarMenu(coordinator: coordinator, updater: updaterController.updater)
+            MenuBarMenu(coordinator: coordinator)
         } label: {
             coordinator.menuBarIcon
         }
         .menuBarExtraStyle(.menu)
 
         Settings {
-            SettingsView(coordinator: coordinator)
+            SettingsView(coordinator: coordinator, updater: updaterController.updater)
         }
     }
 }

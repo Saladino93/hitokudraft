@@ -3,7 +3,7 @@
 **Platform:** macOS (Apple Silicon only · no App Store · no sandbox)
 **Stack:** SwiftUI + mlx-swift + FluidAudio
 **Version:** v0.1-alpha (pre-release)
-**Last updated:** 2026-03-09 (session 2)
+**Last updated:** 2026-03-09 (session 3)
 
 ---
 
@@ -27,6 +27,33 @@
 ---
 
 ## Sessions
+
+### 2026-03-09 (session 3) — Pre-launch audit + prompt improvements
+
+**Audit scope:** Feature completeness vs brief, prompt quality, code safety.
+Full findings documented in `CHECKS.md`.
+
+**Bug fixed — DraftDetector never wired:**
+Root cause of "Liquid Studio models just copy what I said": `DraftDetector.isDraftCommand()`
+existed but was never called. Voice-edit always used `selectedText.isEmpty` as the sole
+draft gate — so "draft an email thanking John" with text selected would run the edit prompt,
+not the draft prompt. Fix: one-line `||` in `ConversationCoordinator.swift:194`.
+
+**Files modified:**
+- `VoiceEditor/Orchestration/ConversationCoordinator.swift` — wire `DraftDetector.isDraftCommand(trimmedCommand)` into draft mode detection
+- `VoiceEditor/Orchestration/Prompts.swift` — add `systemPrompt` constant; strengthen `draft()` with 5-line scaffolding for small models
+- `VoiceEditor/Orchestration/Instructions.swift` — universal language fallback for grammar fix (non-EN/IT/FR/DE languages now get "reply in same language as input" instead of English)
+- `VoiceEditor/Services/MLXLLMService.swift` — pass `Prompts.systemPrompt` as `.system` role via `UserInput(chat:)` API
+
+**Files created:**
+- `CHECKS.md` — full pre-launch audit document (feature table, prompt audit, code quality findings, verification checklist)
+
+**Deferred (not in scope this session):**
+- `AppleSTT.swift` (SFSpeechRecognizer fallback) — own session
+- Onboarding UI — PermissionsCoordinator already gates flows
+- HuggingFace URL validation, AVAudioFormat unwrap — low severity
+
+---
 
 ### 2026-03-09 (session 2) — Distribution setup: Gumroad + Sparkle
 

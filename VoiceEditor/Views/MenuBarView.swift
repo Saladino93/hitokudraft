@@ -1,9 +1,7 @@
 import SwiftUI
-import Sparkle
 
 struct MenuBarMenu: View {
     @ObservedObject var coordinator: ConversationCoordinator
-    let updater: SPUUpdater
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -38,13 +36,6 @@ struct MenuBarMenu: View {
             AcknowledgmentsWindowController.shared.show()
             ActivationPolicyManager.shared.bringWindowsToFront()
         }
-
-        Divider()
-
-        Button("Check for Updates\u{2026}") {
-            updater.checkForUpdates()
-        }
-        .disabled(!updater.canCheckForUpdates)
 
         Divider()
 

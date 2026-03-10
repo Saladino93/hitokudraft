@@ -15,7 +15,7 @@ final class ModelManager: ObservableObject {
     private(set) var modelContainer: ModelContainer?
     private(set) var asrModels: AsrModels?
 
-    init(model: ModelOption = ModelRegistry.defaultModel) {
+    init(model: ModelOption = ModelRegistry.smartDefault) {
         self.selectedModel = model
     }
 

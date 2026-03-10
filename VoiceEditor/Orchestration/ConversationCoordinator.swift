@@ -1,4 +1,5 @@
 import Combine
+import MLXLMCommon
 import SwiftUI
 
 @MainActor
@@ -63,10 +64,7 @@ final class ConversationCoordinator: ObservableObject {
             try await modelManager.loadAll()
 
             if let container = modelManager.modelContainer {
-                llm = MLXLLMService(
-                    container: container,
-                    disableThinking: modelManager.selectedModel.disableThinking
-                )
+                llm = makeLLMService(container: container)
             }
             if let models = modelManager.asrModels {
                 stt = try await FluidAudioSTT(models: models)
@@ -101,10 +99,7 @@ final class ConversationCoordinator: ObservableObject {
             try await modelManager.reloadLLM()
 
             if let container = modelManager.modelContainer {
-                llm = MLXLLMService(
-                    container: container,
-                    disableThinking: modelManager.selectedModel.disableThinking
-                )
+                llm = makeLLMService(container: container)
             }
 
             state = .warmingUp
@@ -191,7 +186,7 @@ final class ConversationCoordinator: ObservableObject {
                 throw VoiceEditorError.emptyTranscription
             }
 
-            let draftMode = selectedText.isEmpty
+            let draftMode = selectedText.isEmpty || DraftDetector.isDraftCommand(trimmedCommand)
 
             // Phase 3: LLM generation
             state = .generating
@@ -201,7 +196,11 @@ final class ConversationCoordinator: ObservableObject {
             let maxTokens: Int
 
             if draftMode {
-                prompt = Prompts.draft(instruction: trimmedCommand)
+                if modelManager.selectedModel.useVoiceCleanPrompt {
+                    prompt = Prompts.voiceCleanDraft(instruction: trimmedCommand)
+                } else {
+                    prompt = Prompts.draft(instruction: trimmedCommand)
+                }
                 maxTokens = Prompts.draftMaxTokens
             } else {
                 prompt = Prompts.edit(text: selectedText, instruction: trimmedCommand)
@@ -424,6 +423,17 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     // MARK: - Helpers
+
+    private func makeLLMService(container: ModelContainer) -> MLXLLMService {
+        let prompt = modelManager.selectedModel.useVoiceCleanPrompt
+            ? Prompts.voiceCleanSystemPrompt
+            : Prompts.systemPrompt
+        return MLXLLMService(
+            container: container,
+            disableThinking: modelManager.selectedModel.disableThinking,
+            systemPrompt: prompt
+        )
+    }
 
     private func resetErrorAfterDelay() {
         Task {
