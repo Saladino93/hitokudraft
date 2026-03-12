@@ -30,15 +30,35 @@ swift build -c "$SWIFT_CONFIG"
 rm -rf "$APP_BUNDLE"
 mkdir -p "$MACOS"
 
-# Step 3: Copy binary
+# Step 3: Copy binary and strip debug symbols
 cp ".build/$CONFIG/$APP_NAME" "$MACOS/$APP_NAME"
+strip "$MACOS/$APP_NAME"
 
-# Step 4: Copy Info.plist
-cp "$APP_NAME/Info.plist" "$CONTENTS/Info.plist"
+# Step 4: Copy Info.plist and resolve Xcode-style variables
+# swift build doesn't process $(VAR) placeholders — substitute them here.
+BUNDLE_ID="${BUNDLE_IDENTIFIER:-com.hitokudraft.app}"
+MARKETING_VER="${MARKETING_VERSION:-0.1.0}"
+PROJECT_VER="${CURRENT_PROJECT_VERSION:-1}"
+sed \
+    -e "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/$BUNDLE_ID/g" \
+    -e "s/\$(EXECUTABLE_NAME)/$APP_NAME/g" \
+    -e "s/\$(PRODUCT_NAME)/$APP_NAME/g" \
+    -e "s/\$(MARKETING_VERSION)/$MARKETING_VER/g" \
+    -e "s/\$(CURRENT_PROJECT_VERSION)/$PROJECT_VER/g" \
+    "$APP_NAME/Info.plist" > "$CONTENTS/Info.plist"
 
 # Step 4b: Copy Resources
 mkdir -p "$CONTENTS/Resources"
 cp "ACKNOWLEDGMENTS.md" "$CONTENTS/Resources/ACKNOWLEDGMENTS.md"
+
+# Step 4c: Copy localization bundles (.lproj) from SPM resource bundle
+SPM_BUNDLE=".build/$CONFIG/VoiceEditor_VoiceEditor.bundle"
+if [ -d "$SPM_BUNDLE" ]; then
+    for lproj in "$SPM_BUNDLE"/*.lproj; do
+        [ -d "$lproj" ] && cp -R "$lproj" "$CONTENTS/Resources/"
+    done
+    echo "==> Copied localization bundles to Resources/"
+fi
 
 # Step 5: Sign the bundle
 # Note: com.apple.developer.kernel.increased-memory-limit requires a paid

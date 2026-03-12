@@ -16,6 +16,15 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>it</string>
+        <string>fr</string>
+        <string>es</string>
+    </array>
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
@@ -27,7 +36,9 @@
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>SUFeedURL</key>
-    <string>https://hitoku.me/appcast.xml</string>
+    <string>https://hitoku.me/apps/hitokudraft/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>EqgkdjSE/dGbY5loypfWqESABQXl558qO4jx7SBWIQc=</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
 </dict>

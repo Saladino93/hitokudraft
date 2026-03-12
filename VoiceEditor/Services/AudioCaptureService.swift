@@ -4,7 +4,10 @@ import os
 
 final class AudioCaptureService {
     private let silenceThreshold: Float = 0.015
-    private let silenceDurationLimit: TimeInterval = 1.5
+    private var silenceDurationLimit: TimeInterval {
+        let v = UserDefaults.standard.double(forKey: "silenceDurationLimit")
+        return v > 0 ? v : 2.0
+    }
     private var maxRecordingDuration: TimeInterval {
         let v = UserDefaults.standard.double(forKey: "maxRecordingDuration")
         return v > 0 ? v : 30.0
@@ -153,7 +156,7 @@ final class AudioCaptureService {
         var audioLevel: Float { _audioLevel.value }
 
         fileprivate init(engine: AVAudioEngine, inputNode: AVAudioInputNode,
-                         tapFormat: AVAudioFormat) {
+                         tapFormat: AVAudioFormat, silenceDurationLimit: TimeInterval) {
             self.engine = engine
             self.inputNode = inputNode
 
@@ -167,7 +170,7 @@ final class AudioCaptureService {
             var hasReceivedAudio = false
             var silenceDuration: TimeInterval = 0
             let silenceThreshold: Float = 0.015
-            let silenceLimit: TimeInterval = 1.5
+            let silenceLimit = silenceDurationLimit
             var cumulativeSamples = 0
 
             AudioCaptureService.log.info("ContinuousSession: starting with tapFormat=\(tapFormat, privacy: .public)")
@@ -214,14 +217,16 @@ final class AudioCaptureService {
             }
         }
 
-        /// Stops recording, removes the tap, and flushes pending audio processing.
+        /// Stops recording, removes the tap, and drains pending audio processing.
+        /// Uses async drain instead of sync to avoid blocking the calling thread.
         func stop() {
             guard !stopped else { return }
             stopped = true
             inputNode.removeTap(onBus: 0)
             engine.stop()
-            processingQueue.sync {}
-            AudioCaptureService.log.info("ContinuousSession: stopped")
+            processingQueue.async {
+                AudioCaptureService.log.info("ContinuousSession: stopped, processing drained")
+            }
         }
     }
 
@@ -235,7 +240,8 @@ final class AudioCaptureService {
         }
 
         let (engine, inputNode, tapFormat) = try startEngineWithRetries()
-        return ContinuousSession(engine: engine, inputNode: inputNode, tapFormat: tapFormat)
+        return ContinuousSession(engine: engine, inputNode: inputNode, tapFormat: tapFormat,
+                                 silenceDurationLimit: silenceDurationLimit)
     }
 
     // MARK: - Engine Start with Retries
@@ -257,8 +263,8 @@ final class AudioCaptureService {
             let inputNode = engine.inputNode
             let hwFormat = inputNode.outputFormat(forBus: 0)
 
-            guard hwFormat.sampleRate > 0 else {
-                Self.log.warning("Attempt \(attempt): hwFormat.sampleRate is 0 — no audio input")
+            guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
+                Self.log.warning("Attempt \(attempt): invalid hwFormat (sampleRate=\(hwFormat.sampleRate), channels=\(hwFormat.channelCount)) — no usable audio input")
                 lastError = AudioCaptureError.noAudioInput
                 if attempt < 3 { engine.stop() }
                 continue
@@ -266,12 +272,17 @@ final class AudioCaptureService {
 
             // Negotiate a Float32 tap format at hardware sample rate / channel count.
             // AVAudioEngine handles the conversion from hardware format internally.
-            let tapFormat = AVAudioFormat(
+            guard let tapFormat = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
                 sampleRate: hwFormat.sampleRate,
                 channels: hwFormat.channelCount,
                 interleaved: false
-            )!
+            ) else {
+                Self.log.warning("Attempt \(attempt): AVAudioFormat returned nil for sampleRate=\(hwFormat.sampleRate), channels=\(hwFormat.channelCount)")
+                lastError = AudioCaptureError.noAudioInput
+                if attempt < 3 { engine.stop() }
+                continue
+            }
 
             Self.log.info("Attempt \(attempt): hwFormat=\(hwFormat, privacy: .public) → tapFormat=\(tapFormat, privacy: .public)")
 
@@ -361,15 +372,15 @@ final class AudioCaptureService {
         var errorDescription: String? {
             switch self {
             case .microphoneNotGranted:
-                return "Microphone access not granted. Open Preferences → General to grant it."
+                return L("error.mic_not_granted")
             case .noAudioInput:
-                return "No audio input available. Check your microphone."
+                return L("error.no_audio_input")
             case .engineStartFailed(let underlying):
-                return "Audio engine failed to start: \(underlying.localizedDescription)"
+                return L("error.engine_failed", underlying.localizedDescription)
             case .emptyRecording:
-                return "Recording produced no audio. Check your microphone."
+                return L("error.empty_recording")
             case .tooQuiet:
-                return "Recording was too quiet — no speech detected."
+                return L("error.too_quiet")
             }
         }
     }
@@ -435,7 +446,7 @@ final class AudioCaptureService {
 }
 
 /// A thread-safe write-once boolean flag.
-private final class LockedFlag: @unchecked Sendable {
+final class LockedFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var _value = false
 

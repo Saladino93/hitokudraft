@@ -11,13 +11,13 @@ struct DownloadProgressView: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(statusMessage.isEmpty ? "Loading..." : statusMessage)
+                    Text(statusMessage.isEmpty ? L("download.loading") : statusMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             } else {
                 ProgressView(value: progress) {
-                    Text(statusMessage.isEmpty ? "Downloading..." : statusMessage)
+                    Text(statusMessage.isEmpty ? L("download.downloading") : statusMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

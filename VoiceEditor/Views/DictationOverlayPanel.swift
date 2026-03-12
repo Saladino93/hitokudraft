@@ -41,9 +41,9 @@ final class DictationOverlayPanel {
     }
 
     private func createPanel() {
+        // Oversized so SwiftUI drop shadows aren't clipped by window edges
         let panelWidth: CGFloat = 320
-        let panelHeight: CGFloat = 44
-        let cornerRadius: CGFloat = panelHeight / 2  // true capsule
+        let panelHeight: CGFloat = 90
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
@@ -55,94 +55,33 @@ final class DictationOverlayPanel {
         panel.level = .floating
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = false  // no rectangular window shadow
+        panel.hasShadow = false
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        // Position at top-center of the main screen (below menu bar)
+        // Position: keep visible capsule center at same screen position as before
+        // Old: 44pt panel, origin.y = maxY - 60  →  center-y = maxY - 38
+        // New: 90pt panel  →  origin.y = maxY - 38 - 45 = maxY - 83
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
             let x = frame.midX - panelWidth / 2
-            let y = frame.maxY - 60
+            let y = frame.maxY - 83
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-        let capsulePath = CGPath(
-            roundedRect: CGRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
+        let hostingView = NSHostingView(
+            rootView: DictationOverlayContent(viewModel: viewModel, style: style)
         )
-
-        // Outer container: holds the shadow (not clipped)
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
-        containerView.wantsLayer = true
-        containerView.layer?.masksToBounds = false
-        containerView.layer?.shadowPath = capsulePath
-        containerView.layer?.shadowColor = NSColor.black.cgColor
-
-        switch style {
-        case .minimal:
-            containerView.layer?.shadowOpacity = 0.15
-            containerView.layer?.shadowRadius = 16
-            containerView.layer?.shadowOffset = CGSize(width: 0, height: -2)
-        case .glassy:
-            containerView.layer?.shadowOpacity = 0.25
-            containerView.layer?.shadowRadius = 10
-            containerView.layer?.shadowOffset = CGSize(width: 0, height: -2)
-        }
-
-        // Inner visual effect: clips content to capsule shape.
-        // NSVisualEffectView ignores layer.mask for blur calculation, producing a
-        // rectangular shadow artifact. maskImage is the correct API.
-        let visualEffect = NSVisualEffectView(frame: containerView.bounds)
-        visualEffect.material = .hudWindow
-        visualEffect.blendingMode = .behindWindow
-        visualEffect.state = .active
-        visualEffect.autoresizingMask = [.width, .height]
-
-        // Clip the foreground material tint to the capsule shape
-        visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = cornerRadius
-        visualEffect.layer?.masksToBounds = true
-
-        // Clip the background window-server blur (maskImage is the correct API;
-        // layer.mask is ignored by NSVisualEffectView's blur compositor)
-        let maskImage = NSImage(size: CGSize(width: panelWidth, height: panelHeight), flipped: false) { rect in
-            let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-            NSColor.black.setFill()
-            path.fill()
-            return true
-        }
-        maskImage.capInsets = NSEdgeInsets(top: cornerRadius, left: cornerRadius,
-                                           bottom: cornerRadius, right: cornerRadius)
-        maskImage.resizingMode = .stretch
-        visualEffect.maskImage = maskImage
-
-        // Glassy variant: ultra-subtle inner stroke — added to containerView so
-        // visualEffect.masksToBounds doesn't clip the outer half of the stroke line
-        if style == .glassy {
-            let strokeLayer = CAShapeLayer()
-            strokeLayer.path = capsulePath
-            strokeLayer.fillColor = nil
-            strokeLayer.strokeColor = NSColor.white.withAlphaComponent(0.10).cgColor
-            strokeLayer.lineWidth = 0.5
-            strokeLayer.frame = visualEffect.bounds
-            containerView.layer?.addSublayer(strokeLayer)
-        }
-
-        containerView.addSubview(visualEffect)
-
-        let hostingView = NSHostingView(rootView: DictationOverlayContent(viewModel: viewModel))
         hostingView.translatesAutoresizingMaskIntoConstraints = false
-        visualEffect.addSubview(hostingView)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+        content.addSubview(hostingView)
         NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: visualEffect.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: content.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
         ])
-        panel.contentView = containerView
+        panel.contentView = content
         self.panel = panel
     }
 }
@@ -192,23 +131,36 @@ private final class OverlayViewModel: ObservableObject {
 
 private struct DictationOverlayContent: View {
     @ObservedObject var viewModel: OverlayViewModel
+    var style: HUDStyle = .minimal
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Waveform bars
+        HStack(spacing: 8) {
             WaveformBarsView(level: viewModel.audioLevel)
-                .frame(width: 36, height: 20)
+                .frame(width: 29, height: 16)
 
-            // Transcription text
             Text(viewModel.text)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(2)
                 .truncationMode(.head)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(width: 256, height: 35)
+        // 1. Properly mask the material at the source
+        .background(.regularMaterial, in: Capsule())
+        // 2. The shadow will now natively conform to the masked Capsule shape
+        .shadow(
+            color: .black.opacity(style == .glassy ? 0.25 : 0.15),
+            radius: style == .glassy ? 10 : 16,
+            x: 0, y: -2
+        )
+        .overlay {
+            if style == .glassy {
+                Capsule().strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+            }
+        }
     }
 }
 
@@ -227,7 +179,7 @@ private struct WaveformBarsView: View {
     private let noiseFloor: CGFloat = 0.05
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 2.5) {
             ForEach(0..<barCount, id: \.self) { index in
                 WaveformBar(
                     height: barHeight(for: index),
@@ -238,8 +190,8 @@ private struct WaveformBarsView: View {
     }
 
     private func barHeight(for index: Int) -> CGFloat {
-        let minHeight: CGFloat = 3.0
-        let maxHeight: CGFloat = 18.0
+        let minHeight: CGFloat = 2.5
+        let maxHeight: CGFloat = 14.0
 
         guard level > noiseFloor else {
             return minHeight
@@ -262,14 +214,14 @@ private struct WaveformBar: View {
     let height: CGFloat
     let color: Color
 
-    private let maxHeight: CGFloat = 18.0
+    private let maxHeight: CGFloat = 14.0
 
     var body: some View {
         Capsule()
             .fill(color)
             .shadow(color: color.opacity(0.6), radius: 4, x: 0, y: 0)
-            .drawingGroup()
-            .frame(width: 3, height: maxHeight)
+            //.drawingGroup()
+            .frame(width: 2.5, height: maxHeight)
             .scaleEffect(y: height / maxHeight, anchor: .center)
             .animation(.linear(duration: 0.05), value: height)
     }

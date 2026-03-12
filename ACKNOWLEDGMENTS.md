@@ -29,18 +29,55 @@ Hitoku Draft is a commercial macOS application built on open-source software and
 - **License:** MIT — Copyright © Sindre Sorhus
 - **Used for:** Global hotkey registration (voice edit, dictation, grammar fix triggers)
 
+### mlx-audio-swift — v0.1.1
+- **Source:** [github.com/Blaizzy/mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift)
+- **License:** MIT
+- **Used for:** Audio speech-to-text (MLXAudio, MLXAudioSTT) for on-device transcription
+
+### swift-huggingface — v0.8.1
+- **Source:** [github.com/huggingface/swift-huggingface](https://github.com/huggingface/swift-huggingface)
+- **License:** Apache 2.0
+- **Used for:** HuggingFace Hub client for model downloads
+
+### Sparkle — v2.9.0
+- **Source:** [github.com/sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle)
+- **License:** MIT — Copyright © 2006-2013 Andy Matuschak, 2015-2024 Sparkle Project
+- **Used for:** Auto-update framework (check for updates, download and install new versions)
+
 ---
 
 ## Transitive Dependencies (indirect, pulled in automatically)
 
+All are Apache 2.0 unless noted otherwise.
+
 | Package | Version | License | Source |
 |---|---|---|---|
-| swift-transformers | 1.1.9 | Apache 2.0 | github.com/huggingface/swift-transformers |
-| swift-jinja | 2.3.2 | Apache 2.0 | github.com/huggingface/swift-jinja |
+| async-http-client | 1.32.0 | Apache 2.0 | github.com/swift-server/async-http-client |
+| swift-algorithms | 1.2.1 | Apache 2.0 | github.com/apple/swift-algorithms |
+| swift-async-algorithms | 1.1.3 | Apache 2.0 | github.com/apple/swift-async-algorithms |
+| swift-atomics | 1.3.0 | Apache 2.0 | github.com/apple/swift-atomics |
+| swift-certificates | 1.18.0 | Apache 2.0 | github.com/apple/swift-certificates |
 | swift-collections | 1.4.0 | Apache 2.0 | github.com/apple/swift-collections |
+| swift-configuration | 1.2.0 | Apache 2.0 | github.com/apple/swift-configuration |
 | swift-crypto | 4.2.0 | Apache 2.0 | github.com/apple/swift-crypto |
-| swift-asn1 | 1.5.1 | Apache 2.0 | github.com/apple/swift-asn1 |
+| swift-distributed-tracing | 1.4.1 | Apache 2.0 | github.com/apple/swift-distributed-tracing |
+| swift-http-structured-headers | 1.6.0 | Apache 2.0 | github.com/apple/swift-http-structured-headers |
+| swift-http-types | 1.5.1 | Apache 2.0 | github.com/apple/swift-http-types |
+| swift-jinja | 2.3.2 | Apache 2.0 | github.com/huggingface/swift-jinja |
+| swift-log | 1.10.1 | Apache 2.0 | github.com/apple/swift-log |
+| swift-nio | 2.95.0 | Apache 2.0 | github.com/apple/swift-nio |
+| swift-nio-extras | 1.32.1 | Apache 2.0 | github.com/apple/swift-nio-extras |
+| swift-nio-http2 | 1.40.0 | Apache 2.0 | github.com/apple/swift-nio-http2 |
+| swift-nio-ssl | 2.36.0 | Apache 2.0 | github.com/apple/swift-nio-ssl |
+| swift-nio-transport-services | 1.26.0 | Apache 2.0 | github.com/apple/swift-nio-transport-services |
 | swift-numerics | 1.1.1 | Apache 2.0 | github.com/apple/swift-numerics |
+| swift-service-context | 1.3.0 | Apache 2.0 | github.com/apple/swift-service-context |
+| swift-service-lifecycle | 2.10.1 | Apache 2.0 | github.com/swift-server/swift-service-lifecycle |
+| swift-system | 1.6.4 | Apache 2.0 | github.com/apple/swift-system |
+| swift-transformers | 1.1.9 | Apache 2.0 | github.com/huggingface/swift-transformers |
+| swift-xet | 0.2.3 | MIT | github.com/mattt/swift-xet |
+| swift-asn1 | 1.5.1 | Apache 2.0 | github.com/apple/swift-asn1 |
+| EventSource | 1.4.1 | MIT | github.com/mattt/EventSource |
 | yyjson | 0.12.0 | MIT | github.com/ibireme/yyjson |
 
 ---
@@ -116,3 +153,53 @@ A simple in-app "Acknowledgments" window listing all libraries and their license
 ---
 
 *Last updated: March 2026*
+
+---
+
+## Full License Texts
+
+The following license texts apply to the open-source components listed above. Including these texts satisfies the attribution requirements of the MIT and Apache 2.0 licenses.
+
+### MIT License
+
+```
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Apache License, Version 2.0
+
+```
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+### Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+The NVIDIA Parakeet TDT 0.6B v3 model is licensed under CC BY 4.0.
+Attribution: "Parakeet TDT 0.6B v3 by NVIDIA, licensed under CC BY 4.0"
+Full license: https://creativecommons.org/licenses/by/4.0/legalcode

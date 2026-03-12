@@ -69,16 +69,52 @@ struct AcknowledgmentsView: View {
                     usedFor: "Global hotkey registration (voice edit, dictation, grammar fix)"
                 )
 
+                LibraryCard(
+                    name: "mlx-audio-swift — v0.1.1",
+                    source: "github.com/Blaizzy/mlx-audio-swift",
+                    license: "MIT",
+                    usedFor: "Audio speech-to-text (MLXAudio, MLXAudioSTT) for on-device transcription"
+                )
+
+                LibraryCard(
+                    name: "swift-huggingface — v0.8.1",
+                    source: "github.com/huggingface/swift-huggingface",
+                    license: "Apache 2.0",
+                    usedFor: "HuggingFace Hub client for model downloads"
+                )
+
+                LibraryCard(
+                    name: "Sparkle — v2.9.0",
+                    source: "github.com/sparkle-project/Sparkle",
+                    license: "MIT — Copyright © 2006-2013 Andy Matuschak, 2015-2024 Sparkle Project",
+                    usedFor: "Auto-update framework"
+                )
+
                 // Transitive Dependencies
                 AckSectionHeader("Transitive Dependencies")
 
+                Text("All Apache 2.0 unless noted.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 TransitiveDepsGrid(deps: [
-                    ("swift-transformers", "1.1.9", "Apache 2.0"),
-                    ("swift-jinja", "2.3.2", "Apache 2.0"),
+                    ("async-http-client", "1.32.0", "Apache 2.0"),
+                    ("swift-algorithms", "1.2.1", "Apache 2.0"),
+                    ("swift-async-algorithms", "1.1.3", "Apache 2.0"),
+                    ("swift-atomics", "1.3.0", "Apache 2.0"),
+                    ("swift-certificates", "1.18.0", "Apache 2.0"),
                     ("swift-collections", "1.4.0", "Apache 2.0"),
                     ("swift-crypto", "4.2.0", "Apache 2.0"),
-                    ("swift-asn1", "1.5.1", "Apache 2.0"),
+                    ("swift-http-types", "1.5.1", "Apache 2.0"),
+                    ("swift-jinja", "2.3.2", "Apache 2.0"),
+                    ("swift-log", "1.10.1", "Apache 2.0"),
+                    ("swift-nio", "2.95.0", "Apache 2.0"),
+                    ("swift-nio-ssl", "2.36.0", "Apache 2.0"),
                     ("swift-numerics", "1.1.1", "Apache 2.0"),
+                    ("swift-system", "1.6.4", "Apache 2.0"),
+                    ("swift-transformers", "1.1.9", "Apache 2.0"),
+                    ("EventSource", "1.4.1", "MIT"),
+                    ("swift-xet", "0.2.3", "MIT"),
                     ("yyjson", "0.12.0", "MIT"),
                 ])
 
@@ -112,6 +148,59 @@ struct AcknowledgmentsView: View {
                     license: "LFM Open License v1.0 (Apache 2.0 base + revenue cap)",
                     by: "Liquid AI",
                     note: "Free for companies with < $10M annual revenue. Above that threshold, a paid license from Liquid AI is required."
+                )
+
+                // License Texts
+                AckSectionHeader("License Texts")
+
+                Text("The following license texts apply to the open-source components listed above.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                LicenseTextBlock(
+                    title: "MIT License",
+                    text: """
+                    Permission is hereby granted, free of charge, to any person obtaining a copy \
+                    of this software and associated documentation files (the "Software"), to deal \
+                    in the Software without restriction, including without limitation the rights \
+                    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell \
+                    copies of the Software, and to permit persons to whom the Software is \
+                    furnished to do so, subject to the following conditions:
+
+                    The above copyright notice and this permission notice shall be included in all \
+                    copies or substantial portions of the Software.
+
+                    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR \
+                    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, \
+                    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE \
+                    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER \
+                    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, \
+                    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE \
+                    SOFTWARE.
+                    """
+                )
+
+                LicenseTextBlock(
+                    title: "Apache License, Version 2.0",
+                    text: """
+                    Licensed under the Apache License, Version 2.0 (the "License"); you may not \
+                    use this file except in compliance with the License. You may obtain a copy of \
+                    the License at http://www.apache.org/licenses/LICENSE-2.0
+
+                    Unless required by applicable law or agreed to in writing, software distributed \
+                    under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR \
+                    CONDITIONS OF ANY KIND, either express or implied. See the License for the \
+                    specific language governing permissions and limitations under the License.
+                    """
+                )
+
+                LicenseTextBlock(
+                    title: "Creative Commons Attribution 4.0 (CC BY 4.0)",
+                    text: """
+                    The NVIDIA Parakeet TDT 0.6B v3 model is licensed under CC BY 4.0. \
+                    Attribution: "Parakeet TDT 0.6B v3 by NVIDIA, licensed under CC BY 4.0." \
+                    Full license: https://creativecommons.org/licenses/by/4.0/legalcode
+                    """
                 )
 
                 Divider()
@@ -221,6 +310,26 @@ private struct TransitiveDepsGrid: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.1)))
+    }
+}
+
+private struct LicenseTextBlock: View {
+    let title: String
+    let text: String
+
+    var body: some View {
+        GroupBox {
+            Text(text)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .padding(.top, 2)
+        } label: {
+            Text(title)
+                .font(.subheadline)
+                .bold()
+        }
     }
 }
 

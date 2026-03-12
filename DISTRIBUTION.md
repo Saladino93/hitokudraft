@@ -20,7 +20,7 @@ Developer ID distribution avoids the sandbox entirely and preserves:
 ```
 Gumroad checkout → download DMG → drag-to-Applications install
                     ↕
-              Sparkle checks hitoku.me/appcast.xml
+              Sparkle checks hitoku.me/apps/hitokudraft/appcast.xml
               for updates on launch
 ```
 
@@ -64,7 +64,9 @@ targets:
 
 ```xml
 <key>SUFeedURL</key>
-<string>https://hitoku.me/appcast.xml</string>
+<string>https://hitoku.me/apps/hitokudraft/appcast.xml</string>
+<key>SUPublicEDKey</key>
+<string>EqgkdjSE/dGbY5loypfWqESABQXl558qO4jx7SBWIQc=</string>
 <key>SUEnableAutomaticChecks</key>
 <true/>
 ```
@@ -87,50 +89,22 @@ struct VoiceEditorApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarMenu(coordinator: coordinator, updater: updaterController.updater)
+            MenuBarMenu(coordinator: coordinator)
         } label: {
             coordinator.menuBarIcon
         }
         .menuBarExtraStyle(.menu)
 
         Settings {
-            SettingsView(coordinator: coordinator)
+            SettingsView(coordinator: coordinator, updater: updaterController.updater)
         }
     }
 }
 ```
 
-### d) Menu bar — `MenuBarView.swift`
+### d) Update checking — Settings only
 
-Add "Check for Updates…" above the Quit item:
-
-```swift
-import Sparkle
-
-struct MenuBarMenu: View {
-    @ObservedObject var coordinator: ConversationCoordinator
-    let updater: SPUUpdater
-    @Environment(\.openSettings) private var openSettings
-
-    var body: some View {
-        // ... existing items ...
-
-        Divider()
-
-        Button("Check for Updates\u{2026}") {
-            updater.checkForUpdates()
-        }
-        .disabled(!updater.canCheckForUpdates)
-
-        Divider()
-
-        Button("Quit Hitoku Draft") {
-            NSApplication.shared.terminate(nil)
-        }
-        .keyboardShortcut("q")
-    }
-}
-```
+"Check for Updates…" lives in the **Updates tab of SettingsView**, not in the menu bar menu. This keeps the menu bar dropdown minimal (status + preferences + quit). The `SPUUpdater` instance is passed from `VoiceEditorApp` → `SettingsView`, which renders the update button and auto-check toggle.
 
 ### e) Appcast generation (per-release)
 
@@ -145,13 +119,49 @@ generate_appcast \
   ./dist/
 ```
 
-Host the generated `appcast.xml` at `https://hitoku.me/appcast.xml`. Each release: upload the new DMG to GitHub Releases, regenerate the appcast, re-upload it.
+Host the generated `appcast.xml` at `https://hitoku.me/apps/hitokudraft/appcast.xml`. Each release: upload the new DMG, regenerate the appcast, re-upload it.
 
 ---
 
-## 4. Notarization workflow
+## 4. Build pipeline — Xcode archive (the proper way)
 
-### ExportOptions.plist (create at repo root)
+### Build scripts
+
+| Script | Purpose | When to use |
+|---|---|---|
+| `release.sh` | **Full release pipeline** — archive, sign, notarize, DMG, upload, tag | Shipping a release |
+| `bundle.sh` | Quick SPM build → `.app` (ad-hoc signed) | Dev iteration / local testing |
+| `build.sh` | Minimal SPM build → `.app` (ad-hoc signed) | Fastest dev builds |
+
+**For distribution, always use `release.sh`** (or Xcode → Product → Archive). The SPM scripts (`bundle.sh`, `build.sh`) are for development only — they skip Info.plist preprocessing, dead code stripping, dSYM generation, proper signing, and notarization.
+
+### Why Xcode archive, not `swift build`
+
+`swift build` doesn't:
+- Preprocess Info.plist (leaves `$(MARKETING_VERSION)` as literal text → macOS rejects the bundle)
+- Strip debug symbols or dead code (binary ~2× larger)
+- Generate dSYMs (no crash symbolication)
+- Compile asset catalogs into `.car` files
+- Copy Sparkle sub-bundles (Updater.app, Downloader.xpc)
+- Sign with Developer ID or notarize
+
+### Release build settings (`project.yml`)
+
+```yaml
+configs:
+  Release:
+    SWIFT_OPTIMIZATION_LEVEL: "-Osize"     # smaller code vs -O (speed)
+    GCC_OPTIMIZATION_LEVEL: s              # -Os for C/C++ (BoringSSL, etc.)
+    DEAD_CODE_STRIPPING: "YES"             # ld -dead_strip — removes unreachable code
+    COPY_PHASE_STRIP: "YES"                # strip binary during copy
+    DEPLOYMENT_POSTPROCESSING: "YES"        # enable post-processing (stripping)
+    STRIP_INSTALLED_PRODUCT: "YES"          # strip the installed binary
+    STRIP_STYLE: all                        # strip all symbols (not just debug)
+```
+
+These settings reduce the binary from ~69MB (unstripped SPM) to ~30MB (Xcode archive).
+
+### ExportOptions.plist
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -168,41 +178,47 @@ Host the generated `appcast.xml` at `https://hitoku.me/appcast.xml`. Each releas
 </plist>
 ```
 
-### Archive → Export → Notarize → Staple
+### Manual archive (if not using `release.sh`)
 
 ```bash
-# 1. Archive (or use Xcode → Product → Archive)
-xcodebuild archive \
-  -scheme HitokuDraft \
-  -archivePath HitokuDraft.xcarchive
+# 1. Regenerate Xcode project (if project.yml changed)
+xcodegen generate
 
-# 2. Export with Developer ID
+# 2. Archive
+xcodebuild archive \
+  -project HitokuDraft.xcodeproj \
+  -scheme HitokuDraft \
+  -configuration Release \
+  -archivePath build/HitokuDraft.xcarchive
+
+# 3. Export with Developer ID signing
 xcodebuild -exportArchive \
-  -archivePath HitokuDraft.xcarchive \
-  -exportPath ./dist \
+  -archivePath build/HitokuDraft.xcarchive \
+  -exportPath build/export \
   -exportOptionsPlist ExportOptions.plist
 
-# 3. Zip for notarization (notarytool requires a zip or dmg)
-ditto -c -k --sequesterRsrc --keepParent \
-  "dist/Hitoku Draft.app" \
-  dist/HitokuDraft.zip
-
-# 4. Notarize (store credentials once with --store-credentials AC_PASSWORD)
-xcrun notarytool submit dist/HitokuDraft.zip \
-  --keychain-profile "AC_PASSWORD" \
+# 4. Notarize (signing alone is not enough — Gatekeeper requires notarization)
+ditto -c -k --keepParent "build/export/Hitoku Draft.app" build/export/HitokuDraft.zip
+xcrun notarytool submit build/export/HitokuDraft.zip \
+  --keychain-profile "HitokuDraft" \
   --wait
 
-# 5. Staple the ticket to the .app
-xcrun stapler staple "dist/Hitoku Draft.app"
+# 5. Staple the notarization ticket (allows offline Gatekeeper verification)
+xcrun stapler staple "build/export/Hitoku Draft.app"
 
-# 6. Validate
-xcrun stapler validate "dist/Hitoku Draft.app"
+# 6. Verify
+codesign --verify --deep --strict "build/export/Hitoku Draft.app"
+spctl --assess --type exec "build/export/Hitoku Draft.app"
 ```
 
-Store your Apple ID notarization credentials once:
+The archive also produces dSYMs at `build/HitokuDraft.xcarchive/dSYMs/` — keep these for crash symbolication.
+
+**Important**: `xcodebuild -exportArchive` only signs the app — it does **not** notarize it. Notarization is a separate submission to Apple's servers via `notarytool`. Without it, Gatekeeper shows "Apple could not verify this app is free of malware". The `release.sh` script handles all three steps (sign → notarize → staple) automatically.
+
+### One-time: store notarization credentials
 
 ```bash
-xcrun notarytool store-credentials "AC_PASSWORD" \
+xcrun notarytool store-credentials "HitokuDraft" \
   --apple-id you@example.com \
   --team-id R4S8W6UC7K \
   --password <app-specific-password>
@@ -253,13 +269,13 @@ The resulting DMG is what you upload to Gumroad and GitHub Releases.
 
 ### One-time setup
 
-- [ ] Add Sparkle to `project.yml` (packages + dependency)
-- [ ] Add `SUFeedURL` and `SUEnableAutomaticChecks` to `VoiceEditor/Info.plist`
-- [ ] Wire `SPUStandardUpdaterController` in `VoiceEditorApp.swift`
-- [ ] Add "Check for Updates…" item to `MenuBarView.swift`
+- [x] Add Sparkle to `Package.swift` (packages + dependency)
+- [x] Add `SUFeedURL`, `SUPublicEDKey`, and `SUEnableAutomaticChecks` to `VoiceEditor/Info.plist`
+- [x] Wire `SPUStandardUpdaterController` in `VoiceEditorApp.swift`
+- [x] Add "Check for Updates…" in SettingsView (Updates tab — intentionally not in menu bar)
+- [x] Create `ExportOptions.plist` at repo root (Developer ID config)
 - [ ] Bump `MARKETING_VERSION` to `1.0.0` in `project.yml` (currently `0.1.0`)
-- [ ] Create `ExportOptions.plist` at repo root (Developer ID config)
-- [ ] Set up `hitoku.me/appcast.xml` endpoint (GitHub Pages or server)
+- [ ] Set up `hitoku.me/apps/hitokudraft/appcast.xml` endpoint (Cloudflare Pages)
 - [ ] Install `create-dmg`: `brew install create-dmg`
 - [ ] Locate Sparkle's `generate_appcast` binary (built with SPM)
 - [ ] Store notarization credentials: `xcrun notarytool store-credentials`
@@ -272,19 +288,21 @@ The resulting DMG is what you upload to Gumroad and GitHub Releases.
   - LFM2.5: verify license terms
   - FluidAudio bundled models: verify license terms
 
-### Per-release
+### Per-release (automated by `release.sh`)
+
+All steps below are handled by `./release.sh [VERSION]`:
 
 - [ ] Bump `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` in `project.yml`
-- [ ] Archive → Export (Developer ID) using `ExportOptions.plist`
-- [ ] Notarize with `xcrun notarytool submit --wait`
-- [ ] Staple with `xcrun stapler staple`
-- [ ] Validate with `xcrun stapler validate`
+- [ ] `xcodegen generate` (regenerate Xcode project)
+- [ ] `xcodebuild archive` → `xcodebuild -exportArchive` (Developer ID signing)
+- [ ] `xcrun notarytool submit --wait` (Apple notarization)
+- [ ] `xcrun stapler staple` (embed notarization ticket)
 - [ ] Package DMG with `create-dmg`
 - [ ] Run `generate_appcast` on the new DMG
-- [ ] Upload DMG to GitHub Releases
-- [ ] Update and upload `appcast.xml` to `hitoku.me/appcast.xml`
-- [ ] Update Gumroad product file with new DMG
-- [ ] Tag the git release: `git tag v1.0.0 && git push origin v1.0.0`
+- [ ] Upload DMG to Cloudflare R2 (`downloads.hitoku.me`)
+- [ ] Push `appcast.xml` to hitokume repo → Cloudflare Pages
+- [ ] Tag the git release: `git tag vX.Y.Z && git push origin vX.Y.Z`
+- [ ] **Manual**: Update Gumroad product file with new DMG
 
 ---
 
@@ -299,3 +317,92 @@ The resulting DMG is what you upload to Gumroad and GitHub Releases.
 | Gatekeeper passes | `spctl --assess --type exec "dist/Hitoku Draft.app"` → `accepted` |
 | DMG mounts cleanly | Double-click DMG on a clean machine |
 | Sparkle update prompt | Serve a higher-version appcast, click "Check for Updates…" |
+
+---
+
+## 9. Local testing on a single Mac
+
+### A) Test the Sparkle update flow
+
+1. Build v1.0 and install to `/Applications`
+2. Build v1.1 with a bumped version
+3. Create a DMG of v1.1 and run `generate_appcast` on it
+4. Spin up a local server with the test appcast:
+   ```bash
+   cd dist/
+   python3 -m http.server 8080
+   ```
+5. Temporarily override the feed URL:
+   ```bash
+   defaults write com.hitokudraft.app SUFeedURL "http://localhost:8080/appcast.xml"
+   ```
+6. Launch the v1.0 app — Sparkle should show the v1.1 update prompt
+7. After testing, remove the override:
+   ```bash
+   defaults delete com.hitokudraft.app SUFeedURL
+   ```
+
+### B) Test Gatekeeper (the customer experience)
+
+Gatekeeper trusts apps you built locally. To simulate a first-launch on a "clean" machine:
+
+**Option 1: Separate macOS user account (no extra Mac needed)**
+- System Settings → Users & Groups → Add User
+- Log in as that user, download the DMG from a browser (gets quarantine xattr)
+- Open the app — should show "Apple checked it for malicious software"
+
+**Option 2: Manual quarantine simulation**
+```bash
+cp -R "build/VoiceEditor.app" /tmp/
+xattr -w com.apple.quarantine "0081;$(printf '%x' $(date +%s));Safari;$(uuidgen)" /tmp/VoiceEditor.app
+open /tmp/VoiceEditor.app
+```
+
+**Option 3: Another Mac or a friend** — best for true end-to-end.
+
+### C) What requires another Mac?
+
+| What you're testing | Another Mac needed? | Alternative |
+|---|---|---|
+| Build + sign + notarize | No | Your current Mac works |
+| Sparkle update flow | No | Local server with test appcast |
+| Gatekeeper first-launch | Recommended | Separate user account or xattr trick |
+| Clean-machine experience | Yes | No substitute for fresh Accessibility, no cached models, etc. |
+| Different RAM tiers | Yes | Can't simulate 8GB vs 48GB on one machine |
+
+---
+
+## 10. Release automation
+
+Use `release.sh` for the full per-release workflow:
+
+```bash
+# Interactive (prompts for version)
+./release.sh
+
+# Non-interactive
+./release.sh 1.0.0
+
+# Dry run (shows what would happen)
+./release.sh 1.0.0 --dry-run
+```
+
+The script automates: version bump → `xcodegen generate` → `xcodebuild archive` → `xcodebuild -exportArchive` (Developer ID + notarize) → DMG creation → appcast generation → R2 upload → appcast deploy → git tagging.
+
+### Hosting architecture
+
+DMGs are hosted on **Cloudflare R2** (the `hitokudraft` bucket) and served via `downloads.hitoku.me`. The appcast.xml is served from **Cloudflare Pages** via the `hitokume` git repo at `hitoku.me/apps/hitokudraft/appcast.xml`.
+
+```
+Sparkle update flow:
+  App → hitoku.me/apps/hitokudraft/appcast.xml       (Cloudflare Pages)
+      → downloads.hitoku.me/hitokudraft/HitokuDraft-*.dmg  (R2)
+
+release.sh:
+  xcodegen → xcodebuild archive → exportArchive (sign + notarize) → DMG → appcast
+    ├── wrangler r2 object put → DMG to R2 bucket
+    ├── git push appcast.xml → hitokume repo → Cloudflare Pages
+    └── git tag → hitokudraft repo
+```
+
+R2 was chosen over git-based DMG hosting because Cloudflare Pages has a 25 MB per-file limit.

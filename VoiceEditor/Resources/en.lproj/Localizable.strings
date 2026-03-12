@@ -1,0 +1,130 @@
+/* Settings — Tabs */
+"tab.general" = "General";
+"tab.model" = "Model";
+"tab.updates" = "Updates";
+
+/* Settings — Permissions */
+"permission.accessibility" = "Accessibility:";
+"permission.microphone" = "Microphone:";
+"permission.granted" = "Granted";
+"permission.request_access" = "Request Access";
+"permission.hint" = "After clicking Grant, open System Settings › Privacy & Security.";
+
+/* Settings — Models */
+"models.label" = "Models:";
+"models.all_loaded" = "All models loaded";
+"models.llm_ready_stt_failed" = "LLM ready — STT failed";
+"models.download_setup" = "Download & Set Up";
+"models.warming_up" = "Warming up…";
+"models.retry" = "Retry";
+
+/* Settings — Shortcuts */
+"shortcut.voice_edit" = "Voice Edit:";
+"shortcut.grammar_fix" = "Grammar Fix:";
+"shortcut.dictation" = "Dictation:";
+
+/* Settings — Recording */
+"recording.max_capture" = "Max capture:";
+"recording.max_capture_unit" = "%d s";
+"recording.max_capture_desc" = "Maximum duration limit for a single recording.";
+"recording.silence_timeout" = "Silence timeout:";
+"recording.silence_timeout_unit" = "%.1f s";
+"recording.silence_timeout_desc" = "Controls how long a pause triggers stop. Increase if you get cut off.";
+
+/* Settings — Sounds */
+"sound.activation" = "Activation sound:";
+"sound.completion" = "Completion sound:";
+"sound.none" = "None";
+
+/* Settings — Model Tab */
+"model.active_llm" = "Active LLM:";
+"model.active_stt" = "Active STT:";
+"model.add" = "Add";
+"model.remove" = "Remove";
+"model.custom_source" = "Custom Source:";
+"model.model_path" = "Model Path:";
+"model.browse" = "Browse…";
+"model.local_hint" = "Select a local MLX model directory.";
+"model.hf_hint" = "Enter a HuggingFace repo (mlx-community/model-name).";
+"model.system_status" = "System Status:";
+"model.cache_directory" = "Cache Directory:";
+"model.show_in_finder" = "Show in Finder";
+"model.ai_warning" = "AI models can make mistakes. Review outputs before use.";
+"model.status_ready" = "Ready";
+"model.status_not_loaded" = "Not loaded";
+"model.status_loading" = "Loading…";
+"model.compatible" = "Compatible";
+"model.needs_conversion" = "May need conversion";
+"model.dir_not_found" = "Directory not found";
+"model.hf_format_hint" = "Use format: mlx-community/model-name";
+
+/* Settings — Updates Tab */
+"updates.auto_check" = "Automatically check for updates";
+"updates.keep_updated" = "Keep up to date:";
+"updates.software_update" = "Software Update:";
+"updates.check_now" = "Check for Updates…";
+"updates.not_available" = "Updates not available in this build.";
+
+/* Settings — Language */
+"language.label" = "Language:";
+
+/* Menu Bar */
+"menu.preferences" = "Preferences...";
+"menu.about" = "About Hitoku Draft";
+"menu.acknowledgments" = "Acknowledgments…";
+"menu.quit" = "Quit Hitoku Draft";
+"status.ready" = "Status: Ready";
+"status.not_setup" = "Status: Not Set Up";
+"status.downloading" = "Downloading...";
+"status.warming_up" = "Warming up...";
+"status.listening" = "Listening...";
+"status.transcribing" = "Transcribing...";
+"status.generating" = "Generating...";
+"status.pasting" = "Pasting...";
+"status.dictating" = "Dictating...";
+"status.dictating_prefix" = "Dictating: ...";
+"status.error_prefix" = "Error: ";
+
+/* Overlay / Pipeline */
+"overlay.listening" = "Listening...";
+"overlay.transcribing" = "Transcribing...";
+"overlay.generating" = "Generating...";
+"overlay.pasting" = "Pasting...";
+"overlay.dictating" = "Dictating...";
+"overlay.finalizing" = "Finalizing...";
+"overlay.fixing_grammar" = "Fixing grammar...";
+
+/* Download Progress */
+"download.loading" = "Loading...";
+"download.downloading" = "Downloading...";
+"download.loading_stt" = "Loading STT model...";
+
+/* Errors */
+"error.mic_not_granted" = "Microphone access not granted. Open Preferences → General to grant it.";
+"error.no_audio_input" = "No audio input available. Check your microphone.";
+"error.engine_failed" = "Audio engine failed to start: %@";
+"error.empty_recording" = "Recording produced no audio. Check your microphone.";
+"error.too_quiet" = "Recording was too quiet — no speech detected.";
+"error.low_confidence" = "Could not understand speech clearly. Please try again.";
+"error.mlx_empty" = "MLX STT produced no text. Please try again.";
+
+/* Model descriptions — LLM */
+"Fast, lightweight — best for quick edits" = "Fast, lightweight — best for quick edits";
+"Better quality, still very efficient" = "Better quality, still very efficient";
+"Compact and instruction-tuned for reliable edits" = "Compact and instruction-tuned for reliable edits";
+"Balanced quality, speed, and multilingual writing" = "Balanced quality, speed, and multilingual writing";
+"Higher-fidelity instruction-tuned editing" = "Higher-fidelity instruction-tuned editing";
+"Strongest editing and drafting quality" = "Strongest editing and drafting quality";
+
+/* Model descriptions — STT */
+"Fast CoreML speech recognition (25 languages)" = "Fast CoreML speech recognition (25 languages)";
+"Neural end-of-utterance streaming (160ms latency)" = "Neural end-of-utterance streaming (160ms latency)";
+"Neural end-of-utterance streaming (320ms latency)" = "Neural end-of-utterance streaming (320ms latency)";
+"Lightweight streaming ASR" = "Lightweight streaming ASR";
+"High-quality streaming ASR" = "High-quality streaming ASR";
+
+/* Model UI labels */
+"model.streaming" = "streaming";
+"English only" = "English only";
+"Local Folder" = "Local Folder";
+"Hugging Face" = "Hugging Face";

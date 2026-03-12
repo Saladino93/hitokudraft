@@ -99,12 +99,38 @@ enum ModelRegistry {
 
     private static let bundledDefaults: [ModelOption] = [
         ModelOption(
+            name: "LFM2.5 1.2B 4-bit",
+            path: "mlx-community/LFM2.5-1.2B-Instruct-4bit",
+            useVoiceCleanPrompt: true,
+            description: "Fast, lightweight — best for quick edits",
+            estimatedMemoryGB: 0.66
+        ),
+        ModelOption(
+            name: "LFM2.5 1.2B 8-bit",
+            path: "mlx-community/LFM2.5-1.2B-Instruct-8bit",
+            useVoiceCleanPrompt: true,
+            description: "Better quality, still very efficient",
+            estimatedMemoryGB: 1.24
+        ),
+        ModelOption(
+            name: "Granite 4 Micro 4-bit",
+            path: "mlx-community/granite-4.0-h-micro-4bit",
+            description: "Compact and instruction-tuned for reliable edits",
+            estimatedMemoryGB: 1.8
+        ),
+        ModelOption(
             name: "Qwen3 4B 4-bit",
             path: "mlx-community/Qwen3-4B-4bit",
             extraEOSTokens: ["<|im_end|>"],
             disableThinking: true,
             description: "Balanced quality, speed, and multilingual writing",
-            estimatedMemoryGB: 2.5
+            estimatedMemoryGB: 2.26
+        ),
+        ModelOption(
+            name: "Granite 4 Micro 8-bit",
+            path: "mlx-community/granite-4.0-h-micro-8bit",
+            description: "Higher-fidelity instruction-tuned editing",
+            estimatedMemoryGB: 3.4
         ),
         ModelOption(
             name: "Qwen3 8B 4-bit",
@@ -112,33 +138,7 @@ enum ModelRegistry {
             extraEOSTokens: ["<|im_end|>"],
             disableThinking: true,
             description: "Strongest editing and drafting quality",
-            estimatedMemoryGB: 5.0
-        ),
-        ModelOption(
-            name: "Granite 4 1B 4-bit",
-            path: "mlx-community/granite-4.0-h-1b-base-4bit",
-            description: "Lightweight and reliable for basic rewrites",
-            estimatedMemoryGB: 0.8
-        ),
-        ModelOption(
-            name: "Granite 4 1B 8-bit",
-            path: "mlx-community/granite-4.0-h-1b-base-8bit",
-            description: "Better lightweight rewrites and short drafts",
-            estimatedMemoryGB: 1.4
-        ),
-        ModelOption(
-            name: "LFM2.5 1.2B 4-bit",
-            path: "mlx-community/LFM2.5-1.2B-Instruct-4bit",
-            useVoiceCleanPrompt: true,
-            description: "Fast, lightweight — best for quick edits",
-            estimatedMemoryGB: 1.0
-        ),
-        ModelOption(
-            name: "LFM2.5 1.2B 8-bit",
-            path: "mlx-community/LFM2.5-1.2B-Instruct-8bit",
-            useVoiceCleanPrompt: true,
-            description: "Better quality, still very efficient",
-            estimatedMemoryGB: 1.6
+            estimatedMemoryGB: 4.61
         ),
     ]
 
@@ -153,5 +153,40 @@ enum ModelRegistry {
         default:     preferred = "LFM2.5"
         }
         return availableModels.first { $0.path.contains(preferred) } ?? availableModels[0]
+    }
+
+    // MARK: - Custom Model Management
+
+    /// Returns true if the model is one of the bundled defaults (non-removable).
+    static func isBundled(_ model: ModelOption) -> Bool {
+        bundledDefaults.contains { $0.path == model.path }
+    }
+
+    /// Adds a custom model to the registry. Returns false if a model with the same path already exists.
+    @discardableResult
+    static func addModel(_ model: ModelOption) -> Bool {
+        guard !availableModels.contains(where: { $0.path == model.path }) else { return false }
+        availableModels.append(model)
+        save()
+        return true
+    }
+
+    /// Removes a user-added model from the registry. Returns false if the model is bundled.
+    @discardableResult
+    static func removeModel(_ model: ModelOption) -> Bool {
+        guard !isBundled(model) else { return false }
+        availableModels.removeAll { $0.path == model.path }
+        save()
+        return true
+    }
+
+    private static func save() {
+        do {
+            try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(availableModels)
+            try data.write(to: configFile, options: .atomic)
+        } catch {
+            print("Warning: Failed to save models to \(configFile.path): \(error)")
+        }
     }
 }
