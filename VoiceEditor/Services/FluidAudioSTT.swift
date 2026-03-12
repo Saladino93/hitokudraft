@@ -10,7 +10,7 @@ final class FluidAudioSTT: STTService, @unchecked Sendable {
     /// Below this confidence, the transcription is likely a hallucination.
     /// Kept low (0.1) to support multilingual input — Parakeet v3 may report
     /// lower confidence for non-English European languages.
-    private static let minConfidence: Float = 0.1
+    private static let minConfidence: Float = 0.2
 
     init(models: AsrModels) async throws {
         self.manager = AsrManager(config: .default)

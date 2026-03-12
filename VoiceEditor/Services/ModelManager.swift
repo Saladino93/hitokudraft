@@ -16,6 +16,9 @@ final class ModelManager: ObservableObject {
     private(set) var modelContainer: ModelContainer?
     private(set) var asrModels: AsrModels?
 
+    /// Path of the last successfully-loaded LLM — prevents redundant reloads.
+    private(set) var loadedModelPath: String?
+
     init(model: ModelOption? = nil) {
         if let model {
             self.selectedModel = model
@@ -27,17 +30,22 @@ final class ModelManager: ObservableObject {
         }
     }
 
-    /// Reload only the LLM with the currently selected model.
-    /// Called when the user changes the model picker.
-    func reloadLLM() async throws {
+    /// Load a specific model (downloads if needed, then initializes).
+    /// If the model is already loaded (matching `loadedModelPath`), returns immediately.
+    func loadModel(_ model: ModelOption) async throws {
+        if loadedModelPath == model.path, modelContainer != nil {
+            return
+        }
+
         Memory.cacheLimit = 20 * 1024 * 1024
 
         llmReady = false
         modelContainer = nil
-        statusMessage = "Loading \(selectedModel.name)..."
+        loadedModelPath = nil
+        statusMessage = "Loading \(model.name)..."
 
         let container = try await LLMModelFactory.shared.loadContainer(
-            configuration: selectedModel.configuration
+            configuration: model.configuration
         ) { [weak self] progress in
             Task { @MainActor in
                 self?.llmProgress = progress.fractionCompleted
@@ -52,7 +60,14 @@ final class ModelManager: ObservableObject {
         }
         self.modelContainer = container
         self.llmReady = true
+        self.loadedModelPath = model.path
         statusMessage = ""
+    }
+
+    /// Reload only the LLM with the currently selected model.
+    /// Called when the user changes the model picker.
+    func reloadLLM() async throws {
+        try await loadModel(selectedModel)
     }
 
     func loadAll() async throws {
@@ -77,6 +92,7 @@ final class ModelManager: ObservableObject {
         }
         self.modelContainer = container
         self.llmReady = true
+        self.loadedModelPath = selectedModel.path
 
         // Load STT models — branch on selected backend
         switch selectedSTTModel.backend {

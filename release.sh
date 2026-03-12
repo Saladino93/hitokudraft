@@ -195,7 +195,7 @@ fi
 # Confirm
 echo ""
 read -rp "Proceed with release v$VERSION? [y/N] " CONFIRM
-if [[ "${CONFIRM,,}" != "y" ]]; then
+if [[ "$CONFIRM" != [yY] ]]; then
     echo "Aborted."
     exit 1
 fi

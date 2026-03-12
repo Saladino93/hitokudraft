@@ -88,8 +88,25 @@ enum ModelRegistry {
         if FileManager.default.fileExists(atPath: configFile.path) {
             do {
                 let data = try Data(contentsOf: configFile)
-                let models = try JSONDecoder().decode([ModelOption].self, from: data)
-                if !models.isEmpty { return models }
+                var models = try JSONDecoder().decode([ModelOption].self, from: data)
+                if !models.isEmpty {
+                    // Merge any new bundled models that were added in app updates
+                    let persistedPaths = Set(models.map(\.path))
+                    for bundled in bundledDefaults where !persistedPaths.contains(bundled.path) {
+                        if bundled.estimatedMemoryGB > 0,
+                           let idx = models.lastIndex(where: { $0.estimatedMemoryGB > 0 && $0.estimatedMemoryGB <= bundled.estimatedMemoryGB }) {
+                            models.insert(bundled, at: idx + 1)
+                        } else {
+                            models.append(bundled)
+                        }
+                    }
+                    // Backfill unknown sizes from disk
+                    for i in models.indices where models[i].estimatedMemoryGB == 0 {
+                        let measured = measureModelOnDisk(models[i])
+                        if measured > 0 { models[i].estimatedMemoryGB = measured }
+                    }
+                    return models
+                }
             } catch {
                 print("Warning: Failed to parse \(configFile.path): \(error). Using defaults.")
             }
@@ -133,6 +150,12 @@ enum ModelRegistry {
             estimatedMemoryGB: 3.4
         ),
         ModelOption(
+            name: "Meta-Llama-3.1 8B 4-bit",
+            path: "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit",
+            description: "Strong multilingual — Italian, French, German, English",
+            estimatedMemoryGB: 4.5
+        ),
+        ModelOption(
             name: "Qwen3 8B 4-bit",
             path: "mlx-community/Qwen3-8B-4bit",
             extraEOSTokens: ["<|im_end|>"],
@@ -142,17 +165,55 @@ enum ModelRegistry {
         ),
     ]
 
-    /// Selects the best default model for the current device's physical RAM.
-    /// Tiers: ≥48 GB → Qwen3 8B | ≥16 GB → Qwen3 4B | <16 GB → LFM2.5 1.2B 4-bit
+    /// Selects the best default model for the current device's RAM and language.
+    /// ≥48 GB → Qwen3 8B | ≥16 GB → Meta-Llama-3.1-8B | <16 GB → language-dependent
     static var smartDefault: ModelOption {
         let ramGB = ProcessInfo.processInfo.physicalMemory / 1_073_741_824  // UInt64
+
+        // Detect whether the user is primarily English-speaking.
+        // Check both the app setting and system locale — a German user whose app
+        // falls back to "en" (because German isn't localized) should still get
+        // multilingual defaults, not English-optimized ones.
+        let appLang = UserDefaults.standard.string(forKey: "appLanguage")
+        let systemLang = Locale.preferredLanguages.first.map { String($0.prefix(2)) } ?? "en"
+        let isEnglishNative = (appLang ?? systemLang) == "en" && systemLang == "en"
+
         let preferred: String
         switch ramGB {
-        case 48...:  preferred = "Qwen3-8B"
-        case 16...:  preferred = "Qwen3-4B"
-        default:     preferred = "LFM2.5"
+        case 48...:
+            preferred = "Qwen3-8B"
+        case 16...:
+            preferred = "Meta-Llama-3.1-8B"
+        default:
+            // <16 GB: English gets fast LFM2.5, non-English gets multilingual models
+            if isEnglishNative {
+                preferred = "LFM2.5"
+            } else if ramGB >= 8 {
+                preferred = "Qwen3-4B"
+            } else {
+                preferred = "granite-4.0"   // Granite 4 Micro 4-bit
+            }
         }
         return availableModels.first { $0.path.contains(preferred) } ?? availableModels[0]
+    }
+
+    /// Scans the model's cache directory for .safetensors files and returns
+    /// total size in GB, or 0 if the directory doesn't exist yet.
+    static func measureModelOnDisk(_ model: ModelOption) -> Double {
+        let fm = FileManager.default
+        let dir: URL
+        if model.isLocal {
+            dir = URL(fileURLWithPath: model.path)
+        } else {
+            guard let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return 0 }
+            dir = caches.appendingPathComponent("models").appendingPathComponent(model.path)
+        }
+        guard let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        let totalBytes = contents
+            .filter { $0.pathExtension == "safetensors" }
+            .compactMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }
+            .reduce(0, +)
+        return totalBytes > 0 ? Double(totalBytes) / 1_073_741_824 : 0
     }
 
     // MARK: - Custom Model Management
@@ -163,10 +224,17 @@ enum ModelRegistry {
     }
 
     /// Adds a custom model to the registry. Returns false if a model with the same path already exists.
+    /// Models with a known memory size are inserted in ascending memory order.
     @discardableResult
     static func addModel(_ model: ModelOption) -> Bool {
         guard !availableModels.contains(where: { $0.path == model.path }) else { return false }
-        availableModels.append(model)
+        // Insert in memory-ascending order (after the last model with smaller/equal memory)
+        if model.estimatedMemoryGB > 0,
+           let insertIndex = availableModels.lastIndex(where: { $0.estimatedMemoryGB <= model.estimatedMemoryGB }) {
+            availableModels.insert(model, at: insertIndex + 1)
+        } else {
+            availableModels.append(model)
+        }
         save()
         return true
     }
