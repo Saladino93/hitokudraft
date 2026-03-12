@@ -75,32 +75,53 @@ final class ConversationCoordinator: ObservableObject {
 
     func setup() async {
         guard state == .idle else { return }
-
         state = .downloading(progress: 0)
-        do {
-            try await modelManager.loadAll()
 
-            if let container = modelManager.modelContainer {
-                llm = makeLLMService(container: container)
+        // Phase 1: LLM — wrapped in llmLoadTask so switchModel() can cancel it
+        llmLoadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.modelManager.loadModel(self.modelManager.selectedModel)
+                try Task.checkCancellation()
+
+                if let container = self.modelManager.modelContainer {
+                    self.llm = self.makeLLMService(container: container)
+                }
+
+                self.state = .warmingUp
+                try await self.llm?.warmup()
+                try Task.checkCancellation()
+
+                self.state = .idle
+                SoundPlayer.shared.play(.glass)
+            } catch is CancellationError {
+                self.state = .idle       // switchModel() takes over for LLM
+            } catch let error as URLError where error.code == .cancelled {
+                self.state = .idle
+            } catch {
+                self.revertToLastLoadedModel()
+                self.state = .error(error.localizedDescription)
+                self.resetErrorAfterDelay()
             }
-            stt = try await makeSttService()
-            modelManager.sttReady = (stt != nil)
-
-            state = .warmingUp
-            try await llm?.warmup()
-
-            state = .idle
-            setupHotkeys()
-
-            // Audio cue: setup complete
-            SoundPlayer.shared.play(.glass)
-
-            // Process any model switches the user triggered during setup
-            await drainPendingSwitches()
-        } catch {
-            state = .error(error.localizedDescription)
-            resetErrorAfterDelay()
+            self.llmLoadTask = nil
         }
+        await llmLoadTask?.value
+
+        // Phase 2: STT — always runs (independent of LLM choice)
+        if stt == nil {
+            do {
+                try await modelManager.reloadSTT()
+                stt = try await makeSttService()
+                modelManager.sttReady = (stt != nil)
+            } catch {
+                // STT failure is non-fatal — log but don't block
+                Self.log.error("STT setup failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        setupHotkeys()
+        modelManager.statusMessage = ""
+        await drainPendingSwitches()
     }
 
     func setupHotkeys() {
@@ -109,6 +130,15 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     // MARK: - Model Switching
+
+    /// Reverts the model picker to the last successfully-loaded model.
+    /// No-op if no model has been loaded yet (e.g. first launch failure).
+    private func revertToLastLoadedModel() {
+        if let path = modelManager.loadedModelPath,
+           let model = ModelRegistry.availableModels.first(where: { $0.path == path }) {
+            modelManager.selectedModel = model
+        }
+    }
 
     func switchModel() async {
         // Cancel any in-flight LLM download/load
@@ -148,6 +178,7 @@ final class ConversationCoordinator: ObservableObject {
             } catch let error as URLError where error.code == .cancelled {
                 self.state = .idle
             } catch {
+                self.revertToLastLoadedModel()
                 self.state = .error(error.localizedDescription)
                 self.resetErrorAfterDelay()
             }
@@ -256,6 +287,7 @@ final class ConversationCoordinator: ObservableObject {
             } catch let error as URLError where error.code == .cancelled {
                 self.state = .idle
             } catch {
+                self.revertToLastLoadedModel()
                 self.state = .error(error.localizedDescription)
                 self.resetErrorAfterDelay()
             }
