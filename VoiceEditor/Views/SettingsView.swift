@@ -166,7 +166,7 @@ struct SettingsView: View {
                     ForEach(ModelRegistry.availableModels) { model in
                         Button {} label: {
                             HStack(spacing: 4) {
-                                Text(L(model.description))
+                                Text(model.description.isEmpty ? model.name : L(model.description))
                                 if !ModelRegistry.isBundled(model) {
                                     Text("custom").font(.caption2)
                                         .padding(.horizontal, 5).padding(.vertical, 1)
@@ -472,13 +472,32 @@ struct SettingsView: View {
 
     private func addCustomModel() {
         let path = customModelPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = customSourceType == .local ? URL(fileURLWithPath: path).lastPathComponent : (path.components(separatedBy: "/").last ?? path)
-        let newModel = ModelOption(name: name, path: path)
-        if ModelRegistry.addModel(newModel) {
-            modelManager.selectedModel = newModel
-        } else if let existing = ModelRegistry.availableModels.first(where: { $0.path == path }) {
+        let name = customSourceType == .local
+            ? URL(fileURLWithPath: path).lastPathComponent
+            : (path.components(separatedBy: "/").last ?? path)
+
+        // Already in registry — just select it
+        if let existing = ModelRegistry.availableModels.first(where: { $0.path == path }) {
             modelManager.selectedModel = existing
+            customModelPath = ""
+            customValidation = .unchecked
+            return
         }
+
+        let newModel = ModelOption(name: name, path: path)
+
+        if customSourceType == .local {
+            // Local models: files already on disk — add to registry immediately
+            var measured = newModel
+            let size = ModelRegistry.measureModelOnDisk(newModel)
+            if size > 0 { measured.estimatedMemoryGB = size }
+            ModelRegistry.addModel(measured)
+            modelManager.selectedModel = measured
+        } else {
+            // HuggingFace models: download first, add to registry only after success
+            Task { await coordinator.downloadAndAddCustomModel(newModel) }
+        }
+
         customModelPath = ""
         customValidation = .unchecked
     }

@@ -28,6 +28,10 @@ final class ConversationCoordinator: ObservableObject {
     /// Set by `runStreamingTranscription` for `stopDictation()` to use.
     private var lastStreamingTranscription: String?
 
+    /// Cancellable model-loading tasks so a new switch can abort an in-flight download.
+    private var llmLoadTask: Task<Void, Never>?
+    private var sttLoadTask: Task<Void, Never>?
+
     /// Pending model switches that couldn't run because state wasn't idle.
     private var pendingLLMSwitch = false
     private var pendingSTTSwitch = false
@@ -42,7 +46,7 @@ final class ConversationCoordinator: ObservableObject {
         case .error: return Image(systemName: "exclamationmark.triangle")
         case .downloading: return Image(systemName: "arrow.down.circle")
         case .warmingUp: return Image(systemName: "gear")
-        case .idle: return Image(systemName: "text.bubble")
+        case .idle: return Image("hitoku-icon-template") //Image(systemName: "text.bubble")
         }
     }
 
@@ -107,6 +111,13 @@ final class ConversationCoordinator: ObservableObject {
     // MARK: - Model Switching
 
     func switchModel() async {
+        // Cancel any in-flight LLM download/load
+        if let existing = llmLoadTask {
+            existing.cancel()
+            await existing.value
+            llmLoadTask = nil
+        }
+
         guard state == .idle else {
             Self.log.warning("switchModel deferred — state is \(String(describing: self.state))")
             pendingLLMSwitch = true
@@ -115,27 +126,44 @@ final class ConversationCoordinator: ObservableObject {
 
         pendingLLMSwitch = false
         state = .downloading(progress: 0)
-        do {
-            try await modelManager.reloadLLM()
 
-            if let container = modelManager.modelContainer {
-                llm = makeLLMService(container: container)
+        llmLoadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.modelManager.reloadLLM()
+                try Task.checkCancellation()
+
+                if let container = self.modelManager.modelContainer {
+                    self.llm = self.makeLLMService(container: container)
+                }
+
+                self.state = .warmingUp
+                try await self.llm?.warmup()
+                try Task.checkCancellation()
+
+                self.state = .idle
+                SoundPlayer.shared.play(.glass)
+            } catch is CancellationError {
+                self.state = .idle
+            } catch let error as URLError where error.code == .cancelled {
+                self.state = .idle
+            } catch {
+                self.state = .error(error.localizedDescription)
+                self.resetErrorAfterDelay()
             }
-
-            state = .warmingUp
-            try await llm?.warmup()
-
-            state = .idle
-            SoundPlayer.shared.play(.glass)
-        } catch {
-            state = .error(error.localizedDescription)
-            resetErrorAfterDelay()
+            self.llmLoadTask = nil
+            await self.drainPendingSwitches()
         }
-
-        await drainPendingSwitches()
     }
 
     func switchSTTModel() async {
+        // Cancel any in-flight STT download/load
+        if let existing = sttLoadTask {
+            existing.cancel()
+            await existing.value
+            sttLoadTask = nil
+        }
+
         guard state == .idle else {
             Self.log.warning("switchSTTModel deferred — state is \(String(describing: self.state))")
             pendingSTTSwitch = true
@@ -144,21 +172,31 @@ final class ConversationCoordinator: ObservableObject {
 
         pendingSTTSwitch = false
         state = .downloading(progress: 0)
-        do {
-            try await modelManager.reloadSTT()
 
-            modelManager.statusMessage = L("download.loading_stt")
-            stt = try await makeSttService()
-            modelManager.sttReady = (stt != nil)
+        sttLoadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.modelManager.reloadSTT()
+                try Task.checkCancellation()
 
-            state = .idle
-            SoundPlayer.shared.play(.glass)
-        } catch {
-            state = .error(error.localizedDescription)
-            resetErrorAfterDelay()
+                self.modelManager.statusMessage = L("download.loading_stt")
+                self.stt = try await self.makeSttService()
+                self.modelManager.sttReady = (self.stt != nil)
+                try Task.checkCancellation()
+
+                self.state = .idle
+                SoundPlayer.shared.play(.glass)
+            } catch is CancellationError {
+                self.state = .idle
+            } catch let error as URLError where error.code == .cancelled {
+                self.state = .idle
+            } catch {
+                self.state = .error(error.localizedDescription)
+                self.resetErrorAfterDelay()
+            }
+            self.sttLoadTask = nil
+            await self.drainPendingSwitches()
         }
-
-        await drainPendingSwitches()
     }
 
     /// Process any model switches that were deferred because state wasn't idle.
@@ -168,6 +206,61 @@ final class ConversationCoordinator: ObservableObject {
         }
         if pendingSTTSwitch && state == .idle {
             await switchSTTModel()
+        }
+    }
+
+    // MARK: - Custom Model Download + Add
+
+    /// Downloads a HuggingFace model, then adds it to the registry only on success.
+    /// If cancelled (e.g. user switches models mid-download), the model is never registered.
+    func downloadAndAddCustomModel(_ model: ModelOption) async {
+        // Cancel any in-flight LLM download/load
+        if let existing = llmLoadTask {
+            existing.cancel()
+            await existing.value
+            llmLoadTask = nil
+        }
+
+        state = .downloading(progress: 0)
+
+        llmLoadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.modelManager.loadModel(model)
+                try Task.checkCancellation()
+
+                // Download succeeded — add to registry with measured size
+                var finalModel = model
+                let measured = ModelRegistry.measureModelOnDisk(model)
+                if measured > 0 { finalModel.estimatedMemoryGB = measured }
+                ModelRegistry.addModel(finalModel)
+
+                // Set as selected model — triggers onChange → switchModel() which
+                // will early-return from reloadLLM() because loadedModelPath matches,
+                // then redo makeLLMService + warmup (cheap, ~200ms)
+                self.modelManager.selectedModel = finalModel
+                UserDefaults.standard.set(finalModel.path, forKey: "selectedModelPath")
+
+                if let container = self.modelManager.modelContainer {
+                    self.llm = self.makeLLMService(container: container)
+                }
+
+                self.state = .warmingUp
+                try await self.llm?.warmup()
+                try Task.checkCancellation()
+
+                self.state = .idle
+                SoundPlayer.shared.play(.glass)
+            } catch is CancellationError {
+                self.state = .idle
+            } catch let error as URLError where error.code == .cancelled {
+                self.state = .idle
+            } catch {
+                self.state = .error(error.localizedDescription)
+                self.resetErrorAfterDelay()
+            }
+            self.llmLoadTask = nil
+            await self.drainPendingSwitches()
         }
     }
 
@@ -258,6 +351,14 @@ final class ConversationCoordinator: ObservableObject {
 
                 let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedCommand.isEmpty else {
+                    dictationOverlay.hide()
+                    throw VoiceEditorError.emptyTranscription
+                }
+
+                // Reject very short transcriptions that are likely noise/hallucinations
+                let wordCount = trimmedCommand.split(separator: " ").count
+                guard wordCount >= 2 else {
+                    Self.log.warning("Transcription too short (\(wordCount) word): '\(trimmedCommand)' — likely noise")
                     dictationOverlay.hide()
                     throw VoiceEditorError.emptyTranscription
                 }

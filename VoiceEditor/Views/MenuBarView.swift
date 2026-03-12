@@ -13,7 +13,6 @@ struct MenuBarMenu: View {
             openSettings()
             ActivationPolicyManager.shared.bringWindowsToFront()
         }
-        .keyboardShortcut(",")
 
         Button(L("menu.about")) {
             let websiteURL = URL(string: "https://hitoku.me")!

@@ -18,7 +18,7 @@ final class AudioCaptureService {
 
     /// Minimum RMS energy for the recorded samples to be considered speech.
     /// Below this, the audio is just ambient noise / silence — reject before transcription.
-    private static let minRMSEnergy: Float = 0.005
+    private static let minRMSEnergy: Float = 0.01
 
     /// Target format for STT: 16 kHz, mono, Float32, non-interleaved.
     private static let sttFormat = AVAudioFormat(
