@@ -9,15 +9,13 @@ struct MenuBarMenu: View {
 
         Divider()
 
-        Button("Preferences...") {
+        Button(L("menu.preferences")) {
             openSettings()
             ActivationPolicyManager.shared.bringWindowsToFront()
         }
         .keyboardShortcut(",")
 
-        Divider()
-
-        Button("About Hitoku Draft") {
+        Button(L("menu.about")) {
             let websiteURL = URL(string: "https://hitoku.me")!
             let credits = NSAttributedString(
                 string: "hitoku.me",
@@ -32,14 +30,14 @@ struct MenuBarMenu: View {
             ActivationPolicyManager.shared.bringWindowsToFront()
         }
 
-        Button("Acknowledgments\u{2026}") {
+        Button(L("menu.acknowledgments")) {
             AcknowledgmentsWindowController.shared.show()
             ActivationPolicyManager.shared.bringWindowsToFront()
         }
 
         Divider()
 
-        Button("Quit Hitoku Draft") {
+        Button(L("menu.quit")) {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
@@ -49,32 +47,32 @@ struct MenuBarMenu: View {
         switch coordinator.state {
         case .idle:
             if coordinator.modelManager.llmReady {
-                return "Status: Ready"
+                return L("status.ready")
             } else {
-                return "Status: Not Set Up"
+                return L("status.not_setup")
             }
         case .downloading:
             let msg = coordinator.modelManager.statusMessage
-            return msg.isEmpty ? "Downloading..." : msg
+            return msg.isEmpty ? L("status.downloading") : msg
         case .warmingUp:
-            return "Warming up..."
+            return L("status.warming_up")
         case .listening:
-            return "Listening..."
+            return L("status.listening")
         case .transcribing:
-            return "Transcribing..."
+            return L("status.transcribing")
         case .generating:
-            return "Generating..."
+            return L("status.generating")
         case .pasting:
-            return "Pasting..."
+            return L("status.pasting")
         case .dictating(let text):
             if text.isEmpty {
-                return "Dictating..."
+                return L("status.dictating")
             } else {
                 let suffix = text.suffix(50)
-                return "Dictating: ...\(suffix)"
+                return L("status.dictating_prefix") + suffix
             }
         case .error(let message):
-            return "Error: \(message)"
+            return L("status.error_prefix") + message
         }
     }
 }

@@ -1,9 +1,14 @@
+import AVFoundation
 import Combine
+import FluidAudio
+import MLXAudioSTT
 import MLXLMCommon
+import os
 import SwiftUI
 
 @MainActor
 final class ConversationCoordinator: ObservableObject {
+    private nonisolated(unsafe) static let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pipeline")
     @Published private(set) var state: AppState = .idle
 
     let permissions = PermissionsCoordinator()
@@ -17,7 +22,15 @@ final class ConversationCoordinator: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var dictationSession: AudioCaptureService.ContinuousSession?
     private var streamingTask: Task<Void, Never>?
+    private var voiceEditTask: Task<Void, Never>?
     private let dictationOverlay = DictationOverlayPanel()
+    /// Last finalized text from a native streaming session (Qwen3-ASR).
+    /// Set by `runStreamingTranscription` for `stopDictation()` to use.
+    private var lastStreamingTranscription: String?
+
+    /// Pending model switches that couldn't run because state wasn't idle.
+    private var pendingLLMSwitch = false
+    private var pendingSTTSwitch = false
 
     var menuBarIcon: Image {
         switch state {
@@ -66,9 +79,8 @@ final class ConversationCoordinator: ObservableObject {
             if let container = modelManager.modelContainer {
                 llm = makeLLMService(container: container)
             }
-            if let models = modelManager.asrModels {
-                stt = try await FluidAudioSTT(models: models)
-            }
+            stt = try await makeSttService()
+            modelManager.sttReady = (stt != nil)
 
             state = .warmingUp
             try await llm?.warmup()
@@ -78,6 +90,9 @@ final class ConversationCoordinator: ObservableObject {
 
             // Audio cue: setup complete
             SoundPlayer.shared.play(.glass)
+
+            // Process any model switches the user triggered during setup
+            await drainPendingSwitches()
         } catch {
             state = .error(error.localizedDescription)
             resetErrorAfterDelay()
@@ -92,8 +107,13 @@ final class ConversationCoordinator: ObservableObject {
     // MARK: - Model Switching
 
     func switchModel() async {
-        guard state == .idle else { return }
+        guard state == .idle else {
+            Self.log.warning("switchModel deferred — state is \(String(describing: self.state))")
+            pendingLLMSwitch = true
+            return
+        }
 
+        pendingLLMSwitch = false
         state = .downloading(progress: 0)
         do {
             try await modelManager.reloadLLM()
@@ -111,11 +131,56 @@ final class ConversationCoordinator: ObservableObject {
             state = .error(error.localizedDescription)
             resetErrorAfterDelay()
         }
+
+        await drainPendingSwitches()
+    }
+
+    func switchSTTModel() async {
+        guard state == .idle else {
+            Self.log.warning("switchSTTModel deferred — state is \(String(describing: self.state))")
+            pendingSTTSwitch = true
+            return
+        }
+
+        pendingSTTSwitch = false
+        state = .downloading(progress: 0)
+        do {
+            try await modelManager.reloadSTT()
+
+            modelManager.statusMessage = L("download.loading_stt")
+            stt = try await makeSttService()
+            modelManager.sttReady = (stt != nil)
+
+            state = .idle
+            SoundPlayer.shared.play(.glass)
+        } catch {
+            state = .error(error.localizedDescription)
+            resetErrorAfterDelay()
+        }
+
+        await drainPendingSwitches()
+    }
+
+    /// Process any model switches that were deferred because state wasn't idle.
+    private func drainPendingSwitches() async {
+        if pendingLLMSwitch && state == .idle {
+            await switchModel()
+        }
+        if pendingSTTSwitch && state == .idle {
+            await switchSTTModel()
+        }
     }
 
     // MARK: - Voice Edit
 
     func handleVoiceEdit() async {
+        // Toggle: pressing during recording cancels the voice edit
+        if state == .listening {
+            voiceEditTask?.cancel()
+            voiceEditTask = nil
+            return
+        }
+
         guard state == .idle else { return }
 
         guard let stt else {
@@ -130,113 +195,131 @@ final class ConversationCoordinator: ObservableObject {
             return
         }
 
-        var savedClipboard: TextCaptureService.ClipboardSnapshot?
+        voiceEditTask = Task { [weak self] in
+            guard let self else { return }
 
-        do {
-            savedClipboard = textCapture.saveClipboard()
-            let selectedText = try await textCapture.captureSelectedText()
+            var savedClipboard: TextCaptureService.ClipboardSnapshot?
 
-            // Phase 1: Record with live waveform + streaming transcription
-            SoundPlayer.shared.playActivation()
-            state = .listening
+            do {
+                savedClipboard = textCapture.saveClipboard()
+                let selectedText = try await textCapture.captureSelectedText()
 
-            let session = try audioCapture.startContinuousRecording()
-            dictationOverlay.show(text: "Listening...")
-            dictationOverlay.startLevelPolling(session: session)
+                // Phase 1: Record with live waveform + streaming transcription
+                SoundPlayer.shared.playActivation()
+                state = .listening
 
-            // Streaming transcription loop — shows live text while recording
-            var lastTranscription = ""
-            while true {
-                try? await Task.sleep(for: .milliseconds(300))
+                let session = try audioCapture.startContinuousRecording()
+                dictationOverlay.show(text: L("overlay.listening"))
+                dictationOverlay.startLevelPolling(session: session)
 
-                if session.isSilenceDetected { break }
+                // Streaming transcription loop — shows live text while recording
+                // Path A (legacy): 300ms re-transcription poll
+                // Path B (native): Qwen3-ASR StreamingInferenceSession
+                let lastTranscription = await runStreamingTranscription(
+                    session: session,
+                    onTextUpdate: { [dictationOverlay] text in
+                        dictationOverlay.show(text: text)
+                    }
+                )
 
-                let count = session.audioBuffer.count
-                guard count >= 16_000 else { continue }
-
-                let partial = session.audioBuffer.getPrefix(count)
-                if let text = try? await stt.transcribe(samples: partial) {
-                    lastTranscription = text
-                    dictationOverlay.show(text: text)
+                // Check cancellation after recording phase
+                guard !Task.isCancelled else {
+                    session.stop()
+                    dictationOverlay.hide()
+                    if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
+                    state = .idle
+                    voiceEditTask = nil
+                    return
                 }
-            }
 
-            session.stop()
+                session.stop()
 
-            // Phase 2: Final transcription on complete buffer
-            state = .transcribing
-            dictationOverlay.show(text: "Transcribing...")
+                let samples = session.audioBuffer.getAll()
+                guard samples.count >= 16_000 else {
+                    dictationOverlay.hide()
+                    throw VoiceEditorError.emptyTranscription
+                }
 
-            let samples = session.audioBuffer.getAll()
-            guard samples.count >= 16_000 else {
-                dictationOverlay.hide()
-                throw VoiceEditorError.emptyTranscription
-            }
-
-            let command: String
-            if let final = try? await stt.transcribe(samples: samples) {
-                command = final
-            } else {
-                command = lastTranscription
-            }
-
-            let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedCommand.isEmpty else {
-                dictationOverlay.hide()
-                throw VoiceEditorError.emptyTranscription
-            }
-
-            let draftMode = selectedText.isEmpty || DraftDetector.isDraftCommand(trimmedCommand)
-
-            // Phase 3: LLM generation
-            state = .generating
-            dictationOverlay.show(text: "Generating...")
-
-            let prompt: String
-            let maxTokens: Int
-
-            if draftMode {
-                if modelManager.selectedModel.useVoiceCleanPrompt {
-                    prompt = Prompts.voiceCleanDraft(instruction: trimmedCommand)
+                // For native streaming, the session already finalized the text.
+                // For legacy polling, do a final transcription on the complete buffer.
+                let command: String
+                if modelManager.selectedSTTModel.supportsNativeStreaming && !lastTranscription.isEmpty {
+                    command = lastTranscription
                 } else {
-                    prompt = Prompts.draft(instruction: trimmedCommand)
+                    state = .transcribing
+                    dictationOverlay.show(text: L("overlay.transcribing"))
+                    do {
+                        command = try await stt.transcribe(samples: samples)
+                    } catch {
+                        Self.log.error("Final transcription failed, falling back to streaming result: \(error.localizedDescription, privacy: .public)")
+                        command = lastTranscription
+                    }
                 }
-                maxTokens = Prompts.draftMaxTokens
-            } else {
-                prompt = Prompts.edit(text: selectedText, instruction: trimmedCommand)
-                maxTokens = Prompts.editMaxTokens(for: selectedText)
-            }
 
-            let result = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
-            let cleaned = OutputCleaner.clean(result)
+                let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedCommand.isEmpty else {
+                    dictationOverlay.hide()
+                    throw VoiceEditorError.emptyTranscription
+                }
 
-            guard !cleaned.isEmpty else {
+                let draftMode = selectedText.isEmpty || DraftDetector.isDraftCommand(trimmedCommand)
+
+                // Phase 3: LLM generation
+                state = .generating
+                dictationOverlay.show(text: L("overlay.generating"))
+
+                let prompt: String
+                let maxTokens: Int
+
+                if draftMode {
+                    if modelManager.selectedModel.useVoiceCleanPrompt {
+                        prompt = Prompts.voiceCleanDraft(instruction: trimmedCommand)
+                    } else {
+                        prompt = Prompts.draft(instruction: trimmedCommand)
+                    }
+                    maxTokens = Prompts.draftMaxTokens
+                } else {
+                    prompt = Prompts.edit(text: selectedText, instruction: trimmedCommand)
+                    maxTokens = Prompts.editMaxTokens(for: selectedText)
+                }
+
+                let result = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
+                let cleaned = OutputCleaner.clean(result)
+
+                guard !cleaned.isEmpty else {
+                    dictationOverlay.hide()
+                    throw VoiceEditorError.emptyOutput
+                }
+
+                state = .pasting
+                dictationOverlay.show(text: L("overlay.pasting"))
+                try await textCapture.pasteText(cleaned)
+
+                // Audio cue: done
+                SoundPlayer.shared.playCompletion()
                 dictationOverlay.hide()
-                throw VoiceEditorError.emptyOutput
+
+                if let saved = savedClipboard {
+                    // Small delay before restore so paste completes
+                    try? await Task.sleep(for: .milliseconds(300))
+                    textCapture.restoreClipboard(saved)
+                }
+
+                state = .idle
+                voiceEditTask = nil
+            } catch {
+                dictationOverlay.hide()
+                if let saved = savedClipboard {
+                    textCapture.restoreClipboard(saved)
+                }
+                if Task.isCancelled {
+                    state = .idle
+                } else {
+                    state = .error(error.localizedDescription)
+                    resetErrorAfterDelay()
+                }
+                voiceEditTask = nil
             }
-
-            state = .pasting
-            dictationOverlay.show(text: "Pasting...")
-            try await textCapture.pasteText(cleaned)
-
-            // Audio cue: done
-            SoundPlayer.shared.playCompletion()
-            dictationOverlay.hide()
-
-            if let saved = savedClipboard {
-                // Small delay before restore so paste completes
-                try? await Task.sleep(for: .milliseconds(300))
-                textCapture.restoreClipboard(saved)
-            }
-
-            state = .idle
-        } catch {
-            dictationOverlay.hide()
-            if let saved = savedClipboard {
-                textCapture.restoreClipboard(saved)
-            }
-            state = .error(error.localizedDescription)
-            resetErrorAfterDelay()
         }
     }
 
@@ -262,7 +345,7 @@ final class ConversationCoordinator: ObservableObject {
             SoundPlayer.shared.playActivation()
 
             state = .generating
-            dictationOverlay.show(text: "Fixing grammar...")
+            dictationOverlay.show(text: L("overlay.fixing_grammar"))
 
             let lang = LanguageDetector.detect(selectedText)
             let instruction = Instructions.forLanguage(lang)
@@ -278,7 +361,7 @@ final class ConversationCoordinator: ObservableObject {
             }
 
             state = .pasting
-            dictationOverlay.show(text: "Pasting...")
+            dictationOverlay.show(text: L("overlay.pasting"))
             try await textCapture.pasteText(cleaned)
 
             // Audio cue: done
@@ -325,35 +408,25 @@ final class ConversationCoordinator: ObservableObject {
 
             SoundPlayer.shared.playActivation()
             state = .dictating("")
-            dictationOverlay.show(text: "Dictating...")
+            dictationOverlay.show(text: L("overlay.dictating"))
             dictationOverlay.startLevelPolling(session: session)
 
-            // Streaming loop: re-transcribe the growing buffer every 300ms
-            // and auto-stop when silence is detected after speech.
+            // Streaming loop — picks native streaming (Path B) or legacy poll (Path A)
+            // and auto-stops when silence is detected after speech.
             streamingTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard !Task.isCancelled else { break }
-
-                    // Auto-stop on silence — spawn a fresh task so
-                    // stopDictation() doesn't run in a cancelled context.
-                    if session.isSilenceDetected {
-                        Task { @MainActor [weak self] in
-                            await self?.stopDictation()
-                        }
-                        return
+                guard let self else { return }
+                let finalText = await self.runStreamingTranscription(
+                    session: session,
+                    onTextUpdate: { [weak self] text in
+                        self?.updateDictationText(text)
                     }
+                )
+                await MainActor.run { self.lastStreamingTranscription = finalText }
 
-                    let count = session.audioBuffer.count
-                    guard count >= 16_000 else { continue } // need ≥1s of audio
-
-                    let samples = session.audioBuffer.getPrefix(count)
-                    do {
-                        let text = try await stt.transcribe(samples: samples)
-                        await MainActor.run { self?.updateDictationText(text) }
-                    } catch {
-                        // Low confidence / short audio — silently skip this tick
-                        continue
+                // If we exited due to silence (not cancellation), stop dictation.
+                if !Task.isCancelled && session.isSilenceDetected {
+                    Task { @MainActor [weak self] in
+                        await self?.stopDictation()
                     }
                 }
             }
@@ -366,13 +439,22 @@ final class ConversationCoordinator: ObservableObject {
     private func updateDictationText(_ text: String) {
         if case .dictating = state {
             state = .dictating(text)
-            let display = text.isEmpty ? "Dictating..." : text
+            let display = text.isEmpty ? L("overlay.dictating") : text
             dictationOverlay.show(text: display)
         }
     }
 
     private func stopDictation() async {
         streamingTask?.cancel()
+        // Race streaming task against a 10s timeout so stop-dictation stays responsive
+        if let task = streamingTask {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await task.value }
+                group.addTask { try? await Task.sleep(for: .seconds(10)) }
+                _ = await group.next()
+                group.cancelAll()
+            }
+        }
         streamingTask = nil
 
         guard let session = dictationSession else {
@@ -388,15 +470,20 @@ final class ConversationCoordinator: ObservableObject {
         guard samples.count >= 16_000, let stt else {
             SoundPlayer.shared.playCompletion()
             dictationOverlay.hide()
+            lastStreamingTranscription = nil
             state = .idle
             return
         }
 
         do {
-            state = .transcribing
-            dictationOverlay.show(text: "Finalizing...")
-
-            let text = try await stt.transcribe(samples: samples)
+            let text: String
+            if modelManager.selectedSTTModel.supportsNativeStreaming,
+               let streamResult = lastStreamingTranscription, !streamResult.isEmpty {
+                text = streamResult
+            } else {
+                text = try await stt.transcribe(samples: samples)
+            }
+            lastStreamingTranscription = nil
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 dictationOverlay.hide()
@@ -404,7 +491,6 @@ final class ConversationCoordinator: ObservableObject {
                 return
             }
 
-            state = .pasting
             let savedClipboard = textCapture.saveClipboard()
             try await textCapture.pasteText(trimmed)
 
@@ -424,6 +510,23 @@ final class ConversationCoordinator: ObservableObject {
 
     // MARK: - Helpers
 
+    private func makeSttService() async throws -> (any STTService)? {
+        switch modelManager.selectedSTTModel.backend {
+        case .fluidAudio:
+            guard let models = modelManager.asrModels else { return nil }
+            return try await FluidAudioSTT(models: models)
+        case .mlxAudio:
+            let path = modelManager.selectedSTTModel.path
+            guard !path.isEmpty else { return nil }
+            return try await MLXAudioSTTService(modelPath: path, cacheDirectory: modelCacheDirectory)
+        }
+    }
+
+    private var modelCacheDirectory: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("models")
+    }
+
     private func makeLLMService(container: ModelContainer) -> MLXLLMService {
         let prompt = modelManager.selectedModel.useVoiceCleanPrompt
             ? Prompts.voiceCleanSystemPrompt
@@ -435,10 +538,135 @@ final class ConversationCoordinator: ObservableObject {
         )
     }
 
+    /// Runs the appropriate streaming loop for the current STT backend.
+    /// - **Path A** (legacy): 300ms re-transcription of the growing buffer
+    /// - **Path B** (native): Qwen3-ASR `StreamingInferenceSession`
+    ///
+    /// Returns the final transcription text once silence is detected or the task is cancelled.
+    private func runStreamingTranscription(
+        session: AudioCaptureService.ContinuousSession,
+        onTextUpdate: @escaping @MainActor (String) -> Void
+    ) async -> String {
+        guard let stt else { return "" }
+
+        // Path B: Native streaming for Qwen3-ASR
+        if let mlxStt = stt as? MLXAudioSTTService,
+           let streamSession = mlxStt.createStreamingSession() {
+
+            // Shared state — written by event task, read after it completes
+            nonisolated(unsafe) var lastConfirmed = ""
+
+            // Event listener — updates overlay with confirmed + provisional text
+            let eventTask = Task.detached {
+                for await event in streamSession.events {
+                    switch event {
+                    case .displayUpdate(let confirmedText, let provisionalText):
+                        let display = confirmedText + provisionalText
+                        lastConfirmed = confirmedText
+                        if !display.isEmpty {
+                            await onTextUpdate(display)
+                        }
+                    case .ended(let fullText):
+                        lastConfirmed = fullText
+                    default:
+                        break
+                    }
+                }
+            }
+
+            // Audio feed loop — polls buffer for new samples every 100ms
+            var lastFedCount = 0
+            while true {
+                try? await Task.sleep(for: .milliseconds(100))
+                if Task.isCancelled || session.isSilenceDetected { break }
+
+                let currentCount = session.audioBuffer.count
+                if currentCount > lastFedCount {
+                    let newSamples = session.audioBuffer.getSuffix(from: lastFedCount)
+                    streamSession.feedAudio(samples: newSamples)
+                    lastFedCount = currentCount
+                }
+            }
+
+            // Flush pending audio, promote provisional tokens, emit .ended
+            streamSession.stop()
+            // Race eventTask against a 30s timeout so a stalled MLX session can't hang forever
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await eventTask.value }
+                group.addTask { try? await Task.sleep(for: .seconds(30)) }
+                _ = await group.next()
+                group.cancelAll()
+            }
+            return lastConfirmed
+        }
+
+        // Path A: Non-blocking polling for non-streaming models (e.g. ForcedAligner)
+        // Transcription runs in a detached Task so the main loop keeps
+        // checking silence every 200ms without blocking on inference.
+        var lastTranscription = ""
+        nonisolated(unsafe) var pendingText: String? = nil
+        nonisolated(unsafe) var taskDone = false
+        var transcriptionTask: Task<Void, Never>? = nil
+        let logger = Self.log
+
+        while true {
+            try? await Task.sleep(for: .milliseconds(200))
+            if Task.isCancelled || session.isSilenceDetected { break }
+
+            // Harvest completed transcription result
+            if taskDone {
+                if let text = pendingText {
+                    lastTranscription = text
+                    await onTextUpdate(text)
+                }
+                pendingText = nil
+                transcriptionTask = nil
+                taskDone = false
+            }
+
+            // Launch new transcription if none in-flight and buffer has data
+            if transcriptionTask == nil {
+                let count = session.audioBuffer.count
+                if count >= 16_000 {
+                    let snapshot = session.audioBuffer.getPrefix(count)
+                    let sttRef = stt
+                    transcriptionTask = Task.detached {
+                        do {
+                            let text = try await sttRef.transcribe(samples: snapshot)
+                            pendingText = text
+                        } catch {
+                            logger.error("Path A transcription: \(error.localizedDescription, privacy: .public)")
+                        }
+                        taskDone = true
+                    }
+                }
+            }
+        }
+
+        // Wait for in-flight transcription (up to 45s) after silence detected
+        if let task = transcriptionTask {
+            logger.info("Waiting for in-flight transcription (up to 45s)")
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await task.value }
+                group.addTask { try? await Task.sleep(for: .seconds(45)) }
+                _ = await group.next()
+                group.cancelAll()
+            }
+            if let text = pendingText {
+                lastTranscription = text
+            }
+        }
+
+        return lastTranscription
+    }
+
     private func resetErrorAfterDelay() {
         Task {
             try? await Task.sleep(for: .seconds(3))
-            if case .error = state { state = .idle }
+            if case .error = state {
+                state = .idle
+                await drainPendingSwitches()
+            }
         }
     }
 }

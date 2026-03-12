@@ -7,3 +7,6 @@ VoiceEditor.app/
 mlx-swift-lm/
 HitokuDraft.xcodeproj/
 text.txt
+build/
+dist/
+.wrangler/

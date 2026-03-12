@@ -18,6 +18,12 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 2.0.0
+  mlx-audio-swift:
+    url: https://github.com/Blaizzy/mlx-audio-swift
+    from: 0.1.0
+  swift-huggingface:
+    url: https://github.com/huggingface/swift-huggingface
+    from: 0.8.1
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: 2.0.0
@@ -58,11 +64,17 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.10"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
+        DEAD_CODE_STRIPPING: "YES"
       configs:
         Debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         Release:
-          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          SWIFT_OPTIMIZATION_LEVEL: "-Osize"
+          COPY_PHASE_STRIP: "YES"
+          DEPLOYMENT_POSTPROCESSING: "YES"
+          STRIP_INSTALLED_PRODUCT: "YES"
+          STRIP_STYLE: all
+          GCC_OPTIMIZATION_LEVEL: s
     dependencies:
       - package: FluidAudio
       - package: mlx-swift-lm
@@ -72,5 +84,9 @@ targets:
       - package: mlx-swift
         product: MLX
       - package: KeyboardShortcuts
+      - package: mlx-audio-swift
+        product: MLXAudio
+      - package: swift-huggingface
+        product: HuggingFace
       - package: Sparkle
         product: Sparkle

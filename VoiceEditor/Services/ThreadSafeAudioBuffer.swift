@@ -31,4 +31,13 @@ final class ThreadSafeAudioBuffer: @unchecked Sendable {
     func getPrefix(_ count: Int) -> [Float] {
         lock.withLock { Array(samples.prefix(count)) }
     }
+
+    /// Returns samples from `startIndex` to the end of the buffer.
+    /// Used by streaming STT to read only new audio since last feed.
+    func getSuffix(from startIndex: Int) -> [Float] {
+        lock.withLock {
+            guard startIndex < samples.count else { return [] }
+            return Array(samples[startIndex...])
+        }
+    }
 }

@@ -81,19 +81,25 @@ enum Prompts {
 
     // MARK: - Voice-clean prompt (for small models that echo labeled fields)
 
-    /// Stronger system prompt for small models (e.g. LFM2.5 1.2B) that echo
+    /// Broader system prompt for small models (e.g. LFM2.5 1.2B) that echo
     /// labeled prompt fields instead of generating content.
+    /// Supports editing, drafting, and general tasks — not just voice cleanup.
     static let voiceCleanSystemPrompt = """
-        You are a writing assistant. The user's input was dictated via voice — \
-        it may contain filler words, hesitations, or minor transcription errors. \
-        Rewrite it as clear, polished text ready to use.
-
-        Rules:
-        - Fix grammar, spelling, and punctuation. Remove fillers and repetitions.
-        - Keep the meaning and intent exactly as the user expressed it.
-        - Reply in the SAME language as the input.
+        You are a versatile text editor and writing assistant. \
+        The user's input was dictated via voice — it may contain filler words, \
+        hesitations, or minor transcription errors. Interpret the user's intent. \
+        Output ONLY the requested text — no commentary, no explanations, no preamble. \
+        Reply in the SAME language as the input.
         """
 
-    /// Returns the raw transcription as-is; the system prompt carries all instructions.
-    static func voiceCleanDraft(instruction: String) -> String { instruction }
+    /// Draft prompt for small models — avoids labeled fields that small models echo,
+    /// but still clearly instructs the model to generate new content.
+    static func voiceCleanDraft(instruction: String) -> String {
+        """
+        The user wants you to write new content. Do not clean up or rewrite their request — \
+        produce the actual content they are asking for. Output only the content, nothing else.
+
+        \(instruction)
+        """
+    }
 }

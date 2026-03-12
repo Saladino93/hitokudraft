@@ -32,14 +32,14 @@ final class SoundPlayer {
 
     /// Plays the user-selected activation sound (empty string = muted).
     func playActivation() {
-        let key = UserDefaults.standard.string(forKey: "activationSound") ?? "Tink"
+        let key = UserDefaults.standard.string(forKey: "activationSound") ?? "Glass"
         guard !key.isEmpty, let sound = Sound(rawValue: key) else { return }
         play(sound)
     }
 
     /// Plays the user-selected completion sound (empty string = muted).
     func playCompletion() {
-        let key = UserDefaults.standard.string(forKey: "completionSound") ?? "Pop"
+        let key = UserDefaults.standard.string(forKey: "completionSound") ?? "Glass"
         guard !key.isEmpty, let sound = Sound(rawValue: key) else { return }
         play(sound)
     }

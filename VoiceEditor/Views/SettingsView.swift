@@ -14,14 +14,20 @@ struct SettingsView: View {
     }
 
     @AppStorage("maxRecordingDuration") private var maxRecordingDuration: Double = 30.0
-    @AppStorage("activationSound")      private var activationSound: String = "Tink"
-    @AppStorage("completionSound")      private var completionSound: String = "Pop"
+    @AppStorage("silenceDurationLimit") private var silenceDurationLimit: Double = 2.0
+    @AppStorage("activationSound")      private var activationSound: String = "Glass"
+    @AppStorage("completionSound")      private var completionSound: String = "Glass"
+    @AppStorage("appLanguage")           private var appLanguage: String = AppLocalization.detectInitialLanguage()
+
+    // MARK: - Navigation State
+    private enum Tab { case general, model, updates }
+    @State private var selectedTab: Tab = .general
 
     // MARK: - Custom Model State
-
     @State private var customSourceType = CustomModelSourceType.huggingFace
     @State private var customModelPath = ""
     @State private var customValidation = CustomModelValidation.unchecked
+    @State private var autoCheckUpdates: Bool = false
 
     private enum CustomModelSourceType: String, CaseIterable {
         case local = "Local Folder"
@@ -35,172 +41,330 @@ struct SettingsView: View {
         case unsupported(String)
     }
 
+    // MARK: - Dynamic Window Height
+    private var currentHeight: CGFloat {
+        switch selectedTab {
+        case .general: return 430
+        case .model: return 400
+        case .updates: return 125
+        }
+    }
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             generalTab
-                .tabItem {
-                    Label("General", systemImage: "gear")
-                }
+                .tag(Tab.general)
+                .tabItem { Label(L("tab.general"), systemImage: "gear") }
 
             modelTab
-                .tabItem {
-                    Label("Model", systemImage: "cpu")
-                }
+                .tag(Tab.model)
+                .tabItem { Label(L("tab.model"), systemImage: "cpu") }
 
             updatesTab
-                .tabItem {
-                    Label("Updates", systemImage: "arrow.triangle.2.circlepath")
-                }
+                .tag(Tab.updates)
+                .tabItem { Label(L("tab.updates"), systemImage: "arrow.triangle.2.circlepath") }
         }
-        .frame(width: 510, height: 390)
-        .fontDesign(.rounded)
+        .frame(width: 620, height: currentHeight)
+        .animation(.spring(response: 0.3, dampingFraction: 1.0), value: selectedTab)
         .background(WindowActivator())
     }
 
-    // MARK: - General
+    // MARK: - General Tab
 
     private var generalTab: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Divider()
-
-                PrefRow(title: "Permissions") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        permissionRow("Accessibility", granted: coordinator.permissions.accessibilityGranted) {
-                            coordinator.permissions.requestAccessibility()
-                        }
-                        permissionRow("Microphone", granted: coordinator.permissions.microphoneGranted) {
-                            Task { await coordinator.permissions.requestMicrophone() }
-                        }
-                        if !coordinator.permissions.allGranted {
-                            Text("After clicking Grant, open System Settings › Privacy & Security.")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                        }
+        Form {
+            // --- Language ---
+            LabeledContent(L("language.label")) {
+                Picker("", selection: $appLanguage) {
+                    ForEach(AppLocalization.supportedLanguages, id: \.self) { code in
+                        Text(AppLocalization.displayNames[code] ?? code).tag(code)
                     }
                 }
-
-                Divider()
-
-                PrefRow(title: "Models") {
-                    setupStatusView
-                }
-
-                Divider()
-
-                PrefRow(title: "Shortcuts") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        shortcutRow("Voice Edit",  name: .voiceEdit)
-                        shortcutRow("Grammar Fix", name: .grammarFix)
-                        shortcutRow("Dictation",   name: .dictation)
-                    }
-                }
-
-                Divider()
-
-                PrefRow(title: "Recording") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Max capture")
-                            Spacer()
-                            Stepper("\(Int(maxRecordingDuration)) s",
-                                    value: $maxRecordingDuration, in: 10...120, step: 5)
-                        }
-                        Text("Applies to Voice Edit and Grammar Fix. Dictation stops on silence.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Divider()
-
-                PrefRow(title: "Sounds") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        soundRow("Activation", selection: $activationSound)
-                        soundRow("Completion", selection: $completionSound)
-                    }
-                }
-
-                Divider()
-
+                .labelsHidden()
+                .frame(width: 160)
             }
+
+            Spacer().frame(height: 12)
+
+            // --- Permissions ---
+            LabeledContent(L("permission.accessibility")) {
+                permissionRow(granted: coordinator.permissions.accessibilityGranted) {
+                    coordinator.permissions.requestAccessibility()
+                }
+            }
+
+            Spacer().frame(height: 8)
+
+            LabeledContent(L("permission.microphone")) {
+                permissionRow(granted: coordinator.permissions.microphoneGranted) {
+                    Task { await coordinator.permissions.requestMicrophone() }
+                }
+            }
+            if !coordinator.permissions.allGranted {
+                LabeledContent("") {
+                    Text(L("permission.hint"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer().frame(height: 18)
+
+            // --- Setup ---
+            LabeledContent(L("models.label")) { setupStatusView }
+
+            Spacer().frame(height: 18)
+
+            // --- Shortcuts ---
+            LabeledContent(L("shortcut.voice_edit")) { KeyboardShortcuts.Recorder("", name: .voiceEdit) }
+            Spacer().frame(height: 4)
+            LabeledContent(L("shortcut.grammar_fix")) { KeyboardShortcuts.Recorder("", name: .grammarFix) }
+            Spacer().frame(height: 4)
+            LabeledContent(L("shortcut.dictation")) { KeyboardShortcuts.Recorder("", name: .dictation) }
+
+            Spacer().frame(height: 18)
+
+            // --- Recording ---
+            LabeledContent(L("recording.max_capture")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Stepper(L("recording.max_capture_unit", Int(maxRecordingDuration)), value: $maxRecordingDuration, in: 10...120, step: 5)
+                    Text(L("recording.max_capture_desc"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer().frame(height: 8)
+
+            LabeledContent(L("recording.silence_timeout")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Stepper(L("recording.silence_timeout_unit", silenceDurationLimit), value: $silenceDurationLimit, in: 1.0...5.0, step: 0.5)
+                    Text(L("recording.silence_timeout_desc"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer().frame(height: 18)
+
+            // --- Sounds ---
+            LabeledContent(L("sound.activation")) { soundPicker(selection: $activationSound) }
+            Spacer().frame(height: 4)
+            LabeledContent(L("sound.completion")) { soundPicker(selection: $completionSound) }
         }
+        .padding(30)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    // MARK: - Updates
+    // MARK: - Model Tab
+
+    private var modelTab: some View {
+        VStack(spacing: 0) {
+            Form {
+                // --- Active Models ---
+                Picker(L("model.active_llm"), selection: $modelManager.selectedModel) {
+                    ForEach(ModelRegistry.availableModels) { model in
+                        Button {} label: {
+                            HStack(spacing: 4) {
+                                Text(L(model.description))
+                                if !ModelRegistry.isBundled(model) {
+                                    Text("custom").font(.caption2)
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Capsule().fill(Color.blue.opacity(0.2)))
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                            Text("\(model.name) (\(formattedSize(model.estimatedMemoryGB)))")
+                        }
+                        .tag(model)
+                        .disabled(modelExceedsRAM(model.estimatedMemoryGB))
+                    }
+                }
+
+                if !ModelRegistry.isBundled(modelManager.selectedModel) {
+                    LabeledContent("") {
+                        Button(L("model.remove")) {
+                            let toRemove = modelManager.selectedModel
+                            modelManager.selectedModel = ModelRegistry.smartDefault
+                            _ = ModelRegistry.removeModel(toRemove)
+                        }
+                        .buttonStyle(.link)
+                        .foregroundStyle(.red)
+                    }
+                }
+
+                Picker(L("model.active_stt"), selection: $modelManager.selectedSTTModel) {
+                    ForEach(STTModelRegistry.availableModels) { model in
+                        Button {} label: {
+                            HStack(spacing: 4) {
+                                if model.supportsNativeStreaming {
+                                    Text("\(L(model.description)) (\(L("model.streaming")))")
+                                } else {
+                                    Text(L(model.description))
+                                }
+                                if let restriction = model.languageRestriction {
+                                    Text(L(restriction))
+                                        .font(.caption2)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Capsule().fill(Color.orange.opacity(0.2)))
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                            Text("\(model.name) (\(formattedSize(model.estimatedMemoryGB)))")
+                        }
+                        .tag(model)
+                        .disabled(modelExceedsRAM(model.estimatedMemoryGB))
+                    }
+                }
+
+                Spacer().frame(height: 18)
+
+                // --- Custom Model Loading ---
+                LabeledContent(L("model.custom_source")) {
+                    Picker("", selection: $customSourceType) {
+                        ForEach(CustomModelSourceType.allCases, id: \.self) { source in
+                            Text(L(source.rawValue)).tag(source)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 300)
+                    .onChange(of: customSourceType) { customValidation = .unchecked }
+                }
+
+                LabeledContent(L("model.model_path")) {
+                    HStack {
+                        TextField("", text: $customModelPath, prompt: Text(customSourceType == .local ? "/path/to/mlx-model" : "mlx-community/model-name"))
+                            .textFieldStyle(.roundedBorder)
+                            .onChange(of: customModelPath) { validateCustomModel() }
+
+                        ZStack {
+                            Button(L("model.browse")) { browseForLocalModel() }
+                                .opacity(customSourceType == .local ? 1 : 0)
+                                .disabled(customSourceType != .local)
+                        }
+                    }
+                }
+
+                LabeledContent("") {
+                    HStack {
+                        Text(customSourceType == .local ? L("model.local_hint") : L("model.hf_hint"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+                        validationIndicator
+                        Button(L("model.add")) { addCustomModel() }.disabled(!canAddCustomModel)
+                    }
+                }
+
+                Spacer().frame(height: 18)
+
+                // --- System Status ---
+                LabeledContent(L("model.system_status")) {
+                    HStack(spacing: 16) {
+                        statusIndicator(label: "LLM", ready: modelManager.llmReady, loading: isLLMLoading)
+                        statusIndicator(label: "STT", ready: modelManager.sttReady)
+                    }
+                }
+
+                LabeledContent(L("model.cache_directory")) {
+                    HStack {
+                        Text(cacheDirectory)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                            .help(cacheDirectory)
+
+                        Button(L("model.show_in_finder")) {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: cacheDirectory)
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
+
+            Spacer().frame(height: 36)
+
+            Text(L("model.ai_warning"))
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color.yellow)
+
+            Spacer()
+        }
+        .padding(30)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onChange(of: modelManager.selectedModel) {
+            UserDefaults.standard.set(modelManager.selectedModel.path, forKey: "selectedModelPath")
+            Task { await coordinator.switchModel() }
+        }
+        .onChange(of: modelManager.selectedSTTModel) { Task { await coordinator.switchSTTModel() } }
+    }
+
+    // MARK: - Updates Tab
 
     private var updatesTab: some View {
-        VStack {
-            Spacer()
-
+        Form {
             if let updater {
-                VStack(alignment: .leading, spacing: 14) {
-                    Toggle("Check for updates at startup", isOn: Binding(
-                        get: { updater.automaticallyChecksForUpdates },
-                        set: { updater.automaticallyChecksForUpdates = $0 }
-                    ))
-
-                    Divider()
-
-                    HStack {
-                        Spacer()
-                        Button("Check Now") {
-                            updater.checkForUpdates()
+                LabeledContent(L("updates.keep_updated")) {
+                    Toggle(L("updates.auto_check"), isOn: $autoCheckUpdates)
+                        .onAppear {
+                            autoCheckUpdates = updater.automaticallyChecksForUpdates
                         }
-                        .disabled(!updater.canCheckForUpdates)
-                    }
+                        .onChange(of: autoCheckUpdates) { newValue in
+                            updater.automaticallyChecksForUpdates = newValue
+                        }
                 }
-                .font(.system(size: 14))
-                .frame(width: 340)
-            } else {
-                Text("Updates not available")
-                    .foregroundStyle(.secondary)
-            }
 
-            Spacer()
+                Spacer().frame(height: 12)
+
+                LabeledContent(L("updates.software_update")) {
+                    Button(L("updates.check_now")) {
+                        updater.checkForUpdates()
+                    }
+                    .disabled(!updater.canCheckForUpdates)
+                }
+            } else {
+                LabeledContent(L("updates.software_update")) {
+                    Text(L("updates.not_available"))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(30)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func permissionRow(_ label: String, granted: Bool, grant: @escaping () -> Void) -> some View {
-        HStack(spacing: 9) {
-            Text(label)
-            Spacer()
+    // MARK: - Reusable UI Components
+
+    private func permissionRow(granted: Bool, grant: @escaping () -> Void) -> some View {
+        HStack {
             if granted {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Label(L("permission.granted"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             } else {
-                Button("Grant", action: grant)
+                Button(L("permission.request_access"), action: grant)
             }
         }
     }
 
-    private func shortcutRow(_ label: String, name: KeyboardShortcuts.Name) -> some View {
-        HStack(spacing: 9) {
-            Text(label)
-            Spacer()
-            KeyboardShortcuts.Recorder("", name: name)
-        }
-    }
-
-    private func soundRow(_ label: String, selection: Binding<String>) -> some View {
-        HStack(spacing: 9) {
-            Text(label)
-            Spacer()
+    private func soundPicker(selection: Binding<String>) -> some View {
+        HStack {
             Picker("", selection: selection) {
-                Text("None").tag("")
+                Text(L("sound.none")).tag("")
                 Divider()
                 ForEach(SoundPlayer.Sound.allCases, id: \.rawValue) { sound in
                     Text(sound.rawValue).tag(sound.rawValue)
                 }
             }
-            .frame(width: 98)
+            .labelsHidden()
+            .frame(width: 140)
+
             Button {
                 if let sound = SoundPlayer.Sound(rawValue: selection.wrappedValue) {
                     SoundPlayer.shared.play(sound)
                 }
-            } label: {
-                Image(systemName: "play.circle")
-            }
+            } label: { Image(systemName: "play.circle") }
             .buttonStyle(.plain)
             .disabled(selection.wrappedValue.isEmpty)
         }
@@ -210,206 +374,74 @@ struct SettingsView: View {
     private var setupStatusView: some View {
         switch coordinator.state {
         case .downloading:
-            DownloadProgressView(
-                progress: modelManager.llmProgress,
-                statusMessage: modelManager.statusMessage
-            )
+            DownloadProgressView(progress: modelManager.llmProgress, statusMessage: modelManager.statusMessage)
         case .warmingUp:
             HStack {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Warming up\u{2026}")
+                ProgressView().controlSize(.small)
+                Text(L("models.warming_up"))
             }
         case .error(let msg):
-            VStack(alignment: .leading, spacing: 6) {
-                Label(msg, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.caption)
-                Button("Retry") {
-                    Task { await coordinator.setup() }
-                }
+            HStack(spacing: 6) {
+                Label(msg, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.caption)
+                Button(L("models.retry")) { Task { await coordinator.setup() } }
             }
         default:
             if modelManager.llmReady && modelManager.sttReady {
-                Label("All models loaded", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                Label(L("models.all_loaded"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             } else if modelManager.llmReady {
-                Label("LLM ready — STT model failed to load", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
+                Label(L("models.llm_ready_stt_failed"), systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
             } else {
-                Button("Download & Set Up") {
-                    Task { await coordinator.setup() }
-                }
-                .buttonStyle(.borderedProminent)
+                Button(L("models.download_setup")) { Task { await coordinator.setup() } }.buttonStyle(.borderedProminent)
             }
         }
     }
 
-    // MARK: - Model
-
-    private var modelTab: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Divider()
-
-                PrefRow(title: "Model") {
-                    VStack(alignment: .leading, spacing: 9) {
-                        if isCustomModelActive {
-                            HStack {
-                                Image(systemName: "folder").foregroundStyle(.secondary)
-                                Text(modelManager.selectedModel.name).foregroundStyle(.secondary)
-                                Spacer()
-                                Button("Use Built-in") {
-                                    modelManager.selectedModel = ModelRegistry.defaultModel
-                                    customModelPath = ""
-                                    customValidation = .unchecked
-                                }
-                                .buttonStyle(.link)
-                            }
-                        } else {
-                            Picker("", selection: $modelManager.selectedModel) {
-                                ForEach(ModelRegistry.availableModels) { model in
-                                    Button { } label: {
-                                        Text(model.description)
-                                        Text(model.name)
-                                    }
-                                    .tag(model)
-                                }
-                            }
-                            .labelsHidden()
-
-                            if selectedModelExceedsThreshold {
-                                Label {
-                                    Text("This model needs ~\(modelManager.selectedModel.estimatedMemoryGB, specifier: "%.1f") GB — more than 25% of your \(Int(physicalMemoryGB)) GB RAM. Performance may be slow.")
-                                } icon: {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                            }
-                        }
-                    }
+    @ViewBuilder
+    private func statusIndicator(label: String, ready: Bool, loading: Bool = false) -> some View {
+        HStack(spacing: 5) {
+            Text("\(label):").foregroundStyle(.secondary)
+            if ready {
+                Label(L("model.status_ready"), systemImage: "circle.fill").font(.caption).foregroundStyle(.green)
+            } else if loading {
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.small)
+                    Text(L("model.status_loading")).font(.caption).foregroundStyle(.secondary)
                 }
-
-                Divider()
-
-                PrefRow(title: "Custom") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Picker("Source", selection: $customSourceType) {
-                            ForEach(CustomModelSourceType.allCases, id: \.self) { source in
-                                Text(source.rawValue).tag(source)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: customSourceType) {
-                            customValidation = .unchecked
-                        }
-
-                        HStack(spacing: 8) {
-                            TextField(
-                                customSourceType == .local
-                                    ? "/path/to/mlx-model"
-                                    : "org/model-name",
-                                text: $customModelPath
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: customModelPath) {
-                                validateCustomModel()
-                            }
-
-                            if customSourceType == .local {
-                                Button("Browse\u{2026}") {
-                                    browseForLocalModel()
-                                }
-                                .controlSize(.small)
-                                .font(.system(size: 10))
-                            }
-                        }
-
-                        validationIndicator
-
-                        Text("Local directory or HuggingFace repo (org/model-name).")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
-
-                        Button("Load Model") {
-                            loadCustomModel()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(!canLoadCustomModel)
-                    }
-                }
-
-                Divider()
-
-                PrefRow(title: "Status") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("LLM")
-                            Spacer()
-                            statusIndicator(ready: modelManager.llmReady, loading: isLLMLoading)
-                        }
-                        HStack {
-                            Text("STT")
-                            Spacer()
-                            statusIndicator(ready: modelManager.sttReady)
-                        }
-                    }
-                }
-
-                Divider()
-
-                PrefRow(title: "Cache") {
-                    Text(modelCacheDirectory)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(modelCacheDirectory)
-                        .onTapGesture {
-                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: modelCacheDirectory)
-                        }
-                }
-
-                Divider()
-
-                Text("AI models can make mistakes. Review outputs before use.")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.yellow.opacity(0.9))
-                    .padding(.horizontal, 18)
-                    .padding(.top, 27)
-                    .padding(.bottom, 12)
+            } else {
+                Label(L("model.status_not_loaded"), systemImage: "circle.fill").font(.caption).foregroundStyle(.tertiary)
             }
         }
-        .onChange(of: modelManager.selectedModel) {
-            Task { await coordinator.switchModel() }
+    }
+
+    @ViewBuilder
+    private var validationIndicator: some View {
+        switch customValidation {
+        case .unchecked: EmptyView()
+        case .compatible: Label(L("model.compatible"), systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+        case .needsConversion: Label(L("model.needs_conversion"), systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+        case .unsupported(let reason): Label(reason, systemImage: "xmark.circle.fill").font(.caption).foregroundStyle(.red)
         }
     }
 
     // MARK: - Model Helpers
 
-    private var physicalMemoryGB: Double {
-        Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824
-    }
+    private var physicalMemoryGB: Double { Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824 }
+    private func modelExceedsRAM(_ memGB: Double) -> Bool { memGB > 0 && memGB > physicalMemoryGB * 0.5 }
 
-    private var selectedModelExceedsThreshold: Bool {
-        let mem = modelManager.selectedModel.estimatedMemoryGB
-        guard mem > 0 else { return false }
-        return mem > physicalMemoryGB * 0.25
-    }
-
-    private var modelCacheDirectory: String {
-        if modelManager.selectedModel.isLocal {
-            return modelManager.selectedModel.path
+    private func formattedSize(_ gb: Double) -> String {
+        if gb == 0 {
+            return "unknown"
+        } else if gb < 1.0 {
+            return String(format: "%.0f MB", gb * 1024)
+        } else {
+            return String(format: "%.1f GB", gb)
         }
-        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+    }
+
+    private var cacheDirectory: String {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
             .first?.appendingPathComponent("models").path
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/models").path
-    }
-
-    private var isCustomModelActive: Bool {
-        !ModelRegistry.availableModels.contains(modelManager.selectedModel)
     }
 
     private var isLLMLoading: Bool {
@@ -418,86 +450,37 @@ struct SettingsView: View {
         return false
     }
 
-    @ViewBuilder
-    private func statusIndicator(ready: Bool, loading: Bool = false) -> some View {
-        if ready {
-            HStack(spacing: 5) {
-                Circle().fill(.green).frame(width: 7, height: 7)
-                Text("Ready").font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-        } else if loading {
-            HStack(spacing: 5) {
-                ProgressView().controlSize(.small)
-                Text("Loading\u{2026}").font(.caption).foregroundStyle(.secondary)
-            }
-        } else {
-            HStack(spacing: 3) {
-                Circle().fill(.gray.opacity(0.4)).frame(width: 5, height: 5)
-                Text("Not loaded").font(.caption).foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var validationIndicator: some View {
-        switch customValidation {
-        case .unchecked:
-            EmptyView()
-        case .compatible:
-            Label("Compatible", systemImage: "checkmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(.green)
-        case .needsConversion:
-            Label("May need conversion before use", systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
-        case .unsupported(let reason):
-            Label(reason, systemImage: "xmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(.red)
-        }
-    }
-
-    private var canLoadCustomModel: Bool {
-        customValidation == .compatible || customValidation == .needsConversion
-    }
+    private var canAddCustomModel: Bool { customValidation == .compatible || customValidation == .needsConversion }
 
     private func validateCustomModel() {
         let path = customModelPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else {
-            customValidation = .unchecked
-            return
-        }
+        guard !path.isEmpty else { customValidation = .unchecked; return }
         switch customSourceType {
         case .local:
             var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir),
-                  isDir.boolValue else {
-                customValidation = .unsupported("Directory not found")
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
+                customValidation = .unsupported(L("model.dir_not_found"))
                 return
             }
-            let configExists = FileManager.default.fileExists(
-                atPath: URL(fileURLWithPath: path).appendingPathComponent("config.json").path
-            )
+            let configExists = FileManager.default.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent("config.json").path)
             customValidation = configExists ? .compatible : .needsConversion
         case .huggingFace:
-            if path.contains("/") && !path.hasPrefix("/") && !path.contains(" ") {
-                customValidation = .compatible
-            } else {
-                customValidation = .unsupported("Use format: organization/model-name")
-            }
+            if path.contains("/") && !path.hasPrefix("/") && !path.contains(" ") { customValidation = .compatible }
+            else { customValidation = .unsupported(L("model.hf_format_hint")) }
         }
     }
 
-    private func loadCustomModel() {
+    private func addCustomModel() {
         let path = customModelPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name: String
-        if customSourceType == .local {
-            name = URL(fileURLWithPath: path).lastPathComponent
-        } else {
-            name = path.components(separatedBy: "/").last ?? path
+        let name = customSourceType == .local ? URL(fileURLWithPath: path).lastPathComponent : (path.components(separatedBy: "/").last ?? path)
+        let newModel = ModelOption(name: name, path: path)
+        if ModelRegistry.addModel(newModel) {
+            modelManager.selectedModel = newModel
+        } else if let existing = ModelRegistry.availableModels.first(where: { $0.path == path }) {
+            modelManager.selectedModel = existing
         }
-        modelManager.selectedModel = ModelOption(name: name, path: path)
+        customModelPath = ""
+        customValidation = .unchecked
     }
 
     private func browseForLocalModel() {
@@ -505,7 +488,7 @@ struct SettingsView: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Select an MLX model directory"
+        panel.message = L("model.local_hint")
         if panel.runModal() == .OK, let url = panel.url {
             customModelPath = url.path
             validateCustomModel()
@@ -513,34 +496,8 @@ struct SettingsView: View {
     }
 }
 
-private struct PrefRow<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: () -> Content
+// MARK: - Window Activator
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 21) {
-            Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 82, alignment: .trailing)
-                .padding(.top, 1)
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .font(.system(size: 14))
-        }
-        .padding(.leading, 18)
-        .padding(.trailing, 33)
-        .padding(.vertical, 14)
-    }
-}
-
-#Preview {
-    SettingsView(coordinator: ConversationCoordinator())
-}
-
-/// Bridges into AppKit to force-activate the window for LSUIElement apps.
-/// SwiftUI's .onAppear fires before the NSWindow exists, so we hook into
-/// viewDidMoveToWindow() which fires at exactly the right time.
 private struct WindowActivator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { ActivatorView() }
     func updateNSView(_ nsView: NSView, context: Context) {}

@@ -14,6 +14,10 @@ enum Instructions {
             Corrigez toutes les erreurs de grammaire, de ponctuation et d'orthographe. \
             Préservez le sens et le ton d'origine.
             """,
+        "es": """
+            Corrige todos los errores de gramática, puntuación y ortografía. \
+            Preserva el significado y el tono originales.
+            """,
         "de": """
             Korrigiere alle Grammatik-, Zeichensetzungs- und Rechtschreibfehler. \
             Behalte die ursprüngliche Bedeutung und den Ton bei.

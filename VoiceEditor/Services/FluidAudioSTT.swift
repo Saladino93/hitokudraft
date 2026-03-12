@@ -36,7 +36,7 @@ final class FluidAudioSTT: STTService, @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .lowConfidence:
-                return "Could not understand speech clearly. Please try again."
+                return L("error.low_confidence")
             }
         }
     }
