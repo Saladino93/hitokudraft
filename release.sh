@@ -179,6 +179,7 @@ if $DRY_RUN; then
     info "[DRY RUN] Would perform the following:"
     echo "  1. Bump $PROJECT_YML → MARKETING_VERSION: \"$VERSION\", CURRENT_PROJECT_VERSION: \"$NEW_BUILD\""
     echo "  2. xcodegen generate (regenerate $XCODE_PROJECT)"
+    echo "  2b. git add -A && git commit && git push origin main"
     echo "  3. xcodebuild archive -scheme $SCHEME → $ARCHIVE_PATH"
     echo "  4. Manual codesign (inside-out) → $EXPORT_PATH (Developer ID signing)"
     echo "  5. xcrun notarytool submit → Apple notarization"
@@ -211,6 +212,20 @@ ok "Version bumped to $VERSION (build $NEW_BUILD)"
 info "Regenerating Xcode project..."
 xcodegen generate
 ok "Xcode project regenerated"
+
+# --- Step 2b: Commit all changes + push ---
+info "Committing all changes..."
+git add -A
+if git diff --cached --quiet; then
+    ok "Working tree already clean — nothing to commit"
+else
+    git commit -m "v$VERSION: release $DISPLAY_NAME $VERSION (build $NEW_BUILD)"
+    ok "Committed: v$VERSION"
+fi
+
+info "Pushing to origin..."
+git push origin main
+ok "Pushed to origin"
 
 # --- Step 3: Archive + Export + Notarize + Staple ---
 info "Archiving..."
