@@ -2,8 +2,8 @@
 
 **Platform:** macOS (Apple Silicon only · no App Store · no sandbox)
 **Stack:** SwiftUI + mlx-swift + FluidAudio
-**Version:** v0.1-alpha (pre-release)
-**Last updated:** 2026-03-09 (session 3)
+**Version:** v1.0.1
+**Last updated:** 2026-03-13
 
 ---
 
@@ -27,6 +27,46 @@
 ---
 
 ## Sessions
+
+### 2026-03-13 — v1.0.1 hotfix: fix launch failure
+
+**Root cause:** v1.0.0 exported app crashed on launch with POSIX error 153.
+Two issues in manual codesign:
+
+1. **iOS-only entitlement:** The raw `.entitlements` file included `com.apple.developer.kernel.increased-memory-limit`, which is iOS-only. Under manual codesign (unlike `xcodebuild -exportArchive`), Xcode doesn't strip unauthorized entitlements — the OS rejects the app at launch.
+2. **Missing identity entitlements:** Manual codesign with the raw file also lacked `application-identifier` and `com.apple.developer.team-identifier`, which Xcode normally injects during archive processing.
+
+**Fix:** Extract Xcode-processed entitlements from the archive copy (`codesign -d --entitlements`) and use those for signing instead of the raw `.entitlements` file. Also removed `increased-memory-limit` from `VoiceEditor.entitlements` since it's iOS-only and has no effect on macOS.
+
+**Files modified:**
+- `release.sh` — extract entitlements from archive copy for main app signing (lines 284–296)
+- `VoiceEditor/VoiceEditor.entitlements` — removed `increased-memory-limit`
+
+**Result:** v1.0.1 shipped, notarized, Gatekeeper passed on clean install.
+
+---
+
+### 2026-03-12 — v1.0.0 release: first public ship
+
+**Milestone:** First release shipped via `release.sh` pipeline.
+
+**`release.sh` created** — full automated pipeline:
+1. Version bump in `project.yml` + `xcodegen generate`
+2. `xcodebuild archive`
+3. Manual inside-out codesigning (Sparkle XPC workaround)
+4. `xcrun notarytool submit --wait` (Apple notarization)
+5. `xcrun stapler staple` (embed ticket)
+6. DMG creation with `create-dmg`
+7. Appcast generation with `generate_appcast`
+8. DMG upload to Cloudflare R2 (`downloads.hitoku.me`)
+9. Appcast deploy to `hitoku.me` via git push to hitokume repo
+10. Git tag + push
+
+**Inside-out codesigning:** `xcodebuild -exportArchive` fails with `errSecInternalComponent` when trying to re-sign Sparkle's ad-hoc signed XPC services. The workaround is to manually sign from deepest nested bundles outward: XPC services → helpers → dylibs → frameworks → main app.
+
+**Outcome:** v1.0.0 archived and notarized successfully, but the exported app failed to launch (POSIX error 153). Root cause identified and fixed in v1.0.1 session above.
+
+---
 
 ### 2026-03-09 (session 3) — Pre-launch audit + prompt improvements
 
@@ -119,15 +159,15 @@ privileged helper tool or different text injection approach. Not blocking anythi
 
 ## TODO / Things to improve
 
-### Distribution (one-time, before v1.0 launch)
-- [ ] Run `xcodegen generate` and verify build succeeds with Sparkle
-- [ ] Bump `MARKETING_VERSION` to `1.0.0` in `project.yml` (currently `0.1.0`)
-- [ ] Set up `hitoku.me/appcast.xml` endpoint (GitHub Pages or server)
-- [ ] Store notarization credentials: `xcrun notarytool store-credentials`
-- [ ] Install `create-dmg`: `brew install create-dmg`
-- [ ] Create Gumroad account + product (see `DISTRIBUTION.md` §6)
+### Distribution (one-time setup — completed for v1.0.0)
+- [x] Run `xcodegen generate` and verify build succeeds with Sparkle
+- [x] Bump `MARKETING_VERSION` to `1.0.0` in `project.yml`
+- [x] Set up `hitoku.me/apps/hitokudraft/appcast.xml` endpoint (Cloudflare Pages)
+- [x] Store notarization credentials: `xcrun notarytool store-credentials`
+- [x] Install `create-dmg`: `brew install create-dmg`
+- [x] Create Gumroad account + product
 - [ ] Create Privacy Policy page on `hitoku.me` (Gumroad requirement)
-- [ ] App icon: wire `icon_app.png` into `Assets.xcassets` (1024×1024 PNG, no alpha)
+- [x] App icon: wire `icon_app.png` into `Assets.xcassets` (1024×1024 PNG, no alpha)
 - [ ] Verify model licenses for Gumroad distribution (Qwen3, LFM2.5, FluidAudio)
 
 ### Core app

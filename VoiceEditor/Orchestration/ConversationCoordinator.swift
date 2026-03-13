@@ -333,7 +333,7 @@ final class ConversationCoordinator: ObservableObject {
                 SoundPlayer.shared.playActivation()
                 state = .listening
 
-                let session = try audioCapture.startContinuousRecording()
+                let session = try await audioCapture.startContinuousRecording()
                 dictationOverlay.show(text: L("overlay.listening"))
                 dictationOverlay.startLevelPolling(session: session)
 
@@ -536,7 +536,7 @@ final class ConversationCoordinator: ObservableObject {
 
         do {
             textCapture.rememberTargetApp()
-            let session = try audioCapture.startContinuousRecording()
+            let session = try await audioCapture.startContinuousRecording()
             dictationSession = session
 
             SoundPlayer.shared.playActivation()

@@ -28,7 +28,8 @@ final class MLXAudioSTTService: STTService, @unchecked Sendable {
         let audio = MLXArray(samples)
         Self.log.info("transcribe: model=qwen3 samples=\(samples.count) duration=\(duration)s")
 
-        let output = model.generate(audio: audio)
+        let params = STTGenerateParameters(language: "auto")
+        let output = model.generate(audio: audio, generationParameters: params)
 
         Self.log.info("transcribe: tokens=\(output.generationTokens) tps=\(output.generationTps) time=\(output.totalTime)s peak=\(output.peakMemoryUsage)GB")
 
@@ -50,7 +51,7 @@ final class MLXAudioSTTService: STTService, @unchecked Sendable {
         config.decodeIntervalSeconds = 0.5
         config.boundaryDecodeIntervalSeconds = 0.2
         config.delayPreset = .realtime          // ~200ms token promotion
-        config.language = "English"
+        config.language = "auto"
         config.temperature = 0.0
         config.finalizeCompletedWindows = true
         return StreamingInferenceSession(model: model, config: config)

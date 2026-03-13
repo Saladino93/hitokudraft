@@ -102,6 +102,7 @@
 /* Errors */
 "error.mic_not_granted" = "Microphone access not granted. Open Preferences → General to grant it.";
 "error.no_audio_input" = "No audio input available. Check your microphone.";
+"error.mic_in_use" = "Microphone may be in use by another app. Try again in a moment.";
 "error.engine_failed" = "Audio engine failed to start: %@";
 "error.empty_recording" = "Recording produced no audio. Check your microphone.";
 "error.too_quiet" = "Recording was too quiet — no speech detected.";
