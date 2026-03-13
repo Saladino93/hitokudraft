@@ -180,7 +180,7 @@ if $DRY_RUN; then
     echo "  1. Bump $PROJECT_YML → MARKETING_VERSION: \"$VERSION\", CURRENT_PROJECT_VERSION: \"$NEW_BUILD\""
     echo "  2. xcodegen generate (regenerate $XCODE_PROJECT)"
     echo "  3. xcodebuild archive -scheme $SCHEME → $ARCHIVE_PATH"
-    echo "  4. xcodebuild -exportArchive → $EXPORT_PATH (Developer ID signing)"
+    echo "  4. Manual codesign (inside-out) → $EXPORT_PATH (Developer ID signing)"
     echo "  5. xcrun notarytool submit → Apple notarization"
     echo "  6. xcrun stapler staple → embed notarization ticket"
     echo "  7. Create DMG: HitokuDraft-$VERSION.dmg"
@@ -244,22 +244,56 @@ else
     warn "No dSYMs found in archive"
 fi
 
-# Export with Developer ID signing
-info "Exporting with Developer ID signing..."
+# Export with Developer ID signing (manual inside-out codesign)
+# Sparkle's XPC services ship ad-hoc signed in the binary xcframework.
+# xcodebuild -exportArchive fails with errSecInternalComponent when trying
+# to re-sign them. The standard workaround is manual inside-out codesigning.
+info "Exporting with Developer ID signing (manual codesign)..."
 
-xcodebuild -exportArchive \
-    -archivePath "$ARCHIVE_PATH" \
-    -exportPath "$EXPORT_PATH" \
-    -exportOptionsPlist "$EXPORT_OPTIONS" \
-    -quiet
-
-ok "Export complete: $EXPORT_PATH"
-
-# The exported .app
+SIGNING_ID="$DETECTED_ID"
 EXPORTED_APP="$EXPORT_PATH/$DISPLAY_NAME.app"
-if [[ ! -d "$EXPORTED_APP" ]]; then
-    fail "Export did not produce $EXPORTED_APP"
-fi
+
+mkdir -p "$EXPORT_PATH"
+cp -R "$ARCHIVE_PATH/Products/Applications/$DISPLAY_NAME.app" "$EXPORTED_APP"
+ok "Copied .app from archive"
+
+# Sign everything inside-out: deepest nested bundles first, then outer layers.
+# The archive leaves some binaries ad-hoc signed; we must re-sign them all.
+SPARKLE_FW="$EXPORTED_APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+
+# 1) Sparkle's deeply nested XPC services and helpers
+info "Signing Sparkle components..."
+codesign -fs "$SIGNING_ID" --timestamp --options runtime "$SPARKLE_FW/XPCServices/Downloader.xpc"
+codesign -fs "$SIGNING_ID" --timestamp --options runtime "$SPARKLE_FW/XPCServices/Installer.xpc"
+codesign -fs "$SIGNING_ID" --timestamp --options runtime "$SPARKLE_FW/Updater.app"
+codesign -fs "$SIGNING_ID" --timestamp --options runtime "$SPARKLE_FW/Autoupdate"
+ok "Sparkle helpers signed"
+
+# 2) All dylibs in Contents/Frameworks/ (e.g., libswiftCompatibilitySpan.dylib)
+info "Signing dylibs..."
+find "$EXPORTED_APP/Contents/Frameworks" -maxdepth 1 -name "*.dylib" -exec \
+    codesign -fs "$SIGNING_ID" --timestamp --options runtime {} \;
+ok "Dylibs signed"
+
+# 3) All frameworks in Contents/Frameworks/ (Sparkle.framework and any others)
+info "Signing frameworks..."
+find "$EXPORTED_APP/Contents/Frameworks" -maxdepth 1 -name "*.framework" -exec \
+    codesign -fs "$SIGNING_ID" --timestamp --options runtime {} \;
+ok "Frameworks signed"
+
+# 4) Sign main app with entitlements extracted from archive
+#    The archive copy has Xcode-processed entitlements (team-identifier injected,
+#    unauthorized entitlements stripped). Using these instead of the raw .entitlements
+#    file avoids launch failures from iOS-only entitlements like increased-memory-limit.
+info "Extracting entitlements from archive..."
+codesign -d --entitlements :"$BUILD_DIR/archive-entitlements.plist" \
+    "$ARCHIVE_PATH/Products/Applications/$DISPLAY_NAME.app"
+ok "Archive entitlements extracted"
+
+info "Signing main app..."
+codesign -fs "$SIGNING_ID" --timestamp --options runtime \
+    --entitlements "$BUILD_DIR/archive-entitlements.plist" "$EXPORTED_APP"
+ok "Main app signed"
 
 EXPORT_SIZE=$(du -sh "$EXPORTED_APP" | cut -f1)
 info "Exported .app size: $EXPORT_SIZE"
@@ -273,9 +307,20 @@ info "Notarizing with Apple..."
 NOTARIZE_ZIP="$BUILD_DIR/notarize-$SCHEME.zip"
 ditto -c -k --keepParent "$EXPORTED_APP" "$NOTARIZE_ZIP"
 
-xcrun notarytool submit "$NOTARIZE_ZIP" \
+NOTARIZE_OUTPUT=$(xcrun notarytool submit "$NOTARIZE_ZIP" \
     --keychain-profile "$NOTARIZE_KEYCHAIN_PROFILE" \
-    --wait
+    --wait 2>&1) || true
+
+echo "$NOTARIZE_OUTPUT"
+
+# notarytool exits 0 even on Invalid — must check status text
+if echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
+    SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
+    warn "Fetching notarization log..."
+    xcrun notarytool log "$SUBMISSION_ID" --keychain-profile "$NOTARIZE_KEYCHAIN_PROFILE" 2>&1 || true
+    rm -f "$NOTARIZE_ZIP"
+    fail "Notarization failed (status: Invalid). See log above."
+fi
 
 rm -f "$NOTARIZE_ZIP"
 ok "Notarization accepted by Apple"

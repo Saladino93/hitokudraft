@@ -40,7 +40,7 @@ final class AudioCaptureService {
             throw AudioCaptureError.microphoneNotGranted
         }
 
-        let (engine, inputNode, tapFormat) = try startEngineWithRetries()
+        let (engine, inputNode, tapFormat) = try await startEngineWithRetries()
 
         let audioBuffer = ThreadSafeAudioBuffer()
         let tapSampleRate = tapFormat.sampleRate
@@ -233,13 +233,13 @@ final class AudioCaptureService {
     /// Starts a continuous recording session for dictation.
     /// Returns a `ContinuousSession` whose `audioBuffer` grows as audio arrives.
     /// Call `session.stop()` when done.
-    func startContinuousRecording() throws -> ContinuousSession {
+    func startContinuousRecording() async throws -> ContinuousSession {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             Self.log.error("Microphone permission not granted")
             throw AudioCaptureError.microphoneNotGranted
         }
 
-        let (engine, inputNode, tapFormat) = try startEngineWithRetries()
+        let (engine, inputNode, tapFormat) = try await startEngineWithRetries()
         return ContinuousSession(engine: engine, inputNode: inputNode, tapFormat: tapFormat,
                                  silenceDurationLimit: silenceDurationLimit)
     }
@@ -252,8 +252,9 @@ final class AudioCaptureService {
     /// The tap format is Float32/non-interleaved at the hardware sample rate and channel count.
     /// Passing this to `installTap(format:)` makes AVAudioEngine normalize audio internally,
     /// guaranteeing `floatChannelData` is always non-nil in the tap callback.
-    private func startEngineWithRetries() throws -> (AVAudioEngine, AVAudioInputNode, AVAudioFormat) {
+    private func startEngineWithRetries() async throws -> (AVAudioEngine, AVAudioInputNode, AVAudioFormat) {
         var lastError: Error?
+        var formatFailureCount = 0
 
         for attempt in 1...3 {
             let engine = AVAudioEngine()
@@ -266,7 +267,11 @@ final class AudioCaptureService {
             guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
                 Self.log.warning("Attempt \(attempt): invalid hwFormat (sampleRate=\(hwFormat.sampleRate), channels=\(hwFormat.channelCount)) — no usable audio input")
                 lastError = AudioCaptureError.noAudioInput
-                if attempt < 3 { engine.stop() }
+                formatFailureCount += 1
+                if attempt < 3 {
+                    engine.stop()
+                    try? await Task.sleep(for: .milliseconds(300))
+                }
                 continue
             }
 
@@ -280,7 +285,11 @@ final class AudioCaptureService {
             ) else {
                 Self.log.warning("Attempt \(attempt): AVAudioFormat returned nil for sampleRate=\(hwFormat.sampleRate), channels=\(hwFormat.channelCount)")
                 lastError = AudioCaptureError.noAudioInput
-                if attempt < 3 { engine.stop() }
+                formatFailureCount += 1
+                if attempt < 3 {
+                    engine.stop()
+                    try? await Task.sleep(for: .milliseconds(300))
+                }
                 continue
             }
 
@@ -299,7 +308,17 @@ final class AudioCaptureService {
                 if attempt < 3 {
                     // Engine is in a bad state — let it deallocate before retrying
                     engine.stop()
+                    try? await Task.sleep(for: .milliseconds(300))
                 }
+            }
+        }
+
+        // All retries exhausted — distinguish "mic in use" from "no mic at all"
+        if formatFailureCount == 3 {
+            let hasDevice = AVCaptureDevice.default(for: .audio) != nil
+            if hasDevice {
+                Self.log.warning("All 3 attempts got invalid format but a device exists — likely another app contention")
+                throw AudioCaptureError.microphoneInUse
             }
         }
 
@@ -365,6 +384,7 @@ final class AudioCaptureService {
     enum AudioCaptureError: LocalizedError {
         case microphoneNotGranted
         case noAudioInput
+        case microphoneInUse
         case engineStartFailed(Error)
         case emptyRecording
         case tooQuiet
@@ -375,6 +395,8 @@ final class AudioCaptureService {
                 return L("error.mic_not_granted")
             case .noAudioInput:
                 return L("error.no_audio_input")
+            case .microphoneInUse:
+                return L("error.mic_in_use")
             case .engineStartFailed(let underlying):
                 return L("error.engine_failed", underlying.localizedDescription)
             case .emptyRecording:

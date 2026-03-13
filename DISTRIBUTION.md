@@ -33,13 +33,14 @@ File: `VoiceEditor/VoiceEditor.entitlements`
 | Entitlement | Value | Notes |
 |---|---|---|
 | `com.apple.security.app-sandbox` | `false` | Required — sandbox blocks CGEventPost |
-| `com.apple.developer.kernel.increased-memory-limit` | `true` | Required for large LLM weights in RAM |
 | `com.apple.security.network.client` | `true` | Model downloads, update checks |
 | `com.apple.security.device.audio-input` | `true` | Microphone recording |
 | `com.apple.security.cs.disable-library-validation` | `true` | mlx-swift loads Metal shaders dynamically — App Store would reject this |
 | `com.apple.security.automation.apple-events` | `true` | Accessibility automation |
 
-No entitlement changes are needed. Hardened Runtime (`ENABLE_HARDENED_RUNTIME = YES` in `project.yml`) is already set, which is a notarization requirement.
+Hardened Runtime (`ENABLE_HARDENED_RUNTIME = YES` in `project.yml`) is already set, which is a notarization requirement.
+
+> **Removed in v1.0.1:** `com.apple.developer.kernel.increased-memory-limit` was removed because it is an **iOS-only** entitlement. On macOS, it has no effect — macOS processes already have access to all available RAM. Under `xcodebuild -exportArchive`, Xcode silently strips unauthorized entitlements, so it was harmless. But with manual codesigning (needed for Sparkle XPC, see §4), the entitlement is passed verbatim, and macOS rejects the app at launch with **POSIX error 153** (unauthorized entitlement). The fix is simple: don't include it.
 
 ---
 
@@ -123,17 +124,23 @@ Host the generated `appcast.xml` at `https://hitoku.me/apps/hitokudraft/appcast.
 
 ---
 
-## 4. Build pipeline — Xcode archive (the proper way)
+## 4. Build pipeline — Xcode archive + manual inside-out codesign
 
 ### Build scripts
 
 | Script | Purpose | When to use |
 |---|---|---|
-| `release.sh` | **Full release pipeline** — archive, sign, notarize, DMG, upload, tag | Shipping a release |
+| `release.sh` | **Full release pipeline** — archive, inside-out codesign, notarize, DMG, upload, tag | Shipping a release |
 | `bundle.sh` | Quick SPM build → `.app` (ad-hoc signed) | Dev iteration / local testing |
 | `build.sh` | Minimal SPM build → `.app` (ad-hoc signed) | Fastest dev builds |
 
-**For distribution, always use `release.sh`** (or Xcode → Product → Archive). The SPM scripts (`bundle.sh`, `build.sh`) are for development only — they skip Info.plist preprocessing, dead code stripping, dSYM generation, proper signing, and notarization.
+**For distribution, always use `release.sh`** (or the manual steps below). The SPM scripts (`bundle.sh`, `build.sh`) are for development only — they skip Info.plist preprocessing, dead code stripping, dSYM generation, proper signing, and notarization.
+
+### Why manual codesign instead of `xcodebuild -exportArchive`
+
+Sparkle's XPC services (`Downloader.xpc`, `Installer.xpc`) ship **ad-hoc signed** in the binary xcframework. When `xcodebuild -exportArchive` tries to re-sign them with a Developer ID certificate, it fails with `errSecInternalComponent` — the ad-hoc signatures conflict with the re-signing step.
+
+The standard Sparkle workaround is **manual inside-out codesigning**: copy the `.app` from the archive, then `codesign` from the deepest nested bundles outward (XPC services → helpers → dylibs → frameworks → main app). This gives you full control over each bundle's signing.
 
 ### Why Xcode archive, not `swift build`
 
@@ -178,42 +185,70 @@ These settings reduce the binary from ~69MB (unstripped SPM) to ~30MB (Xcode arc
 </plist>
 ```
 
-### Manual archive (if not using `release.sh`)
+### Manual archive + inside-out codesign (if not using `release.sh`)
 
 ```bash
 # 1. Regenerate Xcode project (if project.yml changed)
 xcodegen generate
 
-# 2. Archive
+# 2. Archive (builds + embeds frameworks, but does NOT sign for distribution)
 xcodebuild archive \
   -project HitokuDraft.xcodeproj \
   -scheme HitokuDraft \
   -configuration Release \
   -archivePath build/HitokuDraft.xcarchive
 
-# 3. Export with Developer ID signing
-xcodebuild -exportArchive \
-  -archivePath build/HitokuDraft.xcarchive \
-  -exportPath build/export \
-  -exportOptionsPlist ExportOptions.plist
+# 3. Copy .app from archive
+mkdir -p build/export
+cp -R "build/HitokuDraft.xcarchive/Products/Applications/Hitoku Draft.app" \
+  "build/export/Hitoku Draft.app"
 
-# 4. Notarize (signing alone is not enough — Gatekeeper requires notarization)
-ditto -c -k --keepParent "build/export/Hitoku Draft.app" build/export/HitokuDraft.zip
-xcrun notarytool submit build/export/HitokuDraft.zip \
+# 4. Inside-out codesign (deepest bundles first)
+SIGNING_ID="Developer ID Application: Your Name (R4S8W6UC7K)"
+APP="build/export/Hitoku Draft.app"
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+
+# 4a. Sparkle XPC services and helpers
+codesign -fs "$SIGNING_ID" --timestamp --options runtime "$SPARKLE/XPCServices/Downloader.xpc"
+codesign -fs "$SIGNING_ID" --timestamp --options runtime "$SPARKLE/XPCServices/Installer.xpc"
+codesign -fs "$SIGNING_ID" --timestamp --options runtime "$SPARKLE/Updater.app"
+codesign -fs "$SIGNING_ID" --timestamp --options runtime "$SPARKLE/Autoupdate"
+
+# 4b. All dylibs
+find "$APP/Contents/Frameworks" -maxdepth 1 -name "*.dylib" -exec \
+  codesign -fs "$SIGNING_ID" --timestamp --options runtime {} \;
+
+# 4c. All frameworks
+find "$APP/Contents/Frameworks" -maxdepth 1 -name "*.framework" -exec \
+  codesign -fs "$SIGNING_ID" --timestamp --options runtime {} \;
+
+# 4d. Extract Xcode-processed entitlements from archive, then sign main app
+codesign -d --entitlements :build/archive-entitlements.plist \
+  "build/HitokuDraft.xcarchive/Products/Applications/Hitoku Draft.app"
+codesign -fs "$SIGNING_ID" --timestamp --options runtime \
+  --entitlements build/archive-entitlements.plist "$APP"
+
+# 5. Verify signature
+codesign --verify --deep --strict "$APP"
+
+# 6. Notarize (signing alone is not enough — Gatekeeper requires notarization)
+ditto -c -k --keepParent "$APP" build/notarize.zip
+xcrun notarytool submit build/notarize.zip \
   --keychain-profile "HitokuDraft" \
   --wait
 
-# 5. Staple the notarization ticket (allows offline Gatekeeper verification)
-xcrun stapler staple "build/export/Hitoku Draft.app"
+# 7. Staple the notarization ticket (allows offline Gatekeeper verification)
+xcrun stapler staple "$APP"
 
-# 6. Verify
-codesign --verify --deep --strict "build/export/Hitoku Draft.app"
-spctl --assess --type exec "build/export/Hitoku Draft.app"
+# 8. Verify Gatekeeper
+spctl --assess --type exec "$APP"
 ```
 
 The archive also produces dSYMs at `build/HitokuDraft.xcarchive/dSYMs/` — keep these for crash symbolication.
 
-**Important**: `xcodebuild -exportArchive` only signs the app — it does **not** notarize it. Notarization is a separate submission to Apple's servers via `notarytool`. Without it, Gatekeeper shows "Apple could not verify this app is free of malware". The `release.sh` script handles all three steps (sign → notarize → staple) automatically.
+> **Why extract entitlements from the archive?** Xcode processes entitlements during archiving: it injects `application-identifier` and `com.apple.developer.team-identifier`, and strips iOS-only entitlements. The raw `.entitlements` file in the repo doesn't have these injected values. Using archive-extracted entitlements ensures the signed app has exactly what macOS expects.
+
+> **Deprecation note:** The `codesign -d --entitlements :-` syntax (colon + dash for stdout) is deprecated in newer Xcode toolchains. Use `codesign -d --entitlements :path` to write to a file instead.
 
 ### One-time: store notarization credentials
 
@@ -274,14 +309,14 @@ The resulting DMG is what you upload to Gumroad and GitHub Releases.
 - [x] Wire `SPUStandardUpdaterController` in `VoiceEditorApp.swift`
 - [x] Add "Check for Updates…" in SettingsView (Updates tab — intentionally not in menu bar)
 - [x] Create `ExportOptions.plist` at repo root (Developer ID config)
-- [ ] Bump `MARKETING_VERSION` to `1.0.0` in `project.yml` (currently `0.1.0`)
-- [ ] Set up `hitoku.me/apps/hitokudraft/appcast.xml` endpoint (Cloudflare Pages)
-- [ ] Install `create-dmg`: `brew install create-dmg`
-- [ ] Locate Sparkle's `generate_appcast` binary (built with SPM)
-- [ ] Store notarization credentials: `xcrun notarytool store-credentials`
-- [ ] Create Gumroad account and product
+- [x] Bump `MARKETING_VERSION` to `1.0.0` in `project.yml` (now at `1.0.1`)
+- [x] Set up `hitoku.me/apps/hitokudraft/appcast.xml` endpoint (Cloudflare Pages)
+- [x] Install `create-dmg`: `brew install create-dmg`
+- [x] Locate Sparkle's `generate_appcast` binary (built with SPM)
+- [x] Store notarization credentials: `xcrun notarytool store-credentials`
+- [x] Create Gumroad account and product
 - [ ] Create Privacy Policy page on `hitoku.me` (required by Gumroad)
-- [ ] App icon: 1024×1024 px PNG (no alpha) — wire `icon_app.png` in `Assets.xcassets`
+- [x] App icon: 1024×1024 px PNG (no alpha) — wire `icon_app.png` in `Assets.xcassets`
 - [ ] Verify model licenses allow Gumroad distribution:
   - Qwen3 (Alibaba): check commercial terms at [qwen license](https://huggingface.co/Qwen)
   - Granite 4 (IBM): Apache 2.0 — OK
@@ -294,7 +329,7 @@ All steps below are handled by `./release.sh [VERSION]`:
 
 - [ ] Bump `MARKETING_VERSION` + `CURRENT_PROJECT_VERSION` in `project.yml`
 - [ ] `xcodegen generate` (regenerate Xcode project)
-- [ ] `xcodebuild archive` → `xcodebuild -exportArchive` (Developer ID signing)
+- [ ] `xcodebuild archive` → manual inside-out codesign (Developer ID signing)
 - [ ] `xcrun notarytool submit --wait` (Apple notarization)
 - [ ] `xcrun stapler staple` (embed notarization ticket)
 - [ ] Package DMG with `create-dmg`
@@ -387,7 +422,7 @@ Use `release.sh` for the full per-release workflow:
 ./release.sh 1.0.0 --dry-run
 ```
 
-The script automates: version bump → `xcodegen generate` → `xcodebuild archive` → `xcodebuild -exportArchive` (Developer ID + notarize) → DMG creation → appcast generation → R2 upload → appcast deploy → git tagging.
+The script automates: version bump → `xcodegen generate` → `xcodebuild archive` → manual inside-out codesign (Developer ID) → notarize → staple → DMG creation → appcast generation → R2 upload → appcast deploy → git tagging.
 
 ### Hosting architecture
 
@@ -399,7 +434,7 @@ Sparkle update flow:
       → downloads.hitoku.me/hitokudraft/HitokuDraft-*.dmg  (R2)
 
 release.sh:
-  xcodegen → xcodebuild archive → exportArchive (sign + notarize) → DMG → appcast
+  xcodegen → xcodebuild archive → inside-out codesign → notarize → staple → DMG → appcast
     ├── wrangler r2 object put → DMG to R2 bucket
     ├── git push appcast.xml → hitokume repo → Cloudflare Pages
     └── git tag → hitokudraft repo

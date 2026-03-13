@@ -102,6 +102,7 @@
 /* Errors */
 "error.mic_not_granted" = "Acceso al micrófono no concedido. Abre Preferencias → General para concederlo.";
 "error.no_audio_input" = "No hay entrada de audio disponible. Comprueba tu micrófono.";
+"error.mic_in_use" = "El micrófono puede estar en uso por otra app. Inténtalo de nuevo en un momento.";
 "error.engine_failed" = "Error al iniciar el motor de audio: %@";
 "error.empty_recording" = "No se grabó audio. Comprueba tu micrófono.";
 "error.too_quiet" = "Grabación demasiado silenciosa — no se detectó habla.";
