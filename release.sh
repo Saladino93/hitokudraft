@@ -169,6 +169,51 @@ if [[ "$VERSION" == "$CURRENT_MARKETING" ]]; then
     fail "Version $VERSION is already the current version in $PROJECT_YML. Bump to a new version."
 fi
 
+# --- Version jump sanity check ---
+# Parse current and new versions into components
+CUR_MAJOR="${CURRENT_MARKETING%%.*}"
+CUR_REST="${CURRENT_MARKETING#*.}"
+CUR_MINOR="${CUR_REST%%.*}"
+CUR_PATCH="${CUR_REST#*.}"
+
+NEW_MAJOR="${VERSION%%.*}"
+NEW_REST="${VERSION#*.}"
+NEW_MINOR="${NEW_REST%%.*}"
+NEW_PATCH="${NEW_REST#*.}"
+
+JUMP_WARN=""
+
+# Check for backwards version (without a higher component bumping)
+if (( NEW_MAJOR < CUR_MAJOR )); then
+    JUMP_WARN="Major version goes backwards: $CURRENT_MARKETING → $VERSION"
+elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR < CUR_MINOR )); then
+    JUMP_WARN="Minor version goes backwards: $CURRENT_MARKETING → $VERSION"
+elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR == CUR_MINOR && NEW_PATCH < CUR_PATCH )); then
+    JUMP_WARN="Patch version goes backwards: $CURRENT_MARKETING → $VERSION"
+fi
+
+# Check for suspiciously large forward jumps
+if [[ -z "$JUMP_WARN" ]]; then
+    if (( NEW_MAJOR - CUR_MAJOR >= 1 )); then
+        JUMP_WARN="Major version jumps by $((NEW_MAJOR - CUR_MAJOR)): $CURRENT_MARKETING → $VERSION"
+    elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR - CUR_MINOR > 1 )); then
+        JUMP_WARN="Minor version jumps by $((NEW_MINOR - CUR_MINOR)): $CURRENT_MARKETING → $VERSION"
+    elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR == CUR_MINOR && NEW_PATCH - CUR_PATCH > 3 )); then
+        JUMP_WARN="Patch version jumps by $((NEW_PATCH - CUR_PATCH)): $CURRENT_MARKETING → $VERSION"
+    fi
+fi
+
+if [[ -n "$JUMP_WARN" ]]; then
+    echo ""
+    warn "Unusual version jump detected: $JUMP_WARN"
+    warn "Current: $CURRENT_MARKETING → New: $VERSION"
+    read -rp "$(echo -e "${YELLOW}⚠${NC}") Is this intentional? [y/N] " JUMP_CONFIRM
+    if [[ "$JUMP_CONFIRM" != [yY] ]]; then
+        echo "Aborted."
+        exit 1
+    fi
+fi
+
 # Calculate build number (increment current)
 NEW_BUILD=$((CURRENT_BUILD + 1))
 

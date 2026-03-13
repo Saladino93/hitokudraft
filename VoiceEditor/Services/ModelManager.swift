@@ -8,6 +8,7 @@ import MLXLMCommon
 final class ModelManager: ObservableObject {
     @Published var llmProgress: Double = 0
     @Published var sttReady = false
+    @Published var sttLoading = false
     @Published var llmReady = false
     @Published var statusMessage = ""
     @Published var selectedModel: ModelOption

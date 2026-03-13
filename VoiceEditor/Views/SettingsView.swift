@@ -388,6 +388,8 @@ struct SettingsView: View {
         default:
             if modelManager.llmReady && modelManager.sttReady {
                 Label(L("models.all_loaded"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            } else if modelManager.llmReady && modelManager.sttLoading {
+                Label(L("download.loading_stt"), systemImage: "arrow.down.circle").foregroundStyle(.blue)
             } else if modelManager.llmReady {
                 Label(L("models.llm_ready_stt_failed"), systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
             } else {
