@@ -109,6 +109,7 @@ final class ConversationCoordinator: ObservableObject {
 
         // Phase 2: STT — always runs (independent of LLM choice)
         if stt == nil {
+            modelManager.sttLoading = true
             do {
                 try await modelManager.reloadSTT()
                 stt = try await makeSttService()
@@ -117,6 +118,7 @@ final class ConversationCoordinator: ObservableObject {
                 // STT failure is non-fatal — log but don't block
                 Self.log.error("STT setup failed: \(error.localizedDescription, privacy: .public)")
             }
+            modelManager.sttLoading = false
         }
 
         setupHotkeys()
