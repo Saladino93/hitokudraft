@@ -20,6 +20,10 @@ final class ModelManager: ObservableObject {
     /// Path of the last successfully-loaded LLM — prevents redundant reloads.
     private(set) var loadedModelPath: String?
 
+    /// Path of the model that was loaded before the current one.
+    /// Used to restore the previous model when the user deletes the active custom model.
+    private(set) var previousModelPath: String?
+
     init(model: ModelOption? = nil) {
         if let model {
             self.selectedModel = model
@@ -42,6 +46,7 @@ final class ModelManager: ObservableObject {
 
         llmReady = false
         modelContainer = nil
+        if loadedModelPath != nil { previousModelPath = loadedModelPath }
         loadedModelPath = nil
         statusMessage = "Loading \(model.name)..."
 

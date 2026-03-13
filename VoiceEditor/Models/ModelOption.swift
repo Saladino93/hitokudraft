@@ -239,13 +239,32 @@ enum ModelRegistry {
         return true
     }
 
-    /// Removes a user-added model from the registry. Returns false if the model is bundled.
+    /// Removes a user-added model from the registry and deletes its cached weights from disk.
+    /// Local models (absolute paths) are unregistered but their files are not touched.
+    /// Returns false if the model is bundled.
     @discardableResult
     static func removeModel(_ model: ModelOption) -> Bool {
         guard !isBundled(model) else { return false }
         availableModels.removeAll { $0.path == model.path }
         save()
+        // Delete cached weights for HuggingFace models (not local paths)
+        if !model.isLocal {
+            deleteCachedWeights(for: model)
+        }
         return true
+    }
+
+    /// Deletes the cached model directory under ~/Library/Caches/models/<path>.
+    private static func deleteCachedWeights(for model: ModelOption) {
+        let fm = FileManager.default
+        guard let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        let dir = caches.appendingPathComponent("models").appendingPathComponent(model.path)
+        guard fm.fileExists(atPath: dir.path) else { return }
+        do {
+            try fm.removeItem(at: dir)
+        } catch {
+            print("Warning: Failed to delete model cache at \(dir.path): \(error)")
+        }
     }
 
     private static func save() {

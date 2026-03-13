@@ -185,7 +185,14 @@ struct SettingsView: View {
                     LabeledContent("") {
                         Button(L("model.remove")) {
                             let toRemove = modelManager.selectedModel
-                            modelManager.selectedModel = ModelRegistry.smartDefault
+                            // Restore the previously-used model to avoid unnecessary downloads
+                            if let prevPath = modelManager.previousModelPath,
+                               prevPath != toRemove.path,
+                               let prev = ModelRegistry.availableModels.first(where: { $0.path == prevPath }) {
+                                modelManager.selectedModel = prev
+                            } else {
+                                modelManager.selectedModel = ModelRegistry.smartDefault
+                            }
                             _ = ModelRegistry.removeModel(toRemove)
                         }
                         .buttonStyle(.link)

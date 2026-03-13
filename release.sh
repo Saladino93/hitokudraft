@@ -7,6 +7,7 @@ set -euo pipefail
 #   ./release.sh                    # interactive — prompts for version
 #   ./release.sh 1.2.0              # non-interactive — uses provided version
 #   ./release.sh 1.2.0 --dry-run   # show what would happen without executing
+#   ./release.sh --resume           # resume after a failed push/build (uses version already in project.yml)
 #
 # Prerequisites (one-time setup — see DISTRIBUTION.md §7):
 #   1. Developer ID certificate installed in Keychain
@@ -60,16 +61,20 @@ fail()  { echo -e "${RED}✗${NC} $1"; exit 1; }
 
 # --- Parse arguments ---
 DRY_RUN=false
+RESUME=false
 VERSION=""
 
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
+        --resume) RESUME=true ;;
         --help|-h)
             echo "Usage: ./release.sh [VERSION] [--dry-run]"
+            echo "       ./release.sh --resume"
             echo ""
             echo "  VERSION    Semantic version (e.g., 1.2.0). Prompted if omitted."
             echo "  --dry-run  Show what would happen without executing."
+            echo "  --resume   Resume a failed release (uses version already in project.yml)."
             exit 0
             ;;
         *)
@@ -151,126 +156,150 @@ CURRENT_MARKETING=$(grep 'MARKETING_VERSION:' "$PROJECT_YML" | head -1 | sed 's/
 CURRENT_BUILD=$(grep 'CURRENT_PROJECT_VERSION:' "$PROJECT_YML" | head -1 | sed 's/.*: *"\(.*\)"/\1/')
 info "Current version: $CURRENT_MARKETING (build $CURRENT_BUILD)"
 
-if [[ -z "$VERSION" ]]; then
-    echo ""
-    read -rp "Enter new version (e.g., 1.0.0): " VERSION
-fi
+if $RESUME; then
+    # --- Resume mode: use version already in project.yml ---
+    VERSION="$CURRENT_MARKETING"
+    NEW_BUILD="$CURRENT_BUILD"
 
-# Validate semver format
-if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    fail "Invalid version format: $VERSION (expected X.Y.Z)"
-fi
-
-# Check for duplicate version
-if git tag -l "v$VERSION" | grep -q "v$VERSION"; then
-    fail "Version v$VERSION already released (git tag exists). Use a new version number."
-fi
-if [[ "$VERSION" == "$CURRENT_MARKETING" ]]; then
-    fail "Version $VERSION is already the current version in $PROJECT_YML. Bump to a new version."
-fi
-
-# --- Version jump sanity check ---
-# Parse current and new versions into components
-CUR_MAJOR="${CURRENT_MARKETING%%.*}"
-CUR_REST="${CURRENT_MARKETING#*.}"
-CUR_MINOR="${CUR_REST%%.*}"
-CUR_PATCH="${CUR_REST#*.}"
-
-NEW_MAJOR="${VERSION%%.*}"
-NEW_REST="${VERSION#*.}"
-NEW_MINOR="${NEW_REST%%.*}"
-NEW_PATCH="${NEW_REST#*.}"
-
-JUMP_WARN=""
-
-# Check for backwards version (without a higher component bumping)
-if (( NEW_MAJOR < CUR_MAJOR )); then
-    JUMP_WARN="Major version goes backwards: $CURRENT_MARKETING → $VERSION"
-elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR < CUR_MINOR )); then
-    JUMP_WARN="Minor version goes backwards: $CURRENT_MARKETING → $VERSION"
-elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR == CUR_MINOR && NEW_PATCH < CUR_PATCH )); then
-    JUMP_WARN="Patch version goes backwards: $CURRENT_MARKETING → $VERSION"
-fi
-
-# Check for suspiciously large forward jumps
-if [[ -z "$JUMP_WARN" ]]; then
-    if (( NEW_MAJOR - CUR_MAJOR >= 1 )); then
-        JUMP_WARN="Major version jumps by $((NEW_MAJOR - CUR_MAJOR)): $CURRENT_MARKETING → $VERSION"
-    elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR - CUR_MINOR > 1 )); then
-        JUMP_WARN="Minor version jumps by $((NEW_MINOR - CUR_MINOR)): $CURRENT_MARKETING → $VERSION"
-    elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR == CUR_MINOR && NEW_PATCH - CUR_PATCH > 3 )); then
-        JUMP_WARN="Patch version jumps by $((NEW_PATCH - CUR_PATCH)): $CURRENT_MARKETING → $VERSION"
+    if git tag -l "v$VERSION" | grep -q "v$VERSION"; then
+        fail "Version v$VERSION already tagged — nothing to resume."
     fi
-fi
 
-if [[ -n "$JUMP_WARN" ]]; then
+    info "Resuming release: v$VERSION (build $NEW_BUILD)"
     echo ""
-    warn "Unusual version jump detected: $JUMP_WARN"
-    warn "Current: $CURRENT_MARKETING → New: $VERSION"
-    read -rp "$(echo -e "${YELLOW}⚠${NC}") Is this intentional? [y/N] " JUMP_CONFIRM
-    if [[ "$JUMP_CONFIRM" != [yY] ]]; then
+    read -rp "Continue release v$VERSION from where it left off? [y/N] " CONFIRM
+    if [[ "$CONFIRM" != [yY] ]]; then
         echo "Aborted."
         exit 1
     fi
-fi
 
-# Calculate build number (increment current)
-NEW_BUILD=$((CURRENT_BUILD + 1))
-
-info "Will release: v$VERSION (build $NEW_BUILD)"
-
-if $DRY_RUN; then
-    echo ""
-    info "[DRY RUN] Would perform the following:"
-    echo "  1. Bump $PROJECT_YML → MARKETING_VERSION: \"$VERSION\", CURRENT_PROJECT_VERSION: \"$NEW_BUILD\""
-    echo "  2. xcodegen generate (regenerate $XCODE_PROJECT)"
-    echo "  2b. git add -A && git commit && git push origin main"
-    echo "  3. xcodebuild archive -scheme $SCHEME → $ARCHIVE_PATH"
-    echo "  4. Manual codesign (inside-out) → $EXPORT_PATH (Developer ID signing)"
-    echo "  5. xcrun notarytool submit → Apple notarization"
-    echo "  6. xcrun stapler staple → embed notarization ticket"
-    echo "  7. Create DMG: HitokuDraft-$VERSION.dmg"
-    echo "  8. Generate appcast.xml from DMG"
-    echo "  9. Upload DMG to R2: $R2_BUCKET/$APP_SLUG/HitokuDraft-$VERSION+XXXX.dmg"
-    echo "  10. Push appcast.xml → hitokume repo → Cloudflare Pages"
-    echo "  11. Tag: git tag v$VERSION && git push origin v$VERSION"
-    echo "  12. Only manual step: update Gumroad product file"
-    exit 0
-fi
-
-# Confirm
-echo ""
-read -rp "Proceed with release v$VERSION? [y/N] " CONFIRM
-if [[ "$CONFIRM" != [yY] ]]; then
-    echo "Aborted."
-    exit 1
-fi
-
-# --- Step 2: Bump version + regenerate Xcode project ---
-info "Bumping version in $PROJECT_YML..."
-
-sed -i '' "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/" "$PROJECT_YML"
-sed -i '' "s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$NEW_BUILD\"/" "$PROJECT_YML"
-
-ok "Version bumped to $VERSION (build $NEW_BUILD)"
-
-info "Regenerating Xcode project..."
-xcodegen generate
-ok "Xcode project regenerated"
-
-# --- Step 2b: Commit all changes + push ---
-info "Committing all changes..."
-git add -A
-if git diff --cached --quiet; then
-    ok "Working tree already clean — nothing to commit"
+    # Push commit if not already on remote
+    info "Pushing to origin..."
+    git push origin main
+    ok "Pushed to origin"
 else
-    git commit -m "v$VERSION: release $DISPLAY_NAME $VERSION (build $NEW_BUILD)"
-    ok "Committed: v$VERSION"
-fi
+    # --- Normal mode: validate + bump + commit ---
+    if [[ -z "$VERSION" ]]; then
+        echo ""
+        read -rp "Enter new version (e.g., 1.0.0): " VERSION
+    fi
 
-info "Pushing to origin..."
-git push origin main
-ok "Pushed to origin"
+    # Validate semver format
+    if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        fail "Invalid version format: $VERSION (expected X.Y.Z)"
+    fi
+
+    # Check for duplicate version
+    if git tag -l "v$VERSION" | grep -q "v$VERSION"; then
+        fail "Version v$VERSION already released (git tag exists). Use a new version number."
+    fi
+    if [[ "$VERSION" == "$CURRENT_MARKETING" ]]; then
+        fail "Version $VERSION is already the current version in $PROJECT_YML. Bump to a new version."
+    fi
+
+    # --- Version jump sanity check ---
+    # Parse current and new versions into components
+    CUR_MAJOR="${CURRENT_MARKETING%%.*}"
+    CUR_REST="${CURRENT_MARKETING#*.}"
+    CUR_MINOR="${CUR_REST%%.*}"
+    CUR_PATCH="${CUR_REST#*.}"
+
+    NEW_MAJOR="${VERSION%%.*}"
+    NEW_REST="${VERSION#*.}"
+    NEW_MINOR="${NEW_REST%%.*}"
+    NEW_PATCH="${NEW_REST#*.}"
+
+    JUMP_WARN=""
+
+    # Check for backwards version (without a higher component bumping)
+    if (( NEW_MAJOR < CUR_MAJOR )); then
+        JUMP_WARN="Major version goes backwards: $CURRENT_MARKETING → $VERSION"
+    elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR < CUR_MINOR )); then
+        JUMP_WARN="Minor version goes backwards: $CURRENT_MARKETING → $VERSION"
+    elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR == CUR_MINOR && NEW_PATCH < CUR_PATCH )); then
+        JUMP_WARN="Patch version goes backwards: $CURRENT_MARKETING → $VERSION"
+    fi
+
+    # Check for suspiciously large forward jumps
+    if [[ -z "$JUMP_WARN" ]]; then
+        if (( NEW_MAJOR - CUR_MAJOR >= 1 )); then
+            JUMP_WARN="Major version jumps by $((NEW_MAJOR - CUR_MAJOR)): $CURRENT_MARKETING → $VERSION"
+        elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR - CUR_MINOR > 1 )); then
+            JUMP_WARN="Minor version jumps by $((NEW_MINOR - CUR_MINOR)): $CURRENT_MARKETING → $VERSION"
+        elif (( NEW_MAJOR == CUR_MAJOR && NEW_MINOR == CUR_MINOR && NEW_PATCH - CUR_PATCH > 3 )); then
+            JUMP_WARN="Patch version jumps by $((NEW_PATCH - CUR_PATCH)): $CURRENT_MARKETING → $VERSION"
+        fi
+    fi
+
+    if [[ -n "$JUMP_WARN" ]]; then
+        echo ""
+        warn "Unusual version jump detected: $JUMP_WARN"
+        warn "Current: $CURRENT_MARKETING → New: $VERSION"
+        read -rp "$(echo -e "${YELLOW}⚠${NC}") Is this intentional? [y/N] " JUMP_CONFIRM
+        if [[ "$JUMP_CONFIRM" != [yY] ]]; then
+            echo "Aborted."
+            exit 1
+        fi
+    fi
+
+    # Calculate build number (increment current)
+    NEW_BUILD=$((CURRENT_BUILD + 1))
+
+    info "Will release: v$VERSION (build $NEW_BUILD)"
+
+    if $DRY_RUN; then
+        echo ""
+        info "[DRY RUN] Would perform the following:"
+        echo "  1. Bump $PROJECT_YML → MARKETING_VERSION: \"$VERSION\", CURRENT_PROJECT_VERSION: \"$NEW_BUILD\""
+        echo "  2. xcodegen generate (regenerate $XCODE_PROJECT)"
+        echo "  2b. git add -A && git commit && git push origin main"
+        echo "  3. xcodebuild archive -scheme $SCHEME → $ARCHIVE_PATH"
+        echo "  4. Manual codesign (inside-out) → $EXPORT_PATH (Developer ID signing)"
+        echo "  5. xcrun notarytool submit → Apple notarization"
+        echo "  6. xcrun stapler staple → embed notarization ticket"
+        echo "  7. Create DMG: HitokuDraft-$VERSION.dmg"
+        echo "  8. Generate appcast.xml from DMG"
+        echo "  9. Upload DMG to R2: $R2_BUCKET/$APP_SLUG/HitokuDraft-$VERSION+XXXX.dmg"
+        echo "  10. Push appcast.xml → hitokume repo → Cloudflare Pages"
+        echo "  11. Tag: git tag v$VERSION && git push origin v$VERSION"
+        echo "  12. Only manual step: update Gumroad product file"
+        exit 0
+    fi
+
+    # Confirm
+    echo ""
+    read -rp "Proceed with release v$VERSION? [y/N] " CONFIRM
+    if [[ "$CONFIRM" != [yY] ]]; then
+        echo "Aborted."
+        exit 1
+    fi
+
+    # --- Step 2: Bump version + regenerate Xcode project ---
+    info "Bumping version in $PROJECT_YML..."
+
+    sed -i '' "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/" "$PROJECT_YML"
+    sed -i '' "s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$NEW_BUILD\"/" "$PROJECT_YML"
+
+    ok "Version bumped to $VERSION (build $NEW_BUILD)"
+
+    info "Regenerating Xcode project..."
+    xcodegen generate
+    ok "Xcode project regenerated"
+
+    # --- Step 2b: Commit all changes + push ---
+    info "Committing all changes..."
+    git add -A
+    if git diff --cached --quiet; then
+        ok "Working tree already clean — nothing to commit"
+    else
+        git commit -m "v$VERSION: release $DISPLAY_NAME $VERSION (build $NEW_BUILD)"
+        ok "Committed: v$VERSION"
+    fi
+
+    info "Pushing to origin..."
+    git push origin main
+    ok "Pushed to origin"
+fi
 
 # --- Step 3: Archive + Export + Notarize + Staple ---
 info "Archiving..."
