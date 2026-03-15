@@ -4,3 +4,24 @@ Checking if the square is still there and it looks like it's still there
 
 
 Questo funziona anche per l'italiano, se non mi ricordo male.
+
+
+───  WARNING ON MEMORY                                                                                   
+                                                                                                        
+Depending on the memory of your Mac (8 GB, 16 GB, 48 GB, etc.), you will get different results and be    
+able to load different models.                                                
+                                                                                                    
+We suggest sticking with smaller models if you have under 16 GB, and exploring larger models if you have 
+more.
+                                                                                                    
+We will make smaller, better models available in the future, and offer fine-tuned models for your use
+case!                                                                                                    
+                                                                                                    
+───                                                                                                      
+                                    
+$29 — one-time. No subscription. No hidden fees.                                                         
+                                                                                                    
+Full details and docs: hitoku.me
+                                                                                                    
+Contact us at support@hitoku.me if you want to share your experience, would like additional features, or
+for general support.   

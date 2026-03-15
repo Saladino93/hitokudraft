@@ -2,13 +2,17 @@ import AppKit
 import Combine
 import SwiftUI
 
+
 /// HUD visual style variants.
 enum HUDStyle {
     /// Ultra-clean minimal capsule: no border, very soft shadow.
     case minimal
     /// Glassy macOS capsule: ultra-subtle inner stroke, slightly more defined shadow.
     case glassy
+    /// Ghost pill: nearly invisible, heavy blur, wallpaper bleed-through.
+    case ghost
 }
+
 
 /// A floating, non-activating panel that shows live dictation text
 /// with an animated waveform visualization driven by real-time audio level.
@@ -17,11 +21,14 @@ final class DictationOverlayPanel {
     private var panel: NSPanel?
     private let viewModel = OverlayViewModel()
 
-    /// Change this to switch between `.minimal` and `.glassy` capsule styles.
-    var style: HUDStyle = .minimal
+
+    /// Change this to switch between `.minimal`, `.glassy`, and `.ghost` capsule styles.
+    var style: HUDStyle = .ghost
+
 
     func show(text: String) {
         viewModel.text = text
+
 
         if panel == nil {
             createPanel()
@@ -29,10 +36,12 @@ final class DictationOverlayPanel {
         panel?.orderFrontRegardless()
     }
 
+
     /// Start polling audio level from a ContinuousSession at ~30fps.
     func startLevelPolling(session: AudioCaptureService.ContinuousSession) {
         viewModel.startPolling(session: session)
     }
+
 
     func hide() {
         viewModel.stopPolling()
@@ -40,10 +49,12 @@ final class DictationOverlayPanel {
         panel = nil
     }
 
+
     private func createPanel() {
         // Oversized so SwiftUI drop shadows aren't clipped by window edges
         let panelWidth: CGFloat = 320
         let panelHeight: CGFloat = 90
+
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
@@ -59,15 +70,14 @@ final class DictationOverlayPanel {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        // Position: keep visible capsule center at same screen position as before
-        // Old: 44pt panel, origin.y = maxY - 60  →  center-y = maxY - 38
-        // New: 90pt panel  →  origin.y = maxY - 38 - 45 = maxY - 83
+
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
             let x = frame.midX - panelWidth / 2
             let y = frame.maxY - 83
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
+
 
         let hostingView = NSHostingView(
             rootView: DictationOverlayContent(viewModel: viewModel, style: style)
@@ -86,20 +96,23 @@ final class DictationOverlayPanel {
     }
 }
 
+
 // MARK: - ViewModel
+
 
 @MainActor
 private final class OverlayViewModel: ObservableObject {
     @Published var text: String = "Dictating..."
     @Published var audioLevel: CGFloat = 0
 
+
     private var displayLink: CVDisplayLink?
     private weak var session: AudioCaptureService.ContinuousSession?
     private var timer: Timer?
 
+
     func startPolling(session: AudioCaptureService.ContinuousSession) {
         self.session = session
-        // Use a Timer at ~30fps to read the thread-safe audioLevel
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
@@ -108,6 +121,7 @@ private final class OverlayViewModel: ObservableObject {
         }
     }
 
+
     func stopPolling() {
         timer?.invalidate()
         timer = nil
@@ -115,68 +129,102 @@ private final class OverlayViewModel: ObservableObject {
         audioLevel = 0
     }
 
+
     private func pollLevel() {
         guard let session else {
             audioLevel = 0
             return
         }
-        // Map RMS (typically 0..0.3 for speech) to 0..1 range
         let raw = CGFloat(session.audioLevel)
         let normalized = min(raw / 0.15, 1.0)
         audioLevel = normalized
     }
 }
 
+
 // MARK: - Overlay View
+
 
 private struct DictationOverlayContent: View {
     @ObservedObject var viewModel: OverlayViewModel
-    var style: HUDStyle = .minimal
+    var style: HUDStyle = .ghost
+
 
     var body: some View {
         HStack(spacing: 8) {
             WaveformBarsView(level: viewModel.audioLevel)
                 .frame(width: 29, height: 16)
 
+
             Text(viewModel.text)
                 .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(.white.opacity(0.92))
+                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                 .lineLimit(2)
                 .truncationMode(.head)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
         .frame(width: 256, height: 35)
-        // 1. Properly mask the material at the source
-        .background(.regularMaterial, in: Capsule())
-        // 2. The shadow will now natively conform to the masked Capsule shape
-        .shadow(
-            color: .black.opacity(style == .glassy ? 0.25 : 0.15),
-            radius: style == .glassy ? 10 : 16,
-            x: 0, y: -2
-        )
-        .overlay {
-            if style == .glassy {
-                Capsule().strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+        .background {
+            switch style {
+            case .ghost:
+                // Ghost pill: ultra-transparent white tint + heavy blur
+                Capsule()
+                    .fill(.white.opacity(0.18))
+                    .background(
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                    )
+                    .clipShape(Capsule())
+
+            case .minimal:
+                Capsule()
+                    .fill(.regularMaterial)
+
+            case .glassy:
+                Capsule()
+                    .fill(.regularMaterial)
             }
         }
+        .overlay {
+            switch style {
+            case .ghost:
+                // Barely-visible white inner stroke
+                Capsule()
+                    .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+
+            case .glassy:
+                Capsule()
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+
+            case .minimal:
+                EmptyView()
+            }
+        }
+        // Ghost: no shadow at all — the pill should vanish into the wallpaper
+        // Minimal/Glassy: keep their existing shadow behavior
+        .shadow(
+            color: .black.opacity(style == .ghost ? 0 : (style == .glassy ? 0.25 : 0.15)),
+            radius: style == .ghost ? 0 : (style == .glassy ? 10 : 16),
+            x: 0, y: -2
+        )
     }
 }
 
+
 // MARK: - Waveform Bars
+
 
 private struct WaveformBarsView: View {
     let level: CGFloat
 
-    /// 5 bars with center-weighted height distribution
+
     private let barCount = 5
-
-    /// Center-weighting: bars near the center are taller
     private let weights: [CGFloat] = [0.5, 0.8, 1.0, 0.8, 0.5]
-
-    /// Noise floor — below this, show minimum bar height
     private let noiseFloor: CGFloat = 0.05
+
 
     var body: some View {
         HStack(spacing: 2.5) {
@@ -189,18 +237,22 @@ private struct WaveformBarsView: View {
         }
     }
 
+
     private func barHeight(for index: Int) -> CGFloat {
         let minHeight: CGFloat = 2.5
         let maxHeight: CGFloat = 14.0
+
 
         guard level > noiseFloor else {
             return minHeight
         }
 
+
         let weight = weights[index]
         let height = minHeight + (maxHeight - minHeight) * level * weight
         return min(height, maxHeight)
     }
+
 
     private var barColor: Color {
         if level > noiseFloor {
@@ -210,17 +262,19 @@ private struct WaveformBarsView: View {
     }
 }
 
+
 private struct WaveformBar: View {
     let height: CGFloat
     let color: Color
 
+
     private let maxHeight: CGFloat = 14.0
+
 
     var body: some View {
         Capsule()
             .fill(color)
             .shadow(color: color.opacity(0.6), radius: 4, x: 0, y: 0)
-            //.drawingGroup()
             .frame(width: 2.5, height: maxHeight)
             .scaleEffect(y: height / maxHeight, anchor: .center)
             .animation(.linear(duration: 0.05), value: height)

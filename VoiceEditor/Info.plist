@@ -41,5 +41,7 @@
     <string>EqgkdjSE/dGbY5loypfWqESABQXl558qO4jx7SBWIQc=</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>43200</integer>
 </dict>
 </plist>
