@@ -58,7 +58,13 @@ final class TextCaptureService {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
-        targetApp?.activate()
+        // Paste into the currently focused app — not the one stored at recording start.
+        // If the user switched apps during recording, respect their current focus.
+        let currentApp = NSWorkspace.shared.frontmostApplication
+        let pasteTarget = currentApp?.bundleIdentifier == Bundle.main.bundleIdentifier
+            ? targetApp  // Our app is focused (e.g., overlay) — fall back to stored target
+            : currentApp
+        pasteTarget?.activate()
         try await Task.sleep(for: .milliseconds(100))
 
         simulateKeyPress(keyCode: 0x09, flags: .maskCommand)  // Cmd+V

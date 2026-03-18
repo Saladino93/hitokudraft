@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage("activationSound")      private var activationSound: String = "Glass"
     @AppStorage("completionSound")      private var completionSound: String = "Glass"
     @AppStorage("appLanguage")           private var appLanguage: String = AppLocalization.detectInitialLanguage()
+    @AppStorage("contextAwareMode")      private var contextAwareMode: String = "off"
 
     // MARK: - Navigation State
     private enum Tab { case general, model, updates }
@@ -44,8 +45,8 @@ struct SettingsView: View {
     // MARK: - Dynamic Window Height
     private var currentHeight: CGFloat {
         switch selectedTab {
-        case .general: return 430
-        case .model: return 400
+        case .general: return 490
+        case .model: return 320
         case .updates: return 125
         }
     }
@@ -142,6 +143,34 @@ struct SettingsView: View {
                     Text(L("recording.silence_timeout_desc"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer().frame(height: 18)
+
+            // --- Context Awareness ---
+            LabeledContent(L("context.label")) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("", selection: $contextAwareMode) {
+                        Text(L("context.off")).tag("off")
+                        Text(L("context.standard")).tag("standard")
+                        Text(L("context.advanced")).tag("advanced")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 300)
+
+                    Text(L("context.desc"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer().frame(height: 8)
+
+            LabeledContent(L("permission.screen_recording")) {
+                permissionRow(granted: coordinator.permissions.screenRecordingGranted) {
+                    coordinator.permissions.requestScreenRecording()
                 }
             }
 
