@@ -130,3 +130,11 @@
 "English only" = "Solo inglese";
 "Local Folder" = "Cartella locale";
 "Hugging Face" = "Hugging Face";
+
+/* Settings — Context Awareness */
+"context.label" = "Schermo attivo:";
+"context.off" = "Disattivato";
+"context.standard" = "Standard";
+"context.advanced" = "Avanzato";
+"context.desc" = "Standard legge il contesto testo. Avanzato aggiunge OCR schermo.";
+"permission.screen_recording" = "Registrazione schermo:";

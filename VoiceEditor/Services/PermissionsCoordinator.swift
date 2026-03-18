@@ -6,6 +6,7 @@ import Combine
 final class PermissionsCoordinator: ObservableObject {
     @Published var accessibilityGranted = false
     @Published var microphoneGranted = false
+    @Published var screenRecordingGranted = false
 
     private var pollTimer: Timer?
 
@@ -19,6 +20,7 @@ final class PermissionsCoordinator: ObservableObject {
     init() {
         checkAccessibility()
         checkMicrophone()
+        checkScreenRecording()
         startPolling()
 
         if !accessibilityGranted {
@@ -52,11 +54,20 @@ final class PermissionsCoordinator: ObservableObject {
         microphoneGranted = await AVCaptureDevice.requestAccess(for: .audio)
     }
 
+    func checkScreenRecording() {
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
+    }
+
+    func requestScreenRecording() {
+        CGRequestScreenCaptureAccess()
+    }
+
     private func startPolling() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkAccessibility()
                 self?.checkMicrophone()
+                self?.checkScreenRecording()
             }
         }
     }

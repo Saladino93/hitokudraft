@@ -16,6 +16,7 @@ final class ConversationCoordinator: ObservableObject {
 
     private let textCapture = TextCaptureService()
     private let audioCapture = AudioCaptureService()
+    private let contextCapture = ContextCaptureService()
     private var stt: (any STTService)?
     private var llm: (any LLMService)?
     private var hotkeyManager: HotkeyManager?
@@ -24,6 +25,12 @@ final class ConversationCoordinator: ObservableObject {
     private var streamingTask: Task<Void, Never>?
     private var voiceEditTask: Task<Void, Never>?
     private let dictationOverlay = DictationOverlayPanel()
+
+    private var contextAwareMode: ContextAwareMode {
+        let raw = UserDefaults.standard.string(forKey: "contextAwareMode") ?? "off"
+        return ContextAwareMode(rawValue: raw) ?? .off
+    }
+    private var lastContextMode: ContextAwareMode = .off
     /// Last finalized text from a native streaming session (Qwen3-ASR).
     /// Set by `runStreamingTranscription` for `stopDictation()` to use.
     private var lastStreamingTranscription: String?
@@ -64,6 +71,18 @@ final class ConversationCoordinator: ObservableObject {
         permissions.onAccessibilityGranted = { [weak self] in
             self?.setupHotkeys()
         }
+
+        // Rebuild LLM service when context awareness mode changes (updates system prompt)
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let newMode = self.contextAwareMode
+                if newMode != self.lastContextMode {
+                    self.lastContextMode = newMode
+                    self.rebuildLLMServiceIfNeeded()
+                }
+            }
+            .store(in: &cancellables)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -325,6 +344,7 @@ final class ConversationCoordinator: ObservableObject {
         voiceEditTask = Task { [weak self] in
             guard let self else { return }
 
+            let screenContext = await contextCapture.capture(mode: contextAwareMode)
             var savedClipboard: TextCaptureService.ClipboardSnapshot?
 
             do {
@@ -408,13 +428,13 @@ final class ConversationCoordinator: ObservableObject {
 
                 if draftMode {
                     if modelManager.selectedModel.useVoiceCleanPrompt {
-                        prompt = Prompts.voiceCleanDraft(instruction: trimmedCommand)
+                        prompt = Prompts.voiceCleanDraft(instruction: trimmedCommand, context: screenContext)
                     } else {
-                        prompt = Prompts.draft(instruction: trimmedCommand)
+                        prompt = Prompts.draft(instruction: trimmedCommand, context: screenContext)
                     }
                     maxTokens = Prompts.draftMaxTokens
                 } else {
-                    prompt = Prompts.edit(text: selectedText, instruction: trimmedCommand)
+                    prompt = Prompts.edit(text: selectedText, instruction: trimmedCommand, context: screenContext)
                     maxTokens = Prompts.editMaxTokens(for: selectedText)
                 }
 
@@ -466,6 +486,7 @@ final class ConversationCoordinator: ObservableObject {
         var savedClipboard: TextCaptureService.ClipboardSnapshot?
 
         do {
+            let screenContext = await contextCapture.capture(mode: contextAwareMode)
             savedClipboard = textCapture.saveClipboard()
             let selectedText = try await textCapture.captureSelectedText()
 
@@ -484,7 +505,7 @@ final class ConversationCoordinator: ObservableObject {
 
             let lang = LanguageDetector.detect(selectedText)
             let instruction = Instructions.forLanguage(lang)
-            let prompt = Prompts.edit(text: selectedText, instruction: instruction)
+            let prompt = Prompts.edit(text: selectedText, instruction: instruction, context: screenContext)
             let maxTokens = Prompts.editMaxTokens(for: selectedText)
 
             let result = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
@@ -662,10 +683,21 @@ final class ConversationCoordinator: ObservableObject {
             .appendingPathComponent("models")
     }
 
+    /// Rebuilds the LLM service wrapper when context mode toggles (updates system prompt).
+    /// Cheap operation — no model reload, just creates a new MLXLLMService with the right prompt.
+    private func rebuildLLMServiceIfNeeded() {
+        guard state == .idle, let container = modelManager.modelContainer else { return }
+        llm = makeLLMService(container: container)
+    }
+
     private func makeLLMService(container: ModelContainer) -> MLXLLMService {
-        let prompt = modelManager.selectedModel.useVoiceCleanPrompt
-            ? Prompts.voiceCleanSystemPrompt
-            : Prompts.systemPrompt
+        let isScreenAware = contextAwareMode != .off
+        let prompt: String
+        if modelManager.selectedModel.useVoiceCleanPrompt {
+            prompt = isScreenAware ? Prompts.screenAwareVoiceCleanSystemPrompt : Prompts.voiceCleanSystemPrompt
+        } else {
+            prompt = isScreenAware ? Prompts.screenAwareSystemPrompt : Prompts.systemPrompt
+        }
         return MLXLLMService(
             container: container,
             disableThinking: modelManager.selectedModel.disableThinking,

@@ -8,9 +8,25 @@ enum Prompts {
         no commentary, no explanations, no preamble.
         """
 
-    static func edit(text: String, instruction: String) -> String {
+    static let screenAwareSystemPrompt = """
+        You are a precise, concise text editor and writing assistant. \
+        Follow instructions exactly. Output ONLY the requested text — \
+        no commentary, no explanations, no preamble. \
+        You can see what the user has on their screen (app name, window title, visible text). \
+        Use this context when relevant to give more accurate results. \
+        If the screen context is unrelated to the request, ignore it completely.
+        """
+
+    static func edit(text: String, instruction: String, context: ScreenContext? = nil) -> String {
         let langCode = LanguageDetector.detect(text)
         let langRule = languageRule(for: langCode)
+
+        let contextBlock: String
+        if let block = context?.promptBlock {
+            contextBlock = "\n\(block)\n"
+        } else {
+            contextBlock = ""
+        }
 
         return """
         You are a precise text editor. The user dictated the INSTRUCTION via voice — \
@@ -21,7 +37,7 @@ enum Prompts {
         - Output ONLY the rewritten text. No explanation, no preamble, no notes.
         - \(langRule)
         - Keep formatting (line breaks, bullet points) unless asked to change it.
-
+        \(contextBlock)
         TEXT:
         \(text)
 
@@ -32,9 +48,16 @@ enum Prompts {
         """
     }
 
-    static func draft(instruction: String) -> String {
+    static func draft(instruction: String, context: ScreenContext? = nil) -> String {
         let langCode = LanguageDetector.detect(instruction)
         let langRule = languageRule(for: langCode)
+
+        let contextBlock: String
+        if let block = context?.promptBlock {
+            contextBlock = "\n\(block)\n"
+        } else {
+            contextBlock = ""
+        }
 
         return """
         \(langRule)
@@ -42,7 +65,7 @@ enum Prompts {
         Produce ONLY the requested content — no preamble, no commentary.
         Do NOT repeat or paraphrase the user's request.
         Write directly, as if the text will be pasted into a document.
-
+        \(contextBlock)
         Request: \(instruction)
 
         """
@@ -92,14 +115,30 @@ enum Prompts {
         Reply in the SAME language as the input.
         """
 
+    static let screenAwareVoiceCleanSystemPrompt = """
+        You are a versatile text editor and writing assistant. \
+        The user's input was dictated via voice — it may contain filler words, \
+        hesitations, or minor transcription errors. Interpret the user's intent. \
+        Output ONLY the requested text — no commentary, no explanations, no preamble. \
+        Reply in the SAME language as the input. \
+        You can see what the user has on their screen. \
+        Use this context when relevant. Ignore it when unrelated.
+        """
+
     /// Draft prompt for small models — avoids labeled fields that small models echo,
     /// but still clearly instructs the model to generate new content.
-    static func voiceCleanDraft(instruction: String) -> String {
-        """
+    static func voiceCleanDraft(instruction: String, context: ScreenContext? = nil) -> String {
+        let contextBlock: String
+        if let block = context?.promptBlock {
+            contextBlock = "\n\(block)\n\n"
+        } else {
+            contextBlock = ""
+        }
+
+        return """
         The user wants you to write new content. Do not clean up or rewrite their request — \
         produce the actual content they are asking for. Output only the content, nothing else.
-
-        \(instruction)
+        \(contextBlock)\(instruction)
         """
     }
 }
