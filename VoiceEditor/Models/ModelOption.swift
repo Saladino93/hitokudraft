@@ -192,14 +192,6 @@ enum ModelRegistry {
             description: "Strongest editing and drafting quality",
             estimatedMemoryGB: 4.61
         ),
-        ModelOption(
-            name: "Qwen3.5 9B 8-bit",
-            path: "mlx-community/Qwen3.5-9B-8bit",
-            extraEOSTokens: ["<|im_end|>"],
-            disableThinking: true,
-            description: "Top-tier multilingual editing and drafting",
-            estimatedMemoryGB: 9.6
-        ),
     ]
 
     /// Selects the best default model for the current device's RAM and language.

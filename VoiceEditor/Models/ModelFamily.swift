@@ -26,6 +26,19 @@ protocol ModelFamily {
 
     /// Whether to append /no_think to user prompts (Qwen3).
     var disableThinking: Bool { get }
+
+    /// Maximum tokens for draft generation.
+    var draftMaxTokens: Int { get }
+
+    /// Maximum tokens for edit generation, scaled by input text length.
+    func editMaxTokens(for text: String) -> Int
+}
+
+// MARK: - Protocol defaults
+
+extension ModelFamily {
+    var draftMaxTokens: Int { Prompts.draftMaxTokens }
+    func editMaxTokens(for text: String) -> Int { Prompts.editMaxTokens(for: text) }
 }
 
 // MARK: - Default
@@ -103,9 +116,11 @@ struct LFMModelFamily: ModelFamily {
     func postProcess(_ rawOutput: String) -> String {
         var result = rawOutput
 
-        // Strip echoed "Request:" or "INSTRUCTION:" lines that LFM repeats
+        // Strip echoed label lines and common preamble/meta-commentary patterns
         let echoPatterns = [
             #"(?mi)^(?:Request|INSTRUCTION|TEXT|REWRITTEN TEXT)\s*:\s*.*$\n?"#,
+            #"(?mi)^Here (?:is|are|'s) (?:the|a|an|your)\s.*:\s*\n?"#,
+            #"(?mi)^The user (?:asked|wants|requested|is asking)\s.*$\n?"#,
         ]
         for pattern in echoPatterns {
             if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
@@ -122,8 +137,11 @@ struct LFMModelFamily: ModelFamily {
 
     let temperature: Float = 0.5
     let topP: Float = 0.85
-    let repetitionPenalty: Float = 1.05
+    let repetitionPenalty: Float = 1.1
     let disableThinking = false
+
+    /// LFM needs more headroom once it actually generates content instead of echoing.
+    let draftMaxTokens: Int = 1200
 }
 
 // MARK: - Granite

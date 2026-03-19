@@ -19,7 +19,7 @@ struct SettingsView: View {
     @AppStorage("completionSound")      private var completionSound: String = "Glass"
     @AppStorage("appLanguage")           private var appLanguage: String = AppLocalization.detectInitialLanguage()
     @AppStorage("contextAwareMode")      private var contextAwareMode: String = "off"
-    @AppStorage("showDictationText")     private var showDictationText: Bool = false
+    @AppStorage("showDictationText")     private var showDictationText: Bool = true
     @AppStorage("dictationTheme")        private var dictationTheme: String = DictationTheme.default.rawValue
 
     // MARK: - Navigation State
@@ -32,6 +32,7 @@ struct SettingsView: View {
     @State private var customValidation = CustomModelValidation.unchecked
     @State private var autoCheckUpdates: Bool = false
     @State private var hoveredTheme: DictationTheme?
+    @State private var cacheSizeText: String?
 
     private enum CustomModelSourceType: String, CaseIterable {
         case local = "Local Folder"
@@ -49,7 +50,7 @@ struct SettingsView: View {
     private var currentHeight: CGFloat {
         switch selectedTab {
         case .general: return 470
-        case .appearance: return 420
+        case .appearance: return 357
         case .model: return 320
         case .updates: return 125
         }
@@ -117,24 +118,6 @@ struct SettingsView: View {
 
             Color.clear.frame(height: 8)
 
-            GridRow {
-                Text(L("permission.screen_recording"))
-                permissionRow(granted: coordinator.permissions.screenRecordingGranted) {
-                    coordinator.permissions.requestScreenRecording()
-                }
-            }
-
-            if !coordinator.permissions.allGranted {
-                GridRow {
-                    Text("")
-                    Text(L("permission.hint"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Color.clear.frame(height: 18)
-
             // --- Context Awareness ---
             GridRow {
                 Text(L("context.label"))
@@ -155,16 +138,32 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            Color.clear.frame(height: 8)
+
+            GridRow {
+                Text(L("permission.screen_recording"))
+                permissionRow(granted: coordinator.permissions.screenRecordingGranted) {
+                    coordinator.permissions.requestScreenRecording()
+                }
+            }
+
+            if !coordinator.permissions.allGranted {
+                GridRow {
+                    Text("")
+                    Text(L("permission.hint"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Color.clear.frame(height: 18)
 
-            // --- Setup (only when there's something to report) ---
-            if showSetupStatus {
-                GridRow {
-                    Text(L("models.label"))
-                    setupStatusView
-                }
-                Color.clear.frame(height: 18)
-            }
+            // --- Setup status row (disabled — re-enable if needed) ---
+            // GridRow {
+            //     Text(L("models.label"))
+            //     setupStatusView
+            // }
+            // Color.clear.frame(height: 18)
 
             // --- Shortcuts ---
             GridRow {
@@ -450,6 +449,12 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                             .help(cacheDirectory)
 
+                        if let cacheSizeText {
+                            Text(cacheSizeText)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+
                         Button(L("model.show_in_finder")) {
                             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: cacheDirectory)
                         }
@@ -468,6 +473,7 @@ struct SettingsView: View {
         }
         .padding(30)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task { cacheSizeText = await calculateCacheSizeText() }
         .onChange(of: modelManager.selectedModel) {
             UserDefaults.standard.set(modelManager.selectedModel.path, forKey: "selectedModelPath")
             Task { await coordinator.switchModel() }
@@ -619,14 +625,8 @@ struct SettingsView: View {
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/models").path
     }
 
-    private var showSetupStatus: Bool {
-        switch coordinator.state {
-        case .downloading, .warmingUp, .error:
-            return true
-        default:
-            return !(modelManager.llmReady && modelManager.sttReady)
-        }
-    }
+    // showSetupStatus removed — Models row is now always visible.
+    // setupStatusView already handles idle/loading/loaded/error states.
 
     private var isLLMLoading: Bool {
         if case .downloading = coordinator.state { return true }
@@ -684,6 +684,33 @@ struct SettingsView: View {
 
         customModelPath = ""
         customValidation = .unchecked
+    }
+
+    private func calculateCacheSizeText() async -> String {
+        let fm = FileManager.default
+        guard let cachesURL = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return "" }
+        let modelsDir = cachesURL.appendingPathComponent("models")
+        guard let enumerator = fm.enumerator(
+            at: modelsDir,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return "" }
+
+        var totalBytes: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let size = values.fileSize else { continue }
+            totalBytes += Int64(size)
+        }
+
+        let gb = Double(totalBytes) / 1_073_741_824
+        if gb >= 1.0 {
+            return String(format: "(%.1f GB)", gb)
+        } else {
+            let mb = Double(totalBytes) / 1_048_576
+            return String(format: "(%.0f MB)", mb)
+        }
     }
 
     private func browseForLocalModel() {

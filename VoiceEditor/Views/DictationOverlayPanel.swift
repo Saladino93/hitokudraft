@@ -15,7 +15,7 @@ final class DictationOverlayPanel {
     func show(text: String, isStatus: Bool = false) {
         viewModel.text = text
         viewModel.isStatus = isStatus
-        viewModel.showText = UserDefaults.standard.bool(forKey: "showDictationText")
+        viewModel.showText = (UserDefaults.standard.object(forKey: "showDictationText") as? Bool) ?? true
 
         if panel == nil {
             createPanel()
@@ -86,7 +86,7 @@ final class DictationOverlayPanel {
 private final class OverlayViewModel: ObservableObject {
     @Published var text: String = "Dictating..."
     @Published var audioLevel: CGFloat = 0
-    @Published var showText: Bool = UserDefaults.standard.bool(forKey: "showDictationText")
+    @Published var showText: Bool = (UserDefaults.standard.object(forKey: "showDictationText") as? Bool) ?? true
     @Published var isStatus: Bool = false
     @Published var tick = Date()
 
