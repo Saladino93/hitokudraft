@@ -55,6 +55,10 @@ struct ScreenContext {
 
         guard !lines.isEmpty else { return nil }
 
+        if let hint = AppDomainHint.hint(appName: appName, windowTitle: windowTitle) {
+            lines.append("[Hint: \(hint)]")
+        }
+
         return """
         [Screen Context - use only if relevant to the user's request]
         \(lines.joined(separator: "\n"))

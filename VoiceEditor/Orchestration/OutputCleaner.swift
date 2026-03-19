@@ -96,6 +96,42 @@ enum OutputCleaner {
 
     // MARK: - Full cleaning pipeline
 
+    // MARK: - Instruction-echo detection
+
+    /// Strips the first line of output if it appears to be an echo of the user's instruction.
+    /// Uses word overlap: if >60% of instruction words appear in the first line, it's an echo.
+    /// Conservative threshold avoids false positives; safe for all model families.
+    static func stripEcho(_ text: String, instruction: String) -> String {
+        let lines = text.components(separatedBy: .newlines)
+        guard let firstLine = lines.first, !firstLine.isEmpty else { return text }
+
+        let instructionWords = Set(
+            instruction.lowercased()
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { $0.count > 2 }  // skip tiny words like "a", "to", "is"
+        )
+        guard !instructionWords.isEmpty else { return text }
+
+        let firstLineWords = Set(
+            firstLine.lowercased()
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { $0.count > 2 }
+        )
+
+        let overlap = instructionWords.intersection(firstLineWords).count
+        let ratio = Double(overlap) / Double(instructionWords.count)
+
+        if ratio > 0.6 {
+            let remaining = lines.dropFirst().joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return remaining.isEmpty ? text : remaining  // don't strip if nothing left
+        }
+
+        return text
+    }
+
+    // MARK: - Full cleaning pipeline
+
     /// Full output cleaning: model artifacts first, then preamble/fences/trailing notes.
     static func clean(_ text: String) -> String {
         // First strip model-level artifacts (thinking blocks, special tokens)

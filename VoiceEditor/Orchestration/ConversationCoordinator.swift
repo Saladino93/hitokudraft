@@ -429,14 +429,15 @@ final class ConversationCoordinator: ObservableObject {
 
                 if draftMode {
                     prompt = family.draftPrompt(instruction: trimmedCommand, context: screenContext)
-                    maxTokens = Prompts.draftMaxTokens
+                    maxTokens = family.draftMaxTokens
                 } else {
                     prompt = family.editPrompt(text: selectedText, instruction: trimmedCommand, context: screenContext)
-                    maxTokens = Prompts.editMaxTokens(for: selectedText)
+                    maxTokens = family.editMaxTokens(for: selectedText)
                 }
 
                 let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
-                let cleaned = OutputCleaner.clean(family.postProcess(raw))
+                var cleaned = OutputCleaner.clean(family.postProcess(raw))
+                cleaned = OutputCleaner.stripEcho(cleaned, instruction: trimmedCommand)
 
                 guard !cleaned.isEmpty else {
                     dictationOverlay.hide()
@@ -503,7 +504,7 @@ final class ConversationCoordinator: ObservableObject {
             let lang = LanguageDetector.detect(selectedText)
             let instruction = Instructions.forLanguage(lang)
             let prompt = family.editPrompt(text: selectedText, instruction: instruction, context: nil)
-            let maxTokens = Prompts.editMaxTokens(for: selectedText)
+            let maxTokens = family.editMaxTokens(for: selectedText)
 
             let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
             let cleaned = OutputCleaner.clean(family.postProcess(raw))
