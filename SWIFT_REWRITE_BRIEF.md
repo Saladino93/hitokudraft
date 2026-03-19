@@ -74,6 +74,8 @@ enum AppState: Equatable {
 | `LLMService` (protocol) | `generate(prompt:maxTokens:) async throws -> String` |
 | `MLXLLMService` | `LLMService` impl — `mlx-swift` |
 | `ModelManager` | Download from HuggingFace, on-disk cache, warmup, progress reporting |
+| `ContextCaptureService` | Captures focused app name, window title, and selected text for LLM context |
+| `ScreenContext` | Model for screen context data (app name, window title, selection) |
 | `ConversationCoordinator` | Orchestrates the full pipeline and owns `AppState` |
 | `FeedbackPresenter` | Transient status popover, error banners, listening indicator |
 
@@ -342,23 +344,61 @@ license are separate concerns — an MIT package can bundle a restrictively-lice
 
 The MVP is complete when:
 
-- [ ] App launches as a menu bar utility with `.menuBarExtraStyle(.window)`.
-- [ ] First-launch onboarding checks and requests Accessibility + Microphone permissions.
-- [ ] Model download progress is shown on first launch; download is cancellable.
-- [ ] Models are warmed up in a background Task at launch.
-- [ ] Voice-edit hotkey: select text → hotkey → mic records → STT → LLM edits → paste.
-- [ ] Grammar-fix hotkey: select text → hotkey → auto-detect language → LLM fixes → paste.
-- [ ] Draft mode: no selection + voice command → LLM generates → paste.
-- [ ] Clipboard is saved before Cmd+C and restored after Cmd+V.
-- [ ] Audio cues play on recording start and result paste.
-- [ ] `AppState` is reflected in the menu bar icon and popover.
-- [ ] Errors are surfaced as notifications; original text is never clobbered.
-- [ ] Settings window with hotkey configuration (via `KeyboardShortcuts`).
-- [ ] `SFSpeechRecognizer` fallback works if FluidAudio models are unavailable.
+- [x] App launches as a menu bar utility with `.menuBarExtraStyle(.window)`.
+- [x] First-launch onboarding checks and requests Accessibility + Microphone permissions.
+- [x] Model download progress is shown on first launch; download is cancellable.
+- [x] Models are warmed up in a background Task at launch.
+- [x] Voice-edit hotkey: select text → hotkey → mic records → STT → LLM edits → paste.
+- [x] Grammar-fix hotkey: select text → hotkey → auto-detect language → LLM fixes → paste.
+- [x] Draft mode: no selection + voice command → LLM generates → paste.
+- [x] Clipboard is saved before Cmd+C and restored after Cmd+V.
+- [x] Audio cues play on recording start and result paste.
+- [x] `AppState` is reflected in the menu bar icon and popover.
+- [x] Errors are surfaced as notifications; original text is never clobbered.
+- [x] Settings window with hotkey configuration (via `KeyboardShortcuts`).
+- [x] `SFSpeechRecognizer` fallback works if FluidAudio models are unavailable.
 
 ---
 
-## 11. Appendix: starter skeleton
+## 11. Post-MVP features (shipped)
+
+### v1.0.7 — Context-aware screen capture (2026-03-19)
+
+The LLM now receives context about the user's focused application, providing
+smarter edits based on where the user is working (e.g., code editor vs email).
+
+| Component | File |
+|-----------|------|
+| `ScreenContext` model | `Models/ScreenContext.swift` |
+| `ContextCaptureService` | `Services/ContextCaptureService.swift` |
+| Prompt integration | `Orchestration/Prompts.swift` |
+| Coordinator wiring | `Orchestration/ConversationCoordinator.swift` |
+| Settings UI (3 modes) | `Views/SettingsView.swift` |
+
+**Three modes** (user-configurable in Settings):
+- **Off** — no screen context sent to the LLM
+- **App Name Only** — sends the focused app name (e.g., "Xcode")
+- **Full Context** — sends app name, window title, and selected text
+
+Requires Screen Recording permission (prompted via `PermissionsCoordinator`).
+Localized strings added for English, Spanish, French, and Italian.
+
+### Release history
+
+| Version | Build | Date | Highlights |
+|---------|-------|------|------------|
+| 1.0.0 | 4 | — | Initial release — full voice-edit, grammar-fix, draft pipeline |
+| 1.0.1 | 5 | — | Fix: model switching cancels in-progress downloads |
+| 1.0.2 | 6 | — | Fix: mic sharing with other apps, MLXAudioSTT API update |
+| 1.0.3 | 7 | — | Stability improvements |
+| 1.0.4 | 8 | — | Stability improvements |
+| 1.0.5 | 9 | — | Stability improvements |
+| 1.0.6 | 10 | — | Stability improvements |
+| 1.0.7 | 11 | 2026-03-19 | Context-aware screen capture, paste fix, settings UI tweaks |
+
+---
+
+## 12. Appendix: starter skeleton
 
 > These stubs show the intended module structure and API surface.
 > They are starting points, not production code.

@@ -5,17 +5,17 @@ import MLXLMCommon
 
 final class MLXLLMService: LLMService, Sendable {
     private let modelContainer: ModelContainer
-    private let disableThinking: Bool
+    private let family: any ModelFamily
     private let systemPrompt: String
 
-    init(container: ModelContainer, disableThinking: Bool = false, systemPrompt: String = Prompts.systemPrompt) {
+    init(container: ModelContainer, family: any ModelFamily = DefaultModelFamily(), systemPrompt: String = Prompts.systemPrompt) {
         self.modelContainer = container
-        self.disableThinking = disableThinking
+        self.family = family
         self.systemPrompt = systemPrompt
     }
 
     func generate(prompt: String, maxTokens: Int) async throws -> String {
-        let effectivePrompt = disableThinking ? prompt + " /no_think" : prompt
+        let effectivePrompt = family.disableThinking ? prompt + " /no_think" : prompt
         let userInput = UserInput(chat: [
             .system(self.systemPrompt),
             .user(effectivePrompt)
@@ -24,9 +24,9 @@ final class MLXLLMService: LLMService, Sendable {
 
         let parameters = GenerateParameters(
             maxTokens: maxTokens,
-            temperature: 0.6,
-            topP: 0.9,
-            repetitionPenalty: 1.2,
+            temperature: family.temperature,
+            topP: family.topP,
+            repetitionPenalty: family.repetitionPenalty,
             repetitionContextSize: 64
         )
 

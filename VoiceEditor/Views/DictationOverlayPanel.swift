@@ -3,17 +3,6 @@ import Combine
 import SwiftUI
 
 
-/// HUD visual style variants.
-enum HUDStyle {
-    /// Ultra-clean minimal capsule: no border, very soft shadow.
-    case minimal
-    /// Glassy macOS capsule: ultra-subtle inner stroke, slightly more defined shadow.
-    case glassy
-    /// Ghost pill: nearly invisible, heavy blur, wallpaper bleed-through.
-    case ghost
-}
-
-
 /// A floating, non-activating panel that shows live dictation text
 /// with an animated waveform visualization driven by real-time audio level.
 @MainActor
@@ -21,14 +10,12 @@ final class DictationOverlayPanel {
     private var panel: NSPanel?
     private let viewModel = OverlayViewModel()
 
+    private var theme: DictationTheme { .current }
 
-    /// Change this to switch between `.minimal`, `.glassy`, and `.ghost` capsule styles.
-    var style: HUDStyle = .ghost
-
-
-    func show(text: String) {
+    func show(text: String, isStatus: Bool = false) {
         viewModel.text = text
-
+        viewModel.isStatus = isStatus
+        viewModel.showText = UserDefaults.standard.bool(forKey: "showDictationText")
 
         if panel == nil {
             createPanel()
@@ -36,12 +23,10 @@ final class DictationOverlayPanel {
         panel?.orderFrontRegardless()
     }
 
-
     /// Start polling audio level from a ContinuousSession at ~30fps.
     func startLevelPolling(session: AudioCaptureService.ContinuousSession) {
         viewModel.startPolling(session: session)
     }
-
 
     func hide() {
         viewModel.stopPolling()
@@ -49,12 +34,11 @@ final class DictationOverlayPanel {
         panel = nil
     }
 
-
     private func createPanel() {
-        // Oversized so SwiftUI drop shadows aren't clipped by window edges
-        let panelWidth: CGFloat = 320
-        let panelHeight: CGFloat = 90
-
+        // Oversized so SwiftUI drop shadows / neon glow aren't clipped by window edges
+        let capsuleWidth: CGFloat = 192
+        let panelWidth: CGFloat = capsuleWidth + 16
+        let panelHeight: CGFloat = 68
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
@@ -70,17 +54,15 @@ final class DictationOverlayPanel {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
             let x = frame.midX - panelWidth / 2
-            let y = frame.maxY - 83
+            let y = frame.maxY - 68
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-
         let hostingView = NSHostingView(
-            rootView: DictationOverlayContent(viewModel: viewModel, style: style)
+            rootView: DictationOverlayContent(viewModel: viewModel, theme: theme)
         )
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         let content = NSView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
@@ -104,12 +86,13 @@ final class DictationOverlayPanel {
 private final class OverlayViewModel: ObservableObject {
     @Published var text: String = "Dictating..."
     @Published var audioLevel: CGFloat = 0
-
+    @Published var showText: Bool = UserDefaults.standard.bool(forKey: "showDictationText")
+    @Published var isStatus: Bool = false
+    @Published var tick = Date()
 
     private var displayLink: CVDisplayLink?
     private weak var session: AudioCaptureService.ContinuousSession?
     private var timer: Timer?
-
 
     func startPolling(session: AudioCaptureService.ContinuousSession) {
         self.session = session
@@ -117,10 +100,10 @@ private final class OverlayViewModel: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 self.pollLevel()
+                self.tick = Date()
             }
         }
     }
-
 
     func stopPolling() {
         timer?.invalidate()
@@ -128,7 +111,6 @@ private final class OverlayViewModel: ObservableObject {
         session = nil
         audioLevel = 0
     }
-
 
     private func pollLevel() {
         guard let session else {
@@ -147,69 +129,41 @@ private final class OverlayViewModel: ObservableObject {
 
 private struct DictationOverlayContent: View {
     @ObservedObject var viewModel: OverlayViewModel
-    var style: HUDStyle = .ghost
+    var theme: DictationTheme
 
+    /// Show text only when the setting is on AND this isn't a bare status message.
+    private var effectiveShowText: Bool {
+        viewModel.showText && !viewModel.isStatus
+    }
 
     var body: some View {
         HStack(spacing: 8) {
-            WaveformBarsView(level: viewModel.audioLevel)
+            WaveformBarsView(level: viewModel.audioLevel, date: viewModel.tick, theme: theme)
                 .frame(width: 29, height: 16)
 
-
-            Text(viewModel.text)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.92))
-                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-                .lineLimit(2)
-                .truncationMode(.head)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if effectiveShowText {
+                Text(viewModel.text)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                    .lineLimit(2)
+                    .truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
-        .frame(width: 256, height: 35)
+        .frame(width: effectiveShowText ? 192 : 64, height: 35)
         .background {
-            switch style {
-            case .ghost:
-                // Ghost pill: ultra-transparent white tint + heavy blur
-                Capsule()
-                    .fill(.white.opacity(0.18))
-                    .background(
-                        Capsule()
-                            .fill(.ultraThinMaterial)
-                    )
-                    .clipShape(Capsule())
-
-            case .minimal:
-                Capsule()
-                    .fill(.regularMaterial)
-
-            case .glassy:
-                Capsule()
-                    .fill(.regularMaterial)
-            }
+            Capsule()
+                .fill(theme.panelBackground)
         }
         .overlay {
-            switch style {
-            case .ghost:
-                // Barely-visible white inner stroke
-                Capsule()
-                    .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
-
-            case .glassy:
-                Capsule()
-                    .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
-
-            case .minimal:
-                EmptyView()
-            }
+            Capsule()
+                .strokeBorder(theme.panelBorder, lineWidth: 1)
         }
-        // Ghost: no shadow at all — the pill should vanish into the wallpaper
-        // Minimal/Glassy: keep their existing shadow behavior
-        .shadow(
-            color: .black.opacity(style == .ghost ? 0 : (style == .glassy ? 0.25 : 0.15)),
-            radius: style == .ghost ? 0 : (style == .glassy ? 10 : 16),
-            x: 0, y: -2
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.2), value: effectiveShowText)
     }
 }
 
@@ -219,64 +173,63 @@ private struct DictationOverlayContent: View {
 
 private struct WaveformBarsView: View {
     let level: CGFloat
+    let date: Date
+    var theme: DictationTheme
 
+    private static let barCount = 7
+    private static let minHeight: CGFloat = 2.5
+    private static let maxHeight: CGFloat = 14.0
 
-    private let barCount = 5
-    private let weights: [CGFloat] = [0.5, 0.8, 1.0, 0.8, 0.5]
-    private let noiseFloor: CGFloat = 0.05
+    // Incommensurate frequencies ensure bars never synchronize
+    private static let frequencies: [Double] = [2.8, 3.6, 4.2, 3.0, 4.5, 3.3, 2.5]
+    // Staggered phase offsets per bar
+    private static let phaseOffsets: [Double] = [0.0, 0.9, 1.7, 2.5, 3.4, 4.1, 5.0]
+    // Different smoothing alphas create a "settling cascade" after speech stops
+    private static let smoothingAlphas: [CGFloat] = [0.15, 0.20, 0.25, 0.22, 0.18, 0.23, 0.16]
+    // Idle breathing frequency
+    private static let breathFrequency: Double = 0.3
 
+    @State private var smoothedHeights: [CGFloat] = Array(
+        repeating: WaveformBarsView.minHeight, count: WaveformBarsView.barCount
+    )
 
     var body: some View {
-        HStack(spacing: 2.5) {
-            ForEach(0..<barCount, id: \.self) { index in
-                WaveformBar(
-                    height: barHeight(for: index),
-                    color: barColor
-                )
+        HStack(spacing: 2.0) {
+            ForEach(0..<Self.barCount, id: \.self) { i in
+                Capsule()
+                    .fill(level > 0.05 ? theme.accent : theme.accent.opacity(0.3))
+                    .shadow(color: theme.accent.opacity(level > 0.05 ? 0.6 : 0.15), radius: 4)
+                    .frame(width: 2.0, height: smoothedHeights[i])
             }
         }
+        .onChange(of: date) { _, newDate in
+            updateHeights(at: newDate)
+        }
     }
 
+    private func updateHeights(at now: Date) {
+        let t = now.timeIntervalSinceReferenceDate
+        var newHeights = smoothedHeights
 
-    private func barHeight(for index: Int) -> CGFloat {
-        let minHeight: CGFloat = 2.5
-        let maxHeight: CGFloat = 14.0
+        for i in 0..<Self.barCount {
+            let target: CGFloat
+            if level > 0.05 {
+                // Sine oscillator modulated by audio level
+                let sine = sin(2.0 * .pi * Self.frequencies[i] * t + Self.phaseOffsets[i])
+                let oscillation = 0.5 + 0.5 * sine // normalize to 0…1
+                target = Self.minHeight + (Self.maxHeight - Self.minHeight) * level * CGFloat(oscillation)
+            } else {
+                // Idle breathing: slow sine pulse keeps bars alive
+                let breath = sin(2.0 * .pi * Self.breathFrequency * t + Self.phaseOffsets[i])
+                let pulse = 0.5 + 0.5 * breath // normalize to 0…1
+                target = Self.minHeight + 1.5 * CGFloat(pulse)
+            }
 
-
-        guard level > noiseFloor else {
-            return minHeight
+            // Per-bar exponential smoothing
+            let alpha = Self.smoothingAlphas[i]
+            newHeights[i] = newHeights[i] + alpha * (target - newHeights[i])
         }
 
-
-        let weight = weights[index]
-        let height = minHeight + (maxHeight - minHeight) * level * weight
-        return min(height, maxHeight)
-    }
-
-
-    private var barColor: Color {
-        if level > noiseFloor {
-            return Color(hue: 0.55, saturation: 0.9, brightness: 1.0)
-        }
-        return Color.white.opacity(0.3)
-    }
-}
-
-
-private struct WaveformBar: View {
-    let height: CGFloat
-    let color: Color
-
-
-    private let maxHeight: CGFloat = 14.0
-
-
-    var body: some View {
-        Capsule()
-            .fill(color)
-            .shadow(color: color.opacity(0.6), radius: 4, x: 0, y: 0)
-            .frame(width: 2.5, height: maxHeight)
-            .scaleEffect(y: height / maxHeight, anchor: .center)
-            .animation(.linear(duration: 0.05), value: height)
+        smoothedHeights = newHeights
     }
 }

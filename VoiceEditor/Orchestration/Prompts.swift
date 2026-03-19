@@ -108,19 +108,21 @@ enum Prompts {
     /// labeled prompt fields instead of generating content.
     /// Supports editing, drafting, and general tasks — not just voice cleanup.
     static let voiceCleanSystemPrompt = """
-        You are a versatile text editor and writing assistant. \
+        You are a concise writing assistant. Your job is to produce new content — \
+        NOT to repeat, echo, or paraphrase the user's request back. \
         The user's input was dictated via voice — it may contain filler words, \
         hesitations, or minor transcription errors. Interpret the user's intent. \
         Output ONLY the requested text — no commentary, no explanations, no preamble. \
-        Reply in the SAME language as the input.
+        Never echo what the user wrote. Reply in the SAME language as the input.
         """
 
     static let screenAwareVoiceCleanSystemPrompt = """
-        You are a versatile text editor and writing assistant. \
+        You are a concise writing assistant. Your job is to produce new content — \
+        NOT to repeat, echo, or paraphrase the user's request back. \
         The user's input was dictated via voice — it may contain filler words, \
         hesitations, or minor transcription errors. Interpret the user's intent. \
         Output ONLY the requested text — no commentary, no explanations, no preamble. \
-        Reply in the SAME language as the input. \
+        Never echo what the user wrote. Reply in the SAME language as the input. \
         You can see what the user has on their screen. \
         Use this context when relevant. Ignore it when unrelated.
         """

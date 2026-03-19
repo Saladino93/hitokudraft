@@ -22,6 +22,15 @@ struct ModelOption: Identifiable, Hashable, Codable {
 
     var isLocal: Bool { path.hasPrefix("/") }
 
+    /// Resolves the model family strategy by inspecting the model path.
+    var family: any ModelFamily {
+        let lower = path.lowercased()
+        if lower.contains("qwen3") || lower.contains("qwen3.5") { return Qwen3ModelFamily() }
+        if lower.contains("lfm") { return LFMModelFamily() }
+        if lower.contains("granite") { return GraniteModelFamily() }
+        return DefaultModelFamily()
+    }
+
     var configuration: ModelConfiguration {
         if isLocal {
             return ModelConfiguration(
@@ -56,6 +65,26 @@ struct ModelOption: Identifiable, Hashable, Codable {
         self.useVoiceCleanPrompt = useVoiceCleanPrompt
         self.description = description
         self.estimatedMemoryGB = estimatedMemoryGB
+    }
+
+    /// Auto-configures model flags by inspecting the HuggingFace path.
+    /// Qwen3 models get `disableThinking` + extra EOS; LFM models get voice-clean prompt.
+    static func autoConfigured(name: String, path: String) -> ModelOption {
+        let lower = path.lowercased()
+        if lower.contains("qwen3") {
+            return ModelOption(
+                name: name, path: path,
+                extraEOSTokens: ["<|im_end|>"],
+                disableThinking: true
+            )
+        } else if lower.contains("lfm") {
+            return ModelOption(
+                name: name, path: path,
+                useVoiceCleanPrompt: true
+            )
+        } else {
+            return ModelOption(name: name, path: path)
+        }
     }
 
     init(from decoder: Decoder) throws {
@@ -162,6 +191,14 @@ enum ModelRegistry {
             disableThinking: true,
             description: "Strongest editing and drafting quality",
             estimatedMemoryGB: 4.61
+        ),
+        ModelOption(
+            name: "Qwen3.5 9B 8-bit",
+            path: "mlx-community/Qwen3.5-9B-8bit",
+            extraEOSTokens: ["<|im_end|>"],
+            disableThinking: true,
+            description: "Top-tier multilingual editing and drafting",
+            estimatedMemoryGB: 9.6
         ),
     ]
 

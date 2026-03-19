@@ -1,6 +1,7 @@
 /* Settings — Tabs */
 "tab.general" = "Generali";
-"tab.model" = "Modello";
+"tab.theme" = "Tema";
+"tab.model" = "Modelli";
 "tab.updates" = "Aggiornamenti";
 
 /* Settings — Permissions */
@@ -30,6 +31,7 @@
 "recording.silence_timeout" = "Timeout silenzio:";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Controlla quanto a lungo una pausa attiva lo stop. Aumenta se vieni interrotto.";
+"recording.show_dictation_text" = "Mostra testo dettatura:";
 
 /* Settings — Sounds */
 "sound.activation" = "Suono attivazione:";
@@ -138,3 +140,13 @@
 "context.advanced" = "Avanzato";
 "context.desc" = "Standard legge il contesto testo. Avanzato aggiunge OCR schermo.";
 "permission.screen_recording" = "Registrazione schermo:";
+
+/* Settings — Theme Picker */
+"theme.panel_style" = "Stile pannello";
+"theme.panel_style_desc" = "Scegli l'aspetto del pannello di dettatura";
+"theme.neon_violet.name" = "Viola neon";
+"theme.neon_violet.desc" = "Bagliore viola su fondo scuro";
+"theme.neon_blue.name" = "Blu neon";
+"theme.neon_blue.desc" = "Bagliore blu su fondo marino";
+"theme.dark_neon.name" = "Neon scuro";
+"theme.dark_neon.desc" = "Bagliore verde su fondo smeraldo";

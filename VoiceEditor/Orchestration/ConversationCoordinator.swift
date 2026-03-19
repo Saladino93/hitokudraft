@@ -356,7 +356,7 @@ final class ConversationCoordinator: ObservableObject {
                 state = .listening
 
                 let session = try await audioCapture.startContinuousRecording()
-                dictationOverlay.show(text: L("overlay.listening"))
+                dictationOverlay.show(text: L("overlay.listening"), isStatus: true)
                 dictationOverlay.startLevelPolling(session: session)
 
                 // Streaming transcription loop — shows live text while recording
@@ -394,7 +394,7 @@ final class ConversationCoordinator: ObservableObject {
                     command = lastTranscription
                 } else {
                     state = .transcribing
-                    dictationOverlay.show(text: L("overlay.transcribing"))
+                    dictationOverlay.show(text: L("overlay.transcribing"), isStatus: true)
                     do {
                         command = try await stt.transcribe(samples: samples)
                     } catch {
@@ -421,25 +421,22 @@ final class ConversationCoordinator: ObservableObject {
 
                 // Phase 3: LLM generation
                 state = .generating
-                dictationOverlay.show(text: L("overlay.generating"))
+                dictationOverlay.show(text: L("overlay.generating"), isStatus: true)
 
+                let family = modelManager.selectedModel.family
                 let prompt: String
                 let maxTokens: Int
 
                 if draftMode {
-                    if modelManager.selectedModel.useVoiceCleanPrompt {
-                        prompt = Prompts.voiceCleanDraft(instruction: trimmedCommand, context: screenContext)
-                    } else {
-                        prompt = Prompts.draft(instruction: trimmedCommand, context: screenContext)
-                    }
+                    prompt = family.draftPrompt(instruction: trimmedCommand, context: screenContext)
                     maxTokens = Prompts.draftMaxTokens
                 } else {
-                    prompt = Prompts.edit(text: selectedText, instruction: trimmedCommand, context: screenContext)
+                    prompt = family.editPrompt(text: selectedText, instruction: trimmedCommand, context: screenContext)
                     maxTokens = Prompts.editMaxTokens(for: selectedText)
                 }
 
-                let result = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
-                let cleaned = OutputCleaner.clean(result)
+                let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
+                let cleaned = OutputCleaner.clean(family.postProcess(raw))
 
                 guard !cleaned.isEmpty else {
                     dictationOverlay.hide()
@@ -447,7 +444,7 @@ final class ConversationCoordinator: ObservableObject {
                 }
 
                 state = .pasting
-                dictationOverlay.show(text: L("overlay.pasting"))
+                dictationOverlay.show(text: L("overlay.pasting"), isStatus: true)
                 try await textCapture.pasteText(cleaned)
 
                 // Audio cue: done
@@ -486,7 +483,6 @@ final class ConversationCoordinator: ObservableObject {
         var savedClipboard: TextCaptureService.ClipboardSnapshot?
 
         do {
-            let screenContext = await contextCapture.capture(mode: contextAwareMode)
             savedClipboard = textCapture.saveClipboard()
             let selectedText = try await textCapture.captureSelectedText()
 
@@ -501,15 +497,16 @@ final class ConversationCoordinator: ObservableObject {
             SoundPlayer.shared.playActivation()
 
             state = .generating
-            dictationOverlay.show(text: L("overlay.fixing_grammar"))
+            dictationOverlay.show(text: L("overlay.fixing_grammar"), isStatus: true)
 
+            let family = modelManager.selectedModel.family
             let lang = LanguageDetector.detect(selectedText)
             let instruction = Instructions.forLanguage(lang)
-            let prompt = Prompts.edit(text: selectedText, instruction: instruction, context: screenContext)
+            let prompt = family.editPrompt(text: selectedText, instruction: instruction, context: nil)
             let maxTokens = Prompts.editMaxTokens(for: selectedText)
 
-            let result = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
-            let cleaned = OutputCleaner.clean(result)
+            let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
+            let cleaned = OutputCleaner.clean(family.postProcess(raw))
 
             guard !cleaned.isEmpty else {
                 dictationOverlay.hide()
@@ -517,7 +514,7 @@ final class ConversationCoordinator: ObservableObject {
             }
 
             state = .pasting
-            dictationOverlay.show(text: L("overlay.pasting"))
+            dictationOverlay.show(text: L("overlay.pasting"), isStatus: true)
             try await textCapture.pasteText(cleaned)
 
             // Audio cue: done
@@ -564,7 +561,7 @@ final class ConversationCoordinator: ObservableObject {
 
             SoundPlayer.shared.playActivation()
             state = .dictating("")
-            dictationOverlay.show(text: L("overlay.dictating"))
+            dictationOverlay.show(text: L("overlay.dictating"), isStatus: true)
             dictationOverlay.startLevelPolling(session: session)
 
             // Streaming loop — picks native streaming (Path B) or legacy poll (Path A)
@@ -595,8 +592,11 @@ final class ConversationCoordinator: ObservableObject {
     private func updateDictationText(_ text: String) {
         if case .dictating = state {
             state = .dictating(text)
-            let display = text.isEmpty ? L("overlay.dictating") : text
-            dictationOverlay.show(text: display)
+            if text.isEmpty {
+                dictationOverlay.show(text: L("overlay.dictating"), isStatus: true)
+            } else {
+                dictationOverlay.show(text: text)
+            }
         }
     }
 
@@ -691,17 +691,12 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     private func makeLLMService(container: ModelContainer) -> MLXLLMService {
+        let family = modelManager.selectedModel.family
         let isScreenAware = contextAwareMode != .off
-        let prompt: String
-        if modelManager.selectedModel.useVoiceCleanPrompt {
-            prompt = isScreenAware ? Prompts.screenAwareVoiceCleanSystemPrompt : Prompts.voiceCleanSystemPrompt
-        } else {
-            prompt = isScreenAware ? Prompts.screenAwareSystemPrompt : Prompts.systemPrompt
-        }
         return MLXLLMService(
             container: container,
-            disableThinking: modelManager.selectedModel.disableThinking,
-            systemPrompt: prompt
+            family: family,
+            systemPrompt: family.systemPrompt(screenAware: isScreenAware)
         )
     }
 

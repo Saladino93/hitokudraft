@@ -1,6 +1,7 @@
 /* Settings — Tabs */
 "tab.general" = "General";
-"tab.model" = "Model";
+"tab.theme" = "Theme";
+"tab.model" = "Models";
 "tab.updates" = "Updates";
 
 /* Settings — Permissions */
@@ -30,6 +31,7 @@
 "recording.silence_timeout" = "Silence timeout:";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Controls how long a pause triggers stop. Increase if you get cut off.";
+"recording.show_dictation_text" = "Show dictation text:";
 
 /* Settings — Sounds */
 "sound.activation" = "Activation sound:";
@@ -138,3 +140,13 @@
 "context.advanced" = "Advanced";
 "context.desc" = "Standard reads some text. Advanced adds screen OCR.";
 "permission.screen_recording" = "Screen Recording:";
+
+/* Settings — Theme Picker */
+"theme.panel_style" = "Panel style";
+"theme.panel_style_desc" = "Choose how the dictation overlay looks";
+"theme.neon_violet.name" = "Neon Violet";
+"theme.neon_violet.desc" = "Purple glow on dark violet";
+"theme.neon_blue.name" = "Neon Blue";
+"theme.neon_blue.desc" = "Cool blue glow on deep navy";
+"theme.dark_neon.name" = "Dark Neon";
+"theme.dark_neon.desc" = "Green glow on dark emerald";

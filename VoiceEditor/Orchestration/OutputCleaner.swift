@@ -33,6 +33,15 @@ enum OutputCleaner {
         )
     }()
 
+    // Step 2b: Plain-text thinking blocks (e.g. "**Thinking Process:**\n1. ...")
+    // Anchors on a "Thinking" header at start of line, matches through to double-newline.
+    private static let plainTextThinkingPattern: NSRegularExpression = {
+        try! NSRegularExpression(
+            pattern: #"(?m)^\*{0,2}(?:Thinking|Thought|Reasoning|Analysis)(?:\s+Process)?:?\*{0,2}\s*\n[\s\S]*?(?=\n{2,})"#,
+            options: .caseInsensitive
+        )
+    }()
+
     // Step 3: End-of-turn / special tokens that leaked into output
     private static let specialTokenPattern: NSRegularExpression = {
         // Matches any of the known delimiter tokens. We find the first and truncate.
@@ -62,6 +71,11 @@ enum OutputCleaner {
 
         // Step 2: Remove unclosed thinking blocks (open tag to end of string)
         result = unclosedThinkingPattern.stringByReplacingMatches(
+            in: result, options: [], range: fullRange(), withTemplate: ""
+        )
+
+        // Step 2b: Remove plain-text thinking blocks ("**Thinking Process:**\n1. ...")
+        result = plainTextThinkingPattern.stringByReplacingMatches(
             in: result, options: [], range: fullRange(), withTemplate: ""
         )
 
