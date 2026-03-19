@@ -1,6 +1,7 @@
 /* Settings — Tabs */
 "tab.general" = "Général";
-"tab.model" = "Modèle";
+"tab.theme" = "Thème";
+"tab.model" = "Modèles";
 "tab.updates" = "Mises à jour";
 
 /* Settings — Permissions */
@@ -30,6 +31,7 @@
 "recording.silence_timeout" = "Délai silence :";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Contrôle la durée d'une pause avant l'arrêt. Augmentez si vous êtes coupé.";
+"recording.show_dictation_text" = "Afficher le texte dicté :";
 
 /* Settings — Sounds */
 "sound.activation" = "Son d'activation :";
@@ -138,3 +140,13 @@
 "context.advanced" = "Avancé";
 "context.desc" = "Standard lit le contexte texte. Avancé ajoute l'OCR écran.";
 "permission.screen_recording" = "Enregistrement d'écran :";
+
+/* Settings — Theme Picker */
+"theme.panel_style" = "Style du panneau";
+"theme.panel_style_desc" = "Choisissez l'apparence du panneau de dictée";
+"theme.neon_violet.name" = "Violet néon";
+"theme.neon_violet.desc" = "Lueur violette sur fond sombre";
+"theme.neon_blue.name" = "Bleu néon";
+"theme.neon_blue.desc" = "Lueur bleue sur fond marine";
+"theme.dark_neon.name" = "Néon sombre";
+"theme.dark_neon.desc" = "Lueur verte sur fond émeraude";

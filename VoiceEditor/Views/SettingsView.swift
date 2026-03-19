@@ -19,9 +19,11 @@ struct SettingsView: View {
     @AppStorage("completionSound")      private var completionSound: String = "Glass"
     @AppStorage("appLanguage")           private var appLanguage: String = AppLocalization.detectInitialLanguage()
     @AppStorage("contextAwareMode")      private var contextAwareMode: String = "off"
+    @AppStorage("showDictationText")     private var showDictationText: Bool = false
+    @AppStorage("dictationTheme")        private var dictationTheme: String = DictationTheme.default.rawValue
 
     // MARK: - Navigation State
-    private enum Tab { case general, model, updates }
+    private enum Tab { case general, appearance, model, updates }
     @State private var selectedTab: Tab = .general
 
     // MARK: - Custom Model State
@@ -29,6 +31,7 @@ struct SettingsView: View {
     @State private var customModelPath = ""
     @State private var customValidation = CustomModelValidation.unchecked
     @State private var autoCheckUpdates: Bool = false
+    @State private var hoveredTheme: DictationTheme?
 
     private enum CustomModelSourceType: String, CaseIterable {
         case local = "Local Folder"
@@ -45,7 +48,8 @@ struct SettingsView: View {
     // MARK: - Dynamic Window Height
     private var currentHeight: CGFloat {
         switch selectedTab {
-        case .general: return 490
+        case .general: return 470
+        case .appearance: return 420
         case .model: return 320
         case .updates: return 125
         }
@@ -61,6 +65,10 @@ struct SettingsView: View {
                 .tag(Tab.model)
                 .tabItem { Label(L("tab.model"), systemImage: "cpu") }
 
+            appearanceTab
+                .tag(Tab.appearance)
+                .tabItem { Label(L("tab.theme"), systemImage: "paintbrush") }
+
             updatesTab
                 .tag(Tab.updates)
                 .tabItem { Label(L("tab.updates"), systemImage: "arrow.triangle.2.circlepath") }
@@ -73,9 +81,11 @@ struct SettingsView: View {
     // MARK: - General Tab
 
     private var generalTab: some View {
-        Form {
+        Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 12, verticalSpacing: 0) {
             // --- Language ---
-            LabeledContent(L("language.label")) {
+            GridRow {
+                Text(L("language.label"))
+                    .gridColumnAlignment(.trailing)
                 Picker("", selection: $appLanguage) {
                     ForEach(AppLocalization.supportedLanguages, id: \.self) { code in
                         Text(AppLocalization.displayNames[code] ?? code).tag(code)
@@ -83,73 +93,51 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 .frame(width: 160)
+                .gridColumnAlignment(.leading)
             }
 
-            Spacer().frame(height: 12)
+            Color.clear.frame(height: 12)
 
             // --- Permissions ---
-            LabeledContent(L("permission.accessibility")) {
+            GridRow {
+                Text(L("permission.accessibility"))
                 permissionRow(granted: coordinator.permissions.accessibilityGranted) {
                     coordinator.permissions.requestAccessibility()
                 }
             }
 
-            Spacer().frame(height: 8)
+            Color.clear.frame(height: 8)
 
-            LabeledContent(L("permission.microphone")) {
+            GridRow {
+                Text(L("permission.microphone"))
                 permissionRow(granted: coordinator.permissions.microphoneGranted) {
                     Task { await coordinator.permissions.requestMicrophone() }
                 }
             }
+
+            Color.clear.frame(height: 8)
+
+            GridRow {
+                Text(L("permission.screen_recording"))
+                permissionRow(granted: coordinator.permissions.screenRecordingGranted) {
+                    coordinator.permissions.requestScreenRecording()
+                }
+            }
+
             if !coordinator.permissions.allGranted {
-                LabeledContent("") {
+                GridRow {
+                    Text("")
                     Text(L("permission.hint"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Spacer().frame(height: 18)
-
-            // --- Setup ---
-            LabeledContent(L("models.label")) { setupStatusView }
-
-            Spacer().frame(height: 18)
-
-            // --- Shortcuts ---
-            LabeledContent(L("shortcut.voice_edit")) { KeyboardShortcuts.Recorder("", name: .voiceEdit) }
-            Spacer().frame(height: 4)
-            LabeledContent(L("shortcut.grammar_fix")) { KeyboardShortcuts.Recorder("", name: .grammarFix) }
-            Spacer().frame(height: 4)
-            LabeledContent(L("shortcut.dictation")) { KeyboardShortcuts.Recorder("", name: .dictation) }
-
-            Spacer().frame(height: 18)
-
-            // --- Recording ---
-            LabeledContent(L("recording.max_capture")) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Stepper(L("recording.max_capture_unit", Int(maxRecordingDuration)), value: $maxRecordingDuration, in: 10...120, step: 5)
-                    Text(L("recording.max_capture_desc"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer().frame(height: 8)
-
-            LabeledContent(L("recording.silence_timeout")) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Stepper(L("recording.silence_timeout_unit", silenceDurationLimit), value: $silenceDurationLimit, in: 1.0...5.0, step: 0.5)
-                    Text(L("recording.silence_timeout_desc"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer().frame(height: 18)
+            Color.clear.frame(height: 18)
 
             // --- Context Awareness ---
-            LabeledContent(L("context.label")) {
+            GridRow {
+                Text(L("context.label"))
                 VStack(alignment: .leading, spacing: 4) {
                     Picker("", selection: $contextAwareMode) {
                         Text(L("context.off")).tag("off")
@@ -164,25 +152,174 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Spacer().frame(height: 8)
+            Color.clear.frame(height: 18)
 
-            LabeledContent(L("permission.screen_recording")) {
-                permissionRow(granted: coordinator.permissions.screenRecordingGranted) {
-                    coordinator.permissions.requestScreenRecording()
+            // --- Setup (only when there's something to report) ---
+            if showSetupStatus {
+                GridRow {
+                    Text(L("models.label"))
+                    setupStatusView
+                }
+                Color.clear.frame(height: 18)
+            }
+
+            // --- Shortcuts ---
+            GridRow {
+                Text(L("shortcut.voice_edit"))
+                KeyboardShortcuts.Recorder("", name: .voiceEdit)
+            }
+            Color.clear.frame(height: 4)
+            GridRow {
+                Text(L("shortcut.grammar_fix"))
+                KeyboardShortcuts.Recorder("", name: .grammarFix)
+            }
+            Color.clear.frame(height: 4)
+            GridRow {
+                Text(L("shortcut.dictation"))
+                KeyboardShortcuts.Recorder("", name: .dictation)
+            }
+
+            Color.clear.frame(height: 18)
+
+            // --- Recording ---
+            GridRow {
+                Text(L("recording.max_capture"))
+                VStack(alignment: .leading, spacing: 4) {
+                    Stepper(L("recording.max_capture_unit", Int(maxRecordingDuration)), value: $maxRecordingDuration, in: 10...120, step: 5)
+                    Text(L("recording.max_capture_desc"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
-            Spacer().frame(height: 18)
+            Color.clear.frame(height: 8)
+
+            GridRow {
+                Text(L("recording.silence_timeout"))
+                VStack(alignment: .leading, spacing: 4) {
+                    Stepper(L("recording.silence_timeout_unit", silenceDurationLimit), value: $silenceDurationLimit, in: 1.0...5.0, step: 0.5)
+                    Text(L("recording.silence_timeout_desc"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Color.clear.frame(height: 18)
 
             // --- Sounds ---
-            LabeledContent(L("sound.activation")) { soundPicker(selection: $activationSound) }
-            Spacer().frame(height: 4)
-            LabeledContent(L("sound.completion")) { soundPicker(selection: $completionSound) }
+            GridRow {
+                Text(L("sound.activation"))
+                soundPicker(selection: $activationSound)
+            }
+            Color.clear.frame(height: 4)
+            GridRow {
+                Text(L("sound.completion"))
+                soundPicker(selection: $completionSound)
+            }
         }
         .padding(30)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Appearance Tab
+
+    private var appearanceTab: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Toggle for showing dictation text
+            Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 12, verticalSpacing: 0) {
+                GridRow {
+                    Text(L("recording.show_dictation_text"))
+                        .gridColumnAlignment(.trailing)
+                    Toggle("", isOn: $showDictationText)
+                        .labelsHidden()
+                        .gridColumnAlignment(.leading)
+                }
+            }
+
+            Divider()
+
+            // Theme picker section
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("theme.panel_style"))
+                    .font(.headline)
+                Text(L("theme.panel_style_desc"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 8) {
+                ForEach(DictationTheme.allCases) { theme in
+                    let isSelected = dictationTheme == theme.rawValue
+                    let isHovered = hoveredTheme == theme
+
+                    HStack(spacing: 14) {
+                        // Mini preview capsule
+                        themePreview(theme: theme)
+
+                        // Name + description
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(theme.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                            Text(theme.displayDescription)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        // Radio checkmark
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(isSelected ? theme.accent : .secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(isSelected ? theme.accent.opacity(0.08) : (isHovered ? .white.opacity(0.03) : .clear))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(isSelected ? theme.accent.opacity(0.3) : .clear, lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dictationTheme = theme.rawValue
+                    }
+                    .onHover { hovering in
+                        hoveredTheme = hovering ? theme : nil
+                    }
+                }
+            }
+        }
+        .padding(30)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Static mini-preview of a theme's capsule with 5 bars.
+    private func themePreview(theme: DictationTheme) -> some View {
+        HStack(spacing: 2) {
+            ForEach([0.35, 0.55, 0.75, 0.55, 0.35], id: \.self) { h in
+                Capsule()
+                    .fill(theme.accent)
+                    .frame(width: 2, height: 12 * h)
+            }
+        }
+        .frame(width: 24, height: 16)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(theme.panelBackground)
+        )
+        .overlay(
+            Capsule()
+                .strokeBorder(theme.panelBorder, lineWidth: 0.5)
+        )
+        .scaleEffect(0.85)
     }
 
     // MARK: - Model Tab
@@ -482,6 +619,15 @@ struct SettingsView: View {
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/models").path
     }
 
+    private var showSetupStatus: Bool {
+        switch coordinator.state {
+        case .downloading, .warmingUp, .error:
+            return true
+        default:
+            return !(modelManager.llmReady && modelManager.sttReady)
+        }
+    }
+
     private var isLLMLoading: Bool {
         if case .downloading = coordinator.state { return true }
         if case .warmingUp = coordinator.state { return true }
@@ -522,7 +668,7 @@ struct SettingsView: View {
             return
         }
 
-        let newModel = ModelOption(name: name, path: path)
+        let newModel = ModelOption.autoConfigured(name: name, path: path)
 
         if customSourceType == .local {
             // Local models: files already on disk — add to registry immediately
