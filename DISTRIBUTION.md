@@ -285,7 +285,61 @@ The resulting DMG is what you upload to Gumroad and GitHub Releases.
 
 ---
 
-## 6. Gumroad product setup
+## 6. Licensing security model
+
+### Architecture (as of 1.1.0)
+
+License state is stored as an **HMAC-SHA256 signed token** in the macOS Keychain, not in UserDefaults. The token contains email, activation timestamp, last verification timestamp, and a cryptographic signature covering all fields plus the license key.
+
+```
+Activation flow:
+  User enters key → POST to api.gumroad.com/v2/licenses/verify
+    → Validate: success, uses ≤ 2, not refunded/disputed/chargebacked
+    → Cross-check echoed license_key matches what we sent
+    → Save key to Keychain (WhenUnlockedThisDeviceOnly)
+    → Create HMAC-signed token → save to Keychain
+    → isActivated = true
+
+App launch:
+  Load key + token from Keychain → verify HMAC signature
+    → If valid: isActivated = true, try online re-verification
+    → If online verify succeeds: update token with fresh timestamp
+    → If online verify fails (revoked/refunded): deactivate
+    → If offline: allow up to 7-day grace, then deactivate
+    → If HMAC invalid or missing: isActivated = false
+```
+
+### What this defends against
+
+| Attack | Blocked? | Notes |
+|---|---|---|
+| `defaults write ... licenseActivated true` | **Yes** | Activation state not in UserDefaults |
+| MITM proxy returning `{"success": true}` | **Partially** | Must also fake refund/dispute/chargeback fields + echo the correct license key |
+| Keychain item forgery | **Partially** | Must forge a valid HMAC signature (requires extracting the key from the binary) |
+| 30-day offline abuse | **Yes** | Reduced to 7-day grace; re-verification on every cold start |
+| Sparkle update hijack | **Yes** | EdDSA signed (pre-existing, unchanged) |
+
+### What this does NOT defend against
+
+- Binary disassembly to extract the HMAC key (Tier 3 mitigation: compile-time key obfuscation)
+- A determined reverse engineer with Hopper/Ghidra (no client-side DRM is unbreakable)
+
+### Keychain items
+
+| Account | Content | Accessibility |
+|---|---|---|
+| `gumroad-license-key` | Raw license key string | `WhenUnlockedThisDeviceOnly` |
+| `license-token` | JSON: `{email, activatedAt, lastVerifiedAt, signature}` | `WhenUnlockedThisDeviceOnly` |
+
+Service for both: `com.hitokudraft.license`
+
+### Migration from pre-1.1.0
+
+On first launch after update, `LicenseManager.init()` detects the old `licenseActivated` UserDefaults flag, reads the existing Keychain key, creates a signed token, and cleans up legacy UserDefaults entries. Existing users are not asked to re-activate.
+
+---
+
+## 7. Gumroad product setup
 
 1. Create account at [gumroad.com](https://gumroad.com)
 2. New product → **Digital product** → upload the notarized `.dmg`
@@ -300,7 +354,7 @@ The resulting DMG is what you upload to Gumroad and GitHub Releases.
 
 ---
 
-## 7. Release checklist
+## 8. Release checklist
 
 ### One-time setup
 
@@ -341,7 +395,7 @@ All steps below are handled by `./release.sh [VERSION]`:
 
 ---
 
-## 8. Verification
+## 9. Verification
 
 | Check | Command / Action |
 |---|---|
@@ -355,7 +409,7 @@ All steps below are handled by `./release.sh [VERSION]`:
 
 ---
 
-## 9. Local testing on a single Mac
+## 10. Local testing on a single Mac
 
 ### A) Test the Sparkle update flow
 
@@ -407,7 +461,7 @@ open /tmp/VoiceEditor.app
 
 ---
 
-## 10. Release automation
+## 11. Release automation
 
 Use `release.sh` for the full per-release workflow:
 

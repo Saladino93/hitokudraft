@@ -2,6 +2,18 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [Unreleased — targeting 1.1.0]
+
+### Security
+- **License state moved from UserDefaults to Keychain** — `defaults write licenseActivated` no longer bypasses licensing.
+- **HMAC-SHA256 signed license token** — activation state is cryptographically signed; forging requires binary disassembly to extract the key.
+- **Launch re-verification** — license is verified with Gumroad on every cold start (was every 30 days). Offline grace period reduced from 30 to 7 days.
+- **Gumroad response cross-checking** — now verifies `refunded`, `disputed`, `chargebacked` flags and echoed `license_key`, not just `success: true`.
+- **Keychain items marked `WhenUnlockedThisDeviceOnly`** — not synced via iCloud Keychain, not included in backups.
+
+### Changed
+- Seamless migration for existing activated users: signed token is created from existing Keychain key + UserDefaults email on first launch, then legacy UserDefaults keys are cleaned up. No re-activation required.
+
 ## [1.0.9] — 2026-03-20
 
 ### Added
