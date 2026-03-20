@@ -40,6 +40,7 @@ final class TextCaptureService {
     func captureSelectedText() async throws -> String {
         rememberTargetApp()
         let pasteboard = NSPasteboard.general
+
         let previousChangeCount = pasteboard.changeCount
 
         try await Task.sleep(for: .milliseconds(50))   // let run loop settle

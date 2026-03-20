@@ -31,6 +31,9 @@
 "recording.silence_timeout" = "Silence timeout:";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Controls how long a pause triggers stop. Increase if you get cut off.";
+"recording.no_speech_timeout" = "No speech timeout:";
+"recording.no_speech_timeout_unit" = "%d s";
+"recording.no_speech_timeout_desc" = "Auto-cancels if no speech detected.";
 "recording.show_dictation_text" = "Show dictation text:";
 
 /* Settings — Sounds */
@@ -108,6 +111,7 @@
 "error.engine_failed" = "Audio engine failed to start: %@";
 "error.empty_recording" = "Recording produced no audio. Check your microphone.";
 "error.too_quiet" = "Recording was too quiet — no speech detected.";
+"error.no_speech_detected" = "No speech detected";
 "error.low_confidence" = "Could not understand speech clearly. Please try again.";
 "error.mlx_empty" = "MLX STT produced no text. Please try again.";
 
@@ -150,3 +154,22 @@
 "theme.neon_blue.desc" = "Cool blue glow on deep navy";
 "theme.dark_neon.name" = "Dark Neon";
 "theme.dark_neon.desc" = "Green glow on dark emerald";
+
+/* License Activation */
+"tab.license" = "License";
+"license.activate_title" = "Activate Hitoku Draft";
+"license.enter_key" = "License key";
+"license.activate_button" = "Activate";
+"license.activated" = "License Activated";
+"license.email" = "Email:";
+"license.deactivate" = "Deactivate License";
+"license.not_activated" = "Please activate your license";
+"license.get_license" = "Get a license";
+"license.already_purchased_prefix" = "Already got it? Recover your ";
+"license.already_purchased_link" = "license key";
+"license.invalid_key" = "Invalid license key. Please check and try again.";
+"license.network_error" = "Could not reach the server. Check your connection and try again.";
+"license.uses_exceeded" = "This key has reached its activation limit. Contact support@hitoku.me for help.";
+
+"license.key_label" = "License:";
+"license.apply_button" = "Apply";

@@ -14,7 +14,7 @@ final class PermissionsCoordinator: ObservableObject {
     var onAccessibilityGranted: (() -> Void)?
 
     var allGranted: Bool {
-        accessibilityGranted && microphoneGranted
+        accessibilityGranted && microphoneGranted && screenRecordingGranted
     }
 
     init() {
@@ -33,6 +33,7 @@ final class PermissionsCoordinator: ObservableObject {
         accessibilityGranted = AXIsProcessTrusted()
         if !was && accessibilityGranted {
             onAccessibilityGranted?()
+            onAccessibilityGranted = nil
         }
     }
 
@@ -58,18 +59,43 @@ final class PermissionsCoordinator: ObservableObject {
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
     }
 
+    /// Tracks whether we've already called CGRequestScreenCaptureAccess once.
+    /// The API only shows the system prompt on the first call; after that it's a no-op.
+    private var screenRecordingRequested = false
+
     func requestScreenRecording() {
-        CGRequestScreenCaptureAccess()
+        if screenRecordingRequested {
+            // Already prompted once — open System Settings directly
+            openScreenRecordingSettings()
+        } else {
+            screenRecordingRequested = true
+            CGRequestScreenCaptureAccess()
+        }
+    }
+
+    func openScreenRecordingSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        let t = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkAccessibility()
                 self?.checkMicrophone()
                 self?.checkScreenRecording()
+                self?.stopPollingIfAllGranted()
             }
         }
+        t.tolerance = 0.5  // 25% slack — no perceptible UX difference
+        pollTimer = t
+    }
+
+    private func stopPollingIfAllGranted() {
+        guard allGranted else { return }
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     deinit {

@@ -4,13 +4,19 @@ import os
 
 final class AudioCaptureService {
     private let silenceThreshold: Float = 0.015
+    /// RMS below which we skip VAD entirely (muted mic gate).
+    private static let mutedMicThreshold: Float = 0.001
     private var silenceDurationLimit: TimeInterval {
         let v = UserDefaults.standard.double(forKey: "silenceDurationLimit")
-        return v > 0 ? v : 2.0
+        return v > 0 ? v : 0.5
     }
     private var maxRecordingDuration: TimeInterval {
         let v = UserDefaults.standard.double(forKey: "maxRecordingDuration")
         return v > 0 ? v : 30.0
+    }
+    private var noSpeechTimeout: TimeInterval {
+        let v = UserDefaults.standard.double(forKey: "noSpeechTimeout")
+        return v > 0 ? v : 3.0
     }
 
     /// Minimum samples (1 second at 16 kHz) before we attempt transcription.
@@ -34,11 +40,16 @@ final class AudioCaptureService {
     private let processingQueue = DispatchQueue(label: "com.hitokudraft.audio-processing")
 
     /// Records microphone input until silence is detected and returns 16 kHz mono Float32 samples.
-    func recordUntilSilence() async throws -> [Float] {
+    /// When `vadDetector` is provided, uses neural VAD for silence detection (noise-robust).
+    /// Falls back to RMS threshold when nil.
+    func recordUntilSilence(vadDetector: VoiceActivityDetector? = nil) async throws -> [Float] {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             Self.log.error("Microphone permission not granted")
             throw AudioCaptureError.microphoneNotGranted
         }
+
+        // Reset VAD state for this recording session
+        await vadDetector?.reset()
 
         let (engine, inputNode, tapFormat) = try await startEngineWithRetries()
 
@@ -47,13 +58,24 @@ final class AudioCaptureService {
         let processingQ = self.processingQueue
 
         let threshold = self.silenceThreshold
-        let silenceLimit = self.silenceDurationLimit
+        let useVAD = vadDetector != nil
+        // VAD internally confirms 500ms of silence before firing speechEnd,
+        // so subtract that from the user's configured limit to avoid stacking.
+        let vadInternalSilence: TimeInterval = 0.5
+        let silenceLimit = useVAD
+            ? max(self.silenceDurationLimit - vadInternalSilence, 0.3)
+            : self.silenceDurationLimit
         let maxDuration = self.maxRecordingDuration
+        let noSpeechLimit = self.noSpeechTimeout
 
-        Self.log.info("recordUntilSilence: starting with tapFormat=\(tapFormat, privacy: .public)")
+        Self.log.info("recordUntilSilence: starting with tapFormat=\(tapFormat, privacy: .public) useVAD=\(useVAD)")
+
+        // Shared stop reason — set by tap callback, read after stream ends
+        let stopReason = LockedString()
 
         let stream = AsyncStream<Void> { continuation in
             var silenceDuration: TimeInterval = 0
+            var vadSilenceDuration: TimeInterval = 0
             var totalDuration: TimeInterval = 0
             var hasReceivedAudio = false
 
@@ -68,15 +90,8 @@ final class AudioCaptureService {
                 let duration = Double(frames) / tapSampleRate
                 totalDuration += duration
 
-                // RMS via Accelerate — safe on RT thread
+                // RMS via Accelerate — safe on RT thread (kept for waveform + muted mic gate)
                 let rms = Self.calculateRMS(buffer: buffer)
-
-                if rms > threshold {
-                    hasReceivedAudio = true
-                    silenceDuration = 0
-                } else if hasReceivedAudio {
-                    silenceDuration += duration
-                }
 
                 // Copy buffer before dispatching — Core Audio reuses memory after callback
                 guard let copy = Self.copyBuffer(buffer) else {
@@ -88,16 +103,65 @@ final class AudioCaptureService {
                 processingQ.async {
                     let samples = Self.convertToSTT(copy)
                     audioBuffer.append(samples)
+
+                    // Feed VAD if available and mic isn't muted
+                    if let vad = vadDetector, rms >= Self.mutedMicThreshold {
+                        Task {
+                            await vad.feedSamples(samples)
+                        }
+                    }
                 }
 
-                let shouldStop =
-                    (hasReceivedAudio && silenceDuration >= silenceLimit)
-                    || totalDuration >= maxDuration
+                if useVAD, let vad = vadDetector {
+                    // VAD-driven silence detection
+                    let speechStarted = vad.speechDetected.value
+                    let speechEnded = vad.silenceAfterSpeech.value
 
-                if shouldStop {
-                    Self.log.info("recordUntilSilence: stopping — hasAudio=\(hasReceivedAudio) silenceDur=\(silenceDuration, format: .fixed(precision: 2))s totalDur=\(totalDuration, format: .fixed(precision: 2))s")
-                    continuation.yield()
-                    continuation.finish()
+                    if speechStarted {
+                        hasReceivedAudio = true
+                    }
+
+                    // After VAD fires speechEnd, accumulate silence duration
+                    if speechEnded {
+                        vadSilenceDuration += duration
+                    } else {
+                        vadSilenceDuration = 0
+                    }
+
+                    let shouldStop =
+                        // VAD detected end of speech + user's silence limit elapsed
+                        (speechEnded && vadSilenceDuration >= silenceLimit)
+                        // No speech detected within timeout
+                        || (!speechStarted && totalDuration >= noSpeechLimit)
+                        // Hard max duration
+                        || totalDuration >= maxDuration
+
+                    if shouldStop {
+                        if !speechStarted && totalDuration >= noSpeechLimit {
+                            stopReason.set("noSpeech")
+                        }
+                        Self.log.info("recordUntilSilence(VAD): stopping — speech=\(speechStarted) speechEnd=\(speechEnded) vadSilence=\(vadSilenceDuration, format: .fixed(precision: 2))s total=\(totalDuration, format: .fixed(precision: 2))s")
+                        continuation.yield()
+                        continuation.finish()
+                    }
+                } else {
+                    // RMS fallback (original logic)
+                    if rms > threshold {
+                        hasReceivedAudio = true
+                        silenceDuration = 0
+                    } else if hasReceivedAudio {
+                        silenceDuration += duration
+                    }
+
+                    let shouldStop =
+                        (hasReceivedAudio && silenceDuration >= silenceLimit)
+                        || totalDuration >= maxDuration
+
+                    if shouldStop {
+                        Self.log.info("recordUntilSilence(RMS): stopping — hasAudio=\(hasReceivedAudio) silenceDur=\(silenceDuration, format: .fixed(precision: 2))s totalDur=\(totalDuration, format: .fixed(precision: 2))s")
+                        continuation.yield()
+                        continuation.finish()
+                    }
                 }
             }
 
@@ -113,6 +177,12 @@ final class AudioCaptureService {
 
         // Flush any pending processing before reading the buffer
         processingQueue.sync {}
+
+        // Check if we stopped because no speech was detected
+        if stopReason.value == "noSpeech" {
+            Self.log.info("recordUntilSilence: no speech detected within timeout")
+            throw AudioCaptureError.noSpeechDetected
+        }
 
         let samples = audioBuffer.getAll()
         Self.log.info("recordUntilSilence: total accumulated samples=\(samples.count)")
@@ -150,30 +220,46 @@ final class AudioCaptureService {
         private let silenceFlag = LockedFlag()
         var isSilenceDetected: Bool { silenceFlag.value }
 
+        /// Thread-safe flag set when no speech was detected within the timeout.
+        private let noSpeechFlag = LockedFlag()
+        var isNoSpeechTimeout: Bool { noSpeechFlag.value }
+
         /// Current audio level (RMS) — updated every tap callback (~93ms at 4096/44.1kHz).
         /// Read by the overlay to drive waveform animation.
         private let _audioLevel = LockedFloat()
         var audioLevel: Float { _audioLevel.value }
 
         fileprivate init(engine: AVAudioEngine, inputNode: AVAudioInputNode,
-                         tapFormat: AVAudioFormat, silenceDurationLimit: TimeInterval) {
+                         tapFormat: AVAudioFormat, silenceDurationLimit: TimeInterval,
+                         vadDetector: VoiceActivityDetector? = nil,
+                         noSpeechTimeout: TimeInterval = 5.0) {
             self.engine = engine
             self.inputNode = inputNode
 
             let buffer = self.audioBuffer
             let queue = self.processingQueue
             let flag = self.silenceFlag
+            let noSpeechFlag = self.noSpeechFlag
             let level = self._audioLevel
             let tapSampleRate = tapFormat.sampleRate
+            let useVAD = vadDetector != nil
+            // VAD internally confirms 500ms of silence before firing speechEnd,
+            // so subtract that from the user's configured limit to avoid stacking.
+            let vadInternalSilence: TimeInterval = 0.5
+            let effectiveSilenceLimit = useVAD
+                ? max(silenceDurationLimit - vadInternalSilence, 0.3)
+                : silenceDurationLimit
 
             // Mutable state captured by the tap closure (audio thread only)
             var hasReceivedAudio = false
             var silenceDuration: TimeInterval = 0
+            var vadSilenceDuration: TimeInterval = 0
+            var totalDuration: TimeInterval = 0
             let silenceThreshold: Float = 0.015
-            let silenceLimit = silenceDurationLimit
+            let silenceLimit = effectiveSilenceLimit
             var cumulativeSamples = 0
 
-            AudioCaptureService.log.info("ContinuousSession: starting with tapFormat=\(tapFormat, privacy: .public)")
+            AudioCaptureService.log.info("ContinuousSession: starting with tapFormat=\(tapFormat, privacy: .public) useVAD=\(useVAD)")
 
             inputNode.removeTap(onBus: 0)
             // format: tapFormat guarantees Float32 non-interleaved delivery
@@ -181,37 +267,74 @@ final class AudioCaptureService {
                 let frames = pcmBuffer.frameLength
                 guard frames > 0 else { return }
 
-                // Silence detection
                 let duration = Double(frames) / tapSampleRate
+                totalDuration += duration
                 let rms = AudioCaptureService.calculateRMS(buffer: pcmBuffer)
 
                 // Publish level for waveform visualization
                 level.set(rms)
-
-                if rms > silenceThreshold {
-                    hasReceivedAudio = true
-                    silenceDuration = 0
-                } else if hasReceivedAudio {
-                    silenceDuration += duration
-                    if silenceDuration >= silenceLimit {
-                        AudioCaptureService.log.info("ContinuousSession: silence detected after \(silenceDuration, format: .fixed(precision: 2))s")
-                        flag.set()
-                    }
-                }
 
                 guard let copy = AudioCaptureService.copyBuffer(pcmBuffer) else {
                     AudioCaptureService.log.warning("ContinuousSession: copyBuffer failed — skipping \(frames) frames")
                     return
                 }
 
-                // Fresh converter per buffer — no statefulness
+                // Resample + feed VAD on background queue
                 queue.async {
                     let samples = AudioCaptureService.convertToSTT(copy)
                     buffer.append(samples)
                     cumulativeSamples += samples.count
-                    // Log periodically (~every 2 seconds at 16 kHz)
+
+                    // Feed VAD if available and mic isn't muted
+                    if let vad = vadDetector, rms >= AudioCaptureService.mutedMicThreshold {
+                        Task {
+                            await vad.feedSamples(samples)
+                        }
+                    }
+
                     if cumulativeSamples % 32_000 < samples.count {
                         AudioCaptureService.log.info("ContinuousSession: cumulative STT samples=\(cumulativeSamples)")
+                    }
+                }
+
+                if useVAD, let vad = vadDetector {
+                    // VAD-driven silence detection
+                    let speechStarted = vad.speechDetected.value
+                    let speechEnded = vad.silenceAfterSpeech.value
+
+                    if speechStarted {
+                        hasReceivedAudio = true
+                    }
+
+                    if speechEnded {
+                        vadSilenceDuration += duration
+                    } else {
+                        vadSilenceDuration = 0
+                    }
+
+                    // VAD speechEnd + user's silence limit
+                    if speechEnded && vadSilenceDuration >= silenceLimit {
+                        AudioCaptureService.log.info("ContinuousSession(VAD): silence detected — vadSilence=\(vadSilenceDuration, format: .fixed(precision: 2))s")
+                        flag.set()
+                    }
+
+                    // No speech timeout
+                    if !speechStarted && totalDuration >= noSpeechTimeout {
+                        AudioCaptureService.log.info("ContinuousSession(VAD): no speech within \(noSpeechTimeout, format: .fixed(precision: 1))s")
+                        noSpeechFlag.set()
+                        flag.set()
+                    }
+                } else {
+                    // RMS fallback (original logic)
+                    if rms > silenceThreshold {
+                        hasReceivedAudio = true
+                        silenceDuration = 0
+                    } else if hasReceivedAudio {
+                        silenceDuration += duration
+                        if silenceDuration >= silenceLimit {
+                            AudioCaptureService.log.info("ContinuousSession(RMS): silence detected after \(silenceDuration, format: .fixed(precision: 2))s")
+                            flag.set()
+                        }
                     }
                 }
             }
@@ -232,16 +355,22 @@ final class AudioCaptureService {
 
     /// Starts a continuous recording session for dictation.
     /// Returns a `ContinuousSession` whose `audioBuffer` grows as audio arrives.
+    /// When `vadDetector` is provided, uses neural VAD for silence detection.
     /// Call `session.stop()` when done.
-    func startContinuousRecording() async throws -> ContinuousSession {
+    func startContinuousRecording(vadDetector: VoiceActivityDetector? = nil) async throws -> ContinuousSession {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             Self.log.error("Microphone permission not granted")
             throw AudioCaptureError.microphoneNotGranted
         }
 
+        // Reset VAD state for this recording session
+        await vadDetector?.reset()
+
         let (engine, inputNode, tapFormat) = try await startEngineWithRetries()
         return ContinuousSession(engine: engine, inputNode: inputNode, tapFormat: tapFormat,
-                                 silenceDurationLimit: silenceDurationLimit)
+                                 silenceDurationLimit: silenceDurationLimit,
+                                 vadDetector: vadDetector,
+                                 noSpeechTimeout: noSpeechTimeout)
     }
 
     // MARK: - Engine Start with Retries
@@ -388,6 +517,7 @@ final class AudioCaptureService {
         case engineStartFailed(Error)
         case emptyRecording
         case tooQuiet
+        case noSpeechDetected
 
         var errorDescription: String? {
             switch self {
@@ -403,6 +533,8 @@ final class AudioCaptureService {
                 return L("error.empty_recording")
             case .tooQuiet:
                 return L("error.too_quiet")
+            case .noSpeechDetected:
+                return L("error.no_speech_detected")
             }
         }
     }
@@ -481,6 +613,30 @@ final class LockedFlag: @unchecked Sendable {
     func set() {
         lock.lock()
         _value = true
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        _value = false
+        lock.unlock()
+    }
+}
+
+/// A thread-safe optional string for passing results across task boundaries.
+final class LockedString: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: String?
+
+    var value: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _value
+    }
+
+    func set(_ newValue: String?) {
+        lock.lock()
+        _value = newValue
         lock.unlock()
     }
 }

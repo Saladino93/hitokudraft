@@ -8,11 +8,12 @@ import SwiftUI
 
 @MainActor
 final class ConversationCoordinator: ObservableObject {
-    private nonisolated(unsafe) static let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pipeline")
+    private static let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pipeline")
     @Published private(set) var state: AppState = .idle
 
     let permissions = PermissionsCoordinator()
     let modelManager = ModelManager()
+    let licenseManager = LicenseManager()
 
     private let textCapture = TextCaptureService()
     private let audioCapture = AudioCaptureService()
@@ -64,6 +65,10 @@ final class ConversationCoordinator: ObservableObject {
         }.store(in: &cancellables)
 
         modelManager.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }.store(in: &cancellables)
+
+        licenseManager.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }.store(in: &cancellables)
 
@@ -140,9 +145,26 @@ final class ConversationCoordinator: ObservableObject {
             modelManager.sttLoading = false
         }
 
+        // Phase 3: VAD — load Silero VAD for neural silence detection
+        if modelManager.vadDetector == nil {
+            do {
+                modelManager.vadDetector = try await VoiceActivityDetector.create()
+                Self.log.info("VAD loaded successfully")
+            } catch {
+                // VAD failure is non-fatal — falls back to RMS silence detection
+                Self.log.warning("VAD init failed (RMS fallback): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
         setupHotkeys()
         modelManager.statusMessage = ""
         await drainPendingSwitches()
+
+        // License: silent re-verify + first-launch prompt
+        await licenseManager.reVerifyIfNeeded()
+        if !licenseManager.isActivated {
+            LicenseWindowController.show(licenseManager: licenseManager)
+        }
     }
 
     func setupHotkeys() {
@@ -327,6 +349,12 @@ final class ConversationCoordinator: ObservableObject {
             return
         }
 
+        guard licenseManager.isActivated else {
+            state = .error(L("license.not_activated"))
+            resetErrorAfterDelay()
+            return
+        }
+
         guard state == .idle else { return }
 
         guard let stt else {
@@ -355,7 +383,9 @@ final class ConversationCoordinator: ObservableObject {
                 SoundPlayer.shared.playActivation()
                 state = .listening
 
-                let session = try await audioCapture.startContinuousRecording()
+                let session = try await audioCapture.startContinuousRecording(
+                    vadDetector: modelManager.vadDetector
+                )
                 dictationOverlay.show(text: L("overlay.listening"), isStatus: true)
                 dictationOverlay.startLevelPolling(session: session)
 
@@ -380,6 +410,13 @@ final class ConversationCoordinator: ObservableObject {
                 }
 
                 session.stop()
+
+                // Handle no-speech timeout from VAD
+                if session.isNoSpeechTimeout {
+                    dictationOverlay.hide()
+                    if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
+                    throw AudioCaptureService.AudioCaptureError.noSpeechDetected
+                }
 
                 let samples = session.audioBuffer.getAll()
                 guard samples.count >= 16_000 else {
@@ -479,6 +516,12 @@ final class ConversationCoordinator: ObservableObject {
     // MARK: - Grammar Fix
 
     func handleGrammarFix() async {
+        guard licenseManager.isActivated else {
+            state = .error(L("license.not_activated"))
+            resetErrorAfterDelay()
+            return
+        }
+
         guard state == .idle, let llm else { return }
 
         var savedClipboard: TextCaptureService.ClipboardSnapshot?
@@ -487,10 +530,18 @@ final class ConversationCoordinator: ObservableObject {
             savedClipboard = textCapture.saveClipboard()
             let selectedText = try await textCapture.captureSelectedText()
 
-            guard !selectedText.isEmpty else {
+            // Bail if nothing selected or only whitespace
+            let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
                 if let saved = savedClipboard {
                     textCapture.restoreClipboard(saved)
                 }
+                return
+            }
+
+            guard trimmed.count > 10 else {
+                // Too short — likely accidental capture, not real selected text
+                if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
                 return
             }
 
@@ -498,10 +549,9 @@ final class ConversationCoordinator: ObservableObject {
             SoundPlayer.shared.playActivation()
 
             state = .generating
-            dictationOverlay.show(text: L("overlay.fixing_grammar"), isStatus: true)
 
             let family = modelManager.selectedModel.family
-            let lang = LanguageDetector.detect(selectedText)
+            let lang = LanguageDetector.detect(trimmed)
             let instruction = Instructions.forLanguage(lang)
             let prompt = family.editPrompt(text: selectedText, instruction: instruction, context: nil)
             let maxTokens = family.editMaxTokens(for: selectedText)
@@ -510,17 +560,14 @@ final class ConversationCoordinator: ObservableObject {
             let cleaned = OutputCleaner.clean(family.postProcess(raw))
 
             guard !cleaned.isEmpty else {
-                dictationOverlay.hide()
                 throw VoiceEditorError.emptyOutput
             }
 
             state = .pasting
-            dictationOverlay.show(text: L("overlay.pasting"), isStatus: true)
             try await textCapture.pasteText(cleaned)
 
             // Audio cue: done
             SoundPlayer.shared.playCompletion()
-            dictationOverlay.hide()
 
             if let saved = savedClipboard {
                 try? await Task.sleep(for: .milliseconds(300))
@@ -529,7 +576,6 @@ final class ConversationCoordinator: ObservableObject {
 
             state = .idle
         } catch {
-            dictationOverlay.hide()
             if let saved = savedClipboard {
                 textCapture.restoreClipboard(saved)
             }
@@ -547,9 +593,15 @@ final class ConversationCoordinator: ObservableObject {
             return
         }
 
+        guard licenseManager.isActivated else {
+            state = .error(L("license.not_activated"))
+            resetErrorAfterDelay()
+            return
+        }
+
         guard state == .idle else { return }
 
-        guard let stt else {
+        guard stt != nil else {
             state = .error(VoiceEditorError.modelsNotLoaded.localizedDescription)
             resetErrorAfterDelay()
             return
@@ -557,7 +609,9 @@ final class ConversationCoordinator: ObservableObject {
 
         do {
             textCapture.rememberTargetApp()
-            let session = try await audioCapture.startContinuousRecording()
+            let session = try await audioCapture.startContinuousRecording(
+                vadDetector: modelManager.vadDetector
+            )
             dictationSession = session
 
             SoundPlayer.shared.playActivation()
@@ -576,6 +630,19 @@ final class ConversationCoordinator: ObservableObject {
                     }
                 )
                 await MainActor.run { self.lastStreamingTranscription = finalText }
+
+                // If we exited due to no speech timeout, show error and stop
+                if !Task.isCancelled && session.isNoSpeechTimeout {
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.dictationSession = nil
+                        session.stop()
+                        self.dictationOverlay.hide()
+                        self.state = .error(L("error.no_speech_detected"))
+                        self.resetErrorAfterDelay()
+                    }
+                    return
+                }
 
                 // If we exited due to silence (not cancellation), stop dictation.
                 if !Task.isCancelled && session.isSilenceDetected {
@@ -767,8 +834,8 @@ final class ConversationCoordinator: ObservableObject {
         // Transcription runs in a detached Task so the main loop keeps
         // checking silence every 200ms without blocking on inference.
         var lastTranscription = ""
-        nonisolated(unsafe) var pendingText: String? = nil
-        nonisolated(unsafe) var taskDone = false
+        let pendingText = LockedString()
+        let taskDone = LockedFlag()
         var transcriptionTask: Task<Void, Never>? = nil
         let logger = Self.log
 
@@ -777,14 +844,14 @@ final class ConversationCoordinator: ObservableObject {
             if Task.isCancelled || session.isSilenceDetected { break }
 
             // Harvest completed transcription result
-            if taskDone {
-                if let text = pendingText {
+            if taskDone.value {
+                if let text = pendingText.value {
                     lastTranscription = text
-                    await onTextUpdate(text)
+                    await MainActor.run { onTextUpdate(text) }
                 }
-                pendingText = nil
+                pendingText.set(nil)
                 transcriptionTask = nil
-                taskDone = false
+                taskDone.reset()
             }
 
             // Launch new transcription if none in-flight and buffer has data
@@ -796,11 +863,11 @@ final class ConversationCoordinator: ObservableObject {
                     transcriptionTask = Task.detached {
                         do {
                             let text = try await sttRef.transcribe(samples: snapshot)
-                            pendingText = text
+                            pendingText.set(text)
                         } catch {
                             logger.error("Path A transcription: \(error.localizedDescription, privacy: .public)")
                         }
-                        taskDone = true
+                        taskDone.set()
                     }
                 }
             }
@@ -815,7 +882,7 @@ final class ConversationCoordinator: ObservableObject {
                 _ = await group.next()
                 group.cancelAll()
             }
-            if let text = pendingText {
+            if let text = pendingText.value {
                 lastTranscription = text
             }
         }
@@ -824,11 +891,12 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     private func resetErrorAfterDelay() {
-        Task {
+        Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
-            if case .error = state {
-                state = .idle
-                await drainPendingSwitches()
+            guard let self else { return }
+            if case .error = self.state {
+                self.state = .idle
+                await self.drainPendingSwitches()
             }
         }
     }

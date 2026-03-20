@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 import FluidAudio
 import MLX
 import MLXLLM
@@ -16,6 +17,7 @@ final class ModelManager: ObservableObject {
 
     private(set) var modelContainer: ModelContainer?
     private(set) var asrModels: AsrModels?
+    internal var vadDetector: VoiceActivityDetector?
 
     /// Path of the last successfully-loaded LLM — prevents redundant reloads.
     private(set) var loadedModelPath: String?
@@ -23,6 +25,13 @@ final class ModelManager: ObservableObject {
     /// Path of the model that was loaded before the current one.
     /// Used to restore the previous model when the user deletes the active custom model.
     private(set) var previousModelPath: String?
+
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
+
+    /// GPU cache limit for MLX intermediate computation buffers (not model weights).
+    /// 256MB avoids the eviction thrashing that 20MB caused, while staying light
+    /// enough for 8GB machines where users run browsers, editors, etc.
+    private static let gpuCacheLimit = 256 * 1024 * 1024
 
     init(model: ModelOption? = nil) {
         if let model {
@@ -33,6 +42,7 @@ final class ModelManager: ObservableObject {
         } else {
             self.selectedModel = ModelRegistry.smartDefault
         }
+        startMemoryPressureMonitoring()
     }
 
     /// Load a specific model (downloads if needed, then initializes).
@@ -42,10 +52,11 @@ final class ModelManager: ObservableObject {
             return
         }
 
-        Memory.cacheLimit = 20 * 1024 * 1024
+        Memory.cacheLimit = Self.gpuCacheLimit
 
         llmReady = false
         modelContainer = nil
+        Memory.clearCache()  // Evict old model's GPU buffers before loading new one
         if loadedModelPath != nil { previousModelPath = loadedModelPath }
         loadedModelPath = nil
         statusMessage = "Loading \(model.name)..."
@@ -78,7 +89,7 @@ final class ModelManager: ObservableObject {
 
     func loadAll() async throws {
         // Set GPU cache limit before loading models
-        Memory.cacheLimit = 20 * 1024 * 1024
+        Memory.cacheLimit = Self.gpuCacheLimit
 
         // Load LLM (downloads if not cached, then initializes)
         statusMessage = "Loading \(selectedModel.name)..."
@@ -113,6 +124,16 @@ final class ModelManager: ObservableObject {
             break
         }
 
+        // Load Silero VAD for neural silence detection (~2 MB, one-time download)
+        if vadDetector == nil {
+            do {
+                vadDetector = try await VoiceActivityDetector.create()
+            } catch {
+                // VAD failure is non-fatal — falls back to RMS silence detection
+                print("[ModelManager] VAD init failed (will use RMS fallback): \(error.localizedDescription)")
+            }
+        }
+
         statusMessage = ""
     }
 
@@ -136,4 +157,23 @@ final class ModelManager: ObservableObject {
         statusMessage = ""
     }
 
+    // MARK: - Memory Pressure
+
+    private func startMemoryPressureMonitoring() {
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: .main
+        )
+        source.setEventHandler {
+            Task { @MainActor in
+                Memory.clearCache()
+            }
+        }
+        source.resume()
+        memoryPressureSource = source
+    }
+
+    deinit {
+        memoryPressureSource?.cancel()
+    }
 }

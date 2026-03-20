@@ -14,7 +14,8 @@ struct SettingsView: View {
     }
 
     @AppStorage("maxRecordingDuration") private var maxRecordingDuration: Double = 30.0
-    @AppStorage("silenceDurationLimit") private var silenceDurationLimit: Double = 2.0
+    @AppStorage("silenceDurationLimit") private var silenceDurationLimit: Double = 0.5
+    @AppStorage("noSpeechTimeout")      private var noSpeechTimeout: Double = 3.0
     @AppStorage("activationSound")      private var activationSound: String = "Glass"
     @AppStorage("completionSound")      private var completionSound: String = "Glass"
     @AppStorage("appLanguage")           private var appLanguage: String = AppLocalization.detectInitialLanguage()
@@ -23,7 +24,7 @@ struct SettingsView: View {
     @AppStorage("dictationTheme")        private var dictationTheme: String = DictationTheme.default.rawValue
 
     // MARK: - Navigation State
-    private enum Tab { case general, appearance, model, updates }
+    private enum Tab { case license, general, appearance, model, updates }
     @State private var selectedTab: Tab = .general
 
     // MARK: - Custom Model State
@@ -49,10 +50,11 @@ struct SettingsView: View {
     // MARK: - Dynamic Window Height
     private var currentHeight: CGFloat {
         switch selectedTab {
-        case .general: return 470
-        case .appearance: return 357
-        case .model: return 320
-        case .updates: return 125
+        case .license: return 178
+        case .general: return 518
+        case .appearance: return 348
+        case .model: return 312
+        case .updates: return 122
         }
     }
 
@@ -69,6 +71,10 @@ struct SettingsView: View {
             appearanceTab
                 .tag(Tab.appearance)
                 .tabItem { Label(L("tab.theme"), systemImage: "paintbrush") }
+
+            LicenseActivationView(licenseManager: coordinator.licenseManager)
+                .tag(Tab.license)
+                .tabItem { Label(L("tab.license"), systemImage: "key") }
 
             updatesTab
                 .tag(Tab.updates)
@@ -130,6 +136,11 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .frame(maxWidth: 300)
+                    .onChange(of: contextAwareMode) { _, newValue in
+                        if newValue != "off" && !coordinator.permissions.screenRecordingGranted {
+                            coordinator.permissions.requestScreenRecording()
+                        }
+                    }
 
                     Text(L("context.desc"))
                         .font(.caption)
@@ -199,8 +210,20 @@ struct SettingsView: View {
             GridRow {
                 Text(L("recording.silence_timeout"))
                 VStack(alignment: .leading, spacing: 4) {
-                    Stepper(L("recording.silence_timeout_unit", silenceDurationLimit), value: $silenceDurationLimit, in: 1.0...5.0, step: 0.5)
+                    Stepper(L("recording.silence_timeout_unit", silenceDurationLimit), value: $silenceDurationLimit, in: 0.5...3.0, step: 0.5)
                     Text(L("recording.silence_timeout_desc"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Color.clear.frame(height: 8)
+
+            GridRow {
+                Text(L("recording.no_speech_timeout"))
+                VStack(alignment: .leading, spacing: 4) {
+                    Stepper(L("recording.no_speech_timeout_unit", Int(noSpeechTimeout)), value: $noSpeechTimeout, in: 2...8, step: 1)
+                    Text(L("recording.no_speech_timeout_desc"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -491,7 +514,7 @@ struct SettingsView: View {
                         .onAppear {
                             autoCheckUpdates = updater.automaticallyChecksForUpdates
                         }
-                        .onChange(of: autoCheckUpdates) { newValue in
+                        .onChange(of: autoCheckUpdates) { _, newValue in
                             updater.automaticallyChecksForUpdates = newValue
                         }
                 }
@@ -687,6 +710,10 @@ struct SettingsView: View {
     }
 
     private func calculateCacheSizeText() async -> String {
+        calculateCacheSizeSync()
+    }
+
+    private nonisolated func calculateCacheSizeSync() -> String {
         let fm = FileManager.default
         guard let cachesURL = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return "" }
         let modelsDir = cachesURL.appendingPathComponent("models")

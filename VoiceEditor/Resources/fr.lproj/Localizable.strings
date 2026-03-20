@@ -31,6 +31,9 @@
 "recording.silence_timeout" = "Délai silence :";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Contrôle la durée d'une pause avant l'arrêt. Augmentez si vous êtes coupé.";
+"recording.no_speech_timeout" = "Délai sans parole :";
+"recording.no_speech_timeout_unit" = "%d s";
+"recording.no_speech_timeout_desc" = "Annule automatiquement si aucune parole détectée.";
 "recording.show_dictation_text" = "Afficher le texte dicté :";
 
 /* Settings — Sounds */
@@ -108,6 +111,7 @@
 "error.engine_failed" = "Échec du démarrage du moteur audio : %@";
 "error.empty_recording" = "Aucun audio enregistré. Vérifiez votre microphone.";
 "error.too_quiet" = "Enregistrement trop silencieux — aucune parole détectée.";
+"error.no_speech_detected" = "Aucune parole détectée";
 "error.low_confidence" = "Parole non comprise clairement. Veuillez réessayer.";
 "error.mlx_empty" = "MLX STT n'a produit aucun texte. Veuillez réessayer.";
 
@@ -150,3 +154,22 @@
 "theme.neon_blue.desc" = "Lueur bleue sur fond marine";
 "theme.dark_neon.name" = "Néon sombre";
 "theme.dark_neon.desc" = "Lueur verte sur fond émeraude";
+
+/* License Activation */
+"tab.license" = "Licence";
+"license.activate_title" = "Activer Hitoku Draft";
+"license.enter_key" = "Clé de licence";
+"license.activate_button" = "Activer";
+"license.activated" = "Licence Activée";
+"license.email" = "E-mail :";
+"license.deactivate" = "Désactiver la Licence";
+"license.not_activated" = "Veuillez activer votre licence";
+"license.get_license" = "Obtenir une licence";
+"license.already_purchased_prefix" = "Déjà acheté ? Récupérez votre ";
+"license.already_purchased_link" = "clé de licence";
+"license.invalid_key" = "Clé de licence invalide. Vérifiez et réessayez.";
+"license.network_error" = "Impossible de joindre le serveur. Vérifiez votre connexion et réessayez.";
+"license.uses_exceeded" = "Cette clé a atteint sa limite d'activations. Contactez support@hitoku.me pour de l'aide.";
+
+"license.key_label" = "Licence :";
+"license.apply_button" = "Appliquer";

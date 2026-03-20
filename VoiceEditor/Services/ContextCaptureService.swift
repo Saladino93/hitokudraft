@@ -33,6 +33,12 @@ final class ContextCaptureService {
         }
     }
 
+    deinit {
+        if let observer {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+    }
+
     /// Push a newly-activated app to front of the recents list, deduplicating by bundle ID.
     private func pushApp(_ app: NSRunningApplication) {
         recentExternalApps.removeAll { $0.bundleIdentifier == app.bundleIdentifier }

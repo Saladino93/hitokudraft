@@ -3,7 +3,7 @@ import MLX
 import MLXLLM
 import MLXLMCommon
 
-final class MLXLLMService: LLMService, Sendable {
+final class MLXLLMService: LLMService, @unchecked Sendable {
     private let modelContainer: ModelContainer
     private let family: any ModelFamily
     private let systemPrompt: String
@@ -36,11 +36,13 @@ final class MLXLLMService: LLMService, Sendable {
         )
 
         var result = ""
+        result.reserveCapacity(8192)
         var recentChunks: [String] = []
+        recentChunks.reserveCapacity(21)
 
         for await generation in stream {
             if let chunk = generation.chunk {
-                result += chunk
+                result.append(chunk)
 
                 // Early stopping: detect degenerate repetition loops
                 recentChunks.append(chunk)
