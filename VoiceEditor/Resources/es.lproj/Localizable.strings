@@ -31,6 +31,9 @@
 "recording.silence_timeout" = "Tiempo de silencio:";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Controla cuánto tiempo una pausa activa la detención. Aumenta si te corta.";
+"recording.no_speech_timeout" = "Tiempo sin habla:";
+"recording.no_speech_timeout_unit" = "%d s";
+"recording.no_speech_timeout_desc" = "Cancela automáticamente si no se detecta habla.";
 "recording.show_dictation_text" = "Mostrar texto de dictado:";
 
 /* Settings — Sounds */
@@ -108,6 +111,7 @@
 "error.engine_failed" = "Error al iniciar el motor de audio: %@";
 "error.empty_recording" = "No se grabó audio. Comprueba tu micrófono.";
 "error.too_quiet" = "Grabación demasiado silenciosa — no se detectó habla.";
+"error.no_speech_detected" = "No se detectó habla";
 "error.low_confidence" = "No se entendió claramente el habla. Inténtalo de nuevo.";
 "error.mlx_empty" = "MLX STT no produjo texto. Inténtalo de nuevo.";
 
@@ -150,3 +154,22 @@
 "theme.neon_blue.desc" = "Brillo azul sobre azul marino";
 "theme.dark_neon.name" = "Neón oscuro";
 "theme.dark_neon.desc" = "Brillo verde sobre esmeralda oscuro";
+
+/* License Activation */
+"tab.license" = "Licencia";
+"license.activate_title" = "Activar Hitoku Draft";
+"license.enter_key" = "Clave de licencia";
+"license.activate_button" = "Activar";
+"license.activated" = "Licencia Activada";
+"license.email" = "Email:";
+"license.deactivate" = "Desactivar Licencia";
+"license.not_activated" = "Activa tu licencia";
+"license.get_license" = "Obtén una licencia";
+"license.already_purchased_prefix" = "¿Ya lo tienes? Recupera tu ";
+"license.already_purchased_link" = "clave de licencia";
+"license.invalid_key" = "Clave de licencia inválida. Verifica e intenta de nuevo.";
+"license.network_error" = "No se pudo contactar el servidor. Revisa tu conexión e intenta de nuevo.";
+"license.uses_exceeded" = "Esta clave alcanzó su límite de activaciones. Contacta support@hitoku.me para ayuda.";
+
+"license.key_label" = "Licencia:";
+"license.apply_button" = "Aplicar";

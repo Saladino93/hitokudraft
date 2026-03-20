@@ -2,6 +2,21 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [1.0.9] — 2026-03-20
+
+### Added
+- License activation and management.
+- Neural voice activity detection for smarter silence handling.
+- About window.
+
+### Fixed
+- Clipboard preserved correctly during grammar fix.
+- Grammar fix no longer triggers on very short or empty selections.
+
+### Changed
+- Improved STT model language descriptions.
+- Refined settings window sizing.
+
 ## [1.0.7] — 2026-03-18
 
 ### Added

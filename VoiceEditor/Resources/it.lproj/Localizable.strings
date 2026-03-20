@@ -31,6 +31,9 @@
 "recording.silence_timeout" = "Timeout silenzio:";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Controlla quanto a lungo una pausa attiva lo stop. Aumenta se vieni interrotto.";
+"recording.no_speech_timeout" = "Timeout senza parlato:";
+"recording.no_speech_timeout_unit" = "%d s";
+"recording.no_speech_timeout_desc" = "Annulla automaticamente se non viene rilevato parlato.";
 "recording.show_dictation_text" = "Mostra testo dettatura:";
 
 /* Settings — Sounds */
@@ -108,6 +111,7 @@
 "error.engine_failed" = "Avvio del motore audio fallito: %@";
 "error.empty_recording" = "Nessun audio registrato. Controlla il microfono.";
 "error.too_quiet" = "Registrazione troppo silenziosa — nessun parlato rilevato.";
+"error.no_speech_detected" = "Nessun parlato rilevato";
 "error.low_confidence" = "Parlato non compreso chiaramente. Riprova.";
 "error.mlx_empty" = "MLX STT non ha prodotto testo. Riprova.";
 
@@ -150,3 +154,22 @@
 "theme.neon_blue.desc" = "Bagliore blu su fondo marino";
 "theme.dark_neon.name" = "Neon scuro";
 "theme.dark_neon.desc" = "Bagliore verde su fondo smeraldo";
+
+/* License Activation */
+"tab.license" = "Licenza";
+"license.activate_title" = "Attiva Hitoku Draft";
+"license.enter_key" = "Chiave di licenza";
+"license.activate_button" = "Attiva";
+"license.activated" = "Licenza Attivata";
+"license.email" = "Email:";
+"license.deactivate" = "Disattiva Licenza";
+"license.not_activated" = "Attiva la tua licenza";
+"license.get_license" = "Ottieni una licenza";
+"license.already_purchased_prefix" = "Ce l'hai già? Recupera la tua ";
+"license.already_purchased_link" = "chiave di licenza";
+"license.invalid_key" = "Chiave di licenza non valida. Controlla e riprova.";
+"license.network_error" = "Impossibile contattare il server. Controlla la connessione e riprova.";
+"license.uses_exceeded" = "Questa chiave ha raggiunto il limite di attivazioni. Contatta support@hitoku.me per assistenza.";
+
+"license.key_label" = "Licenza:";
+"license.apply_button" = "Applica";

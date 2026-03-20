@@ -24,7 +24,7 @@ enum STTModelRegistry {
             name: "Parakeet TDT v3",
             path: "",
             backend: .fluidAudio,
-            description: "Fast CoreML speech recognition (25 languages)",
+            description: "Fast CoreML speech recognition (European languages)",
             estimatedMemoryGB: 0.6,
             supportsNativeStreaming: false,
             languageRestriction: nil
@@ -33,7 +33,7 @@ enum STTModelRegistry {
             name: "Qwen3-ASR 0.6B (6-bit)",
             path: "mlx-community/Qwen3-ASR-0.6B-6bit",
             backend: .mlxAudio,
-            description: "Lightweight streaming ASR",
+            description: "Lightweight streaming ASR (multilingual)",
             estimatedMemoryGB: 0.8,
             supportsNativeStreaming: true,
             languageRestriction: nil
@@ -42,7 +42,7 @@ enum STTModelRegistry {
             name: "Qwen3-ASR 1.7B",
             path: "mlx-community/Qwen3-ASR-1.7B-bf16",
             backend: .mlxAudio,
-            description: "High-quality streaming ASR",
+            description: "High-quality streaming ASR (multilingual)",
             estimatedMemoryGB: 3.4,
             supportsNativeStreaming: true,
             languageRestriction: nil

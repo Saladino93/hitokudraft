@@ -15,23 +15,7 @@ struct MenuBarMenu: View {
         }
 
         Button(L("menu.about")) {
-            let websiteURL = URL(string: "https://hitoku.me")!
-            let credits = NSAttributedString(
-                string: "hitoku.me",
-                attributes: [
-                    .link: websiteURL,
-                    .foregroundColor: NSColor.linkColor
-                ]
-            )
-            NSApp.orderFrontStandardAboutPanel(options: [
-                .credits: credits
-            ])
-            ActivationPolicyManager.shared.bringWindowsToFront()
-        }
-
-        Button(L("menu.acknowledgments")) {
-            AcknowledgmentsWindowController.shared.show()
-            ActivationPolicyManager.shared.bringWindowsToFront()
+            AboutWindowController.shared.show()
         }
 
         Divider()

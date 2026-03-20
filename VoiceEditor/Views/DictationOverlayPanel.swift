@@ -96,13 +96,13 @@ private final class OverlayViewModel: ObservableObject {
 
     func startPolling(session: AudioCaptureService.ContinuousSession) {
         self.session = session
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        let t = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            Task { @MainActor in
-                self.pollLevel()
-                self.tick = Date()
-            }
+            self.pollLevel()
+            self.tick = Date()
         }
+        t.tolerance = (1.0 / 30.0) * 0.1  // 10% slack for timer coalescing
+        timer = t
     }
 
     func stopPolling() {
