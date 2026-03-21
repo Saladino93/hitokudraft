@@ -2,7 +2,12 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
-## [Unreleased — targeting 1.2.0]
+## [1.2.1] — 2026-03-21
+
+### Fixed
+- **Dictation overlay text now visible in 1-line mode** — text was not appearing when overlay line count was set to 1. Replaced manual text trimming with native SwiftUI truncation for better performance and reliability.
+
+## [1.2.0] — 2026-03-21
 
 ### Changed
 - **Qwen3.5 output now more concise** — dedicated system prompt, draft prompt, and tighter token budget (500 tokens vs 800 default) scoped to Qwen3.5 models only.
