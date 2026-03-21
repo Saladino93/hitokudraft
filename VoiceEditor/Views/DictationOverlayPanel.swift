@@ -35,10 +35,15 @@ final class DictationOverlayPanel {
     }
 
     private func createPanel() {
-        // Oversized so SwiftUI drop shadows / neon glow aren't clipped by window edges
-        let capsuleWidth: CGFloat = 192
+        // Read user-configurable overlay dimensions
+        let capsuleWidth = CGFloat(UserDefaults.standard.double(forKey: "overlayWidth").clamped(to: 150...400, default: 210))
+        let maxLineCount = UserDefaults.standard.integer(forKey: "overlayLineCount").clamped(to: 1...3, default: 2)
+
+        // Size panel for the *maximum* possible capsule height so the adaptive
+        // SwiftUI content has room to grow without misalignment.
+        let maxCapsuleHeight: CGFloat = 35 + CGFloat(maxLineCount - 1) * 18
         let panelWidth: CGFloat = capsuleWidth + 16
-        let panelHeight: CGFloat = 68
+        let panelHeight: CGFloat = maxCapsuleHeight + 33
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
@@ -57,7 +62,7 @@ final class DictationOverlayPanel {
         if let screen = NSScreen.main {
             let frame = screen.visibleFrame
             let x = frame.midX - panelWidth / 2
-            let y = frame.maxY - 68
+            let y = frame.maxY - panelHeight
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
@@ -131,9 +136,95 @@ private struct DictationOverlayContent: View {
     @ObservedObject var viewModel: OverlayViewModel
     var theme: DictationTheme
 
+    @AppStorage("overlayWidth") private var overlayWidth: Double = 210
+    @AppStorage("overlayLineCount") private var overlayLineCount: Int = 2
+
     /// Show text only when the setting is on AND this isn't a bare status message.
     private var effectiveShowText: Bool {
         viewModel.showText && !viewModel.isStatus
+    }
+
+    private var maxLines: Int {
+        max(1, min(3, overlayLineCount))
+    }
+
+    private var capsuleWidth: CGFloat {
+        CGFloat(overlayWidth).clamped(to: 150...400)
+    }
+
+    /// Font matching the SwiftUI display font, used for line-count measurement.
+    private static let overlayFont: NSFont = {
+        let base = NSFont.systemFont(ofSize: 14, weight: .medium)
+        return base.fontDescriptor.withDesign(.rounded)
+            .flatMap { NSFont(descriptor: $0, size: 14) } ?? base
+    }()
+
+    /// Available width for text inside the capsule.
+    private var textAreaWidth: CGFloat {
+        capsuleWidth - 65  // 14*2 padding + 8 spacing + 29 waveform
+    }
+
+    // Cached values — recomputed only when text changes (not on 30fps waveform ticks).
+    @State private var cachedLineCount: Int = 1
+    @State private var cachedTailText: String = ""
+
+    private func recompute() {
+        guard effectiveShowText, !viewModel.text.isEmpty else {
+            cachedLineCount = 1
+            cachedTailText = viewModel.text
+            return
+        }
+        let font = Self.overlayFont
+        let width = max(1, textAreaWidth)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        let lineHeight = font.ascender - font.descender + font.leading
+        let rect = (viewModel.text as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attrs, context: nil
+        )
+        let needed = max(1, Int(ceil(rect.height / lineHeight)))
+        cachedLineCount = min(needed, maxLines)
+
+        // For 1-line mode: extract the tail that fits in one line
+        if maxLines == 1 && needed > 1 {
+            let chars = Array(viewModel.text)
+            var lo = 0
+            var hi = chars.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                let sub = String(chars[mid...])
+                let r = (sub as NSString).boundingRect(
+                    with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: attrs, context: nil
+                )
+                if Int(ceil(r.height / lineHeight)) <= 1 {
+                    hi = mid
+                } else {
+                    lo = mid + 1
+                }
+            }
+            // Snap to next word boundary
+            var start = lo
+            while start < chars.count && !chars[start].isWhitespace { start += 1 }
+            while start < chars.count && chars[start].isWhitespace { start += 1 }
+            if start >= chars.count { start = lo }
+            cachedTailText = String(chars[start...])
+        } else {
+            cachedTailText = viewModel.text
+        }
+    }
+
+    private var capsuleHeight: CGFloat {
+        35 + CGFloat(cachedLineCount - 1) * 18
+    }
+
+    /// Height for the text scroll area (2–3 line modes), aligned to exact line boundaries.
+    private var textAreaHeight: CGFloat {
+        let font = Self.overlayFont
+        let lineHeight = font.ascender - font.descender + font.leading
+        return lineHeight * CGFloat(cachedLineCount)
     }
 
     var body: some View {
@@ -142,18 +233,38 @@ private struct DictationOverlayContent: View {
                 .frame(width: 29, height: 16)
 
             if effectiveShowText {
-                Text(viewModel.text)
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-                    .lineLimit(2)
-                    .truncationMode(.head)
+                if maxLines == 1 {
+                    // 1-line mode: horizontal tail trim — show most recent words
+                    Text(cachedTailText)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    // 2–3 line mode: vertical scroll pinned to bottom
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            Text(viewModel.text)
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.92))
+                                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("bottom")
+                        }
+                        .frame(height: textAreaHeight)
+                        .clipped()
+                        .onChange(of: viewModel.text) {
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        }
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
-        .frame(width: effectiveShowText ? 192 : 64, height: 35)
+        .frame(width: effectiveShowText ? capsuleWidth : 64, height: capsuleHeight)
         .background {
             Capsule()
                 .fill(theme.panelBackground)
@@ -163,7 +274,10 @@ private struct DictationOverlayContent: View {
                 .strokeBorder(theme.panelBorder, lineWidth: 1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { recompute() }
+        .onChange(of: viewModel.text) { recompute() }
         .animation(.easeInOut(duration: 0.2), value: effectiveShowText)
+        .animation(.easeInOut(duration: 0.15), value: cachedLineCount)
     }
 }
 
@@ -231,5 +345,26 @@ private struct WaveformBarsView: View {
         }
 
         smoothedHeights = newHeights
+    }
+}
+
+
+// MARK: - Clamping Helpers
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>, default fallback: Double) -> Double {
+        self == 0 ? fallback : Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+private extension Int {
+    func clamped(to range: ClosedRange<Int>, default fallback: Int) -> Int {
+        self == 0 ? fallback : Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+private extension CGFloat {
+    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }

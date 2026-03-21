@@ -22,6 +22,8 @@ struct SettingsView: View {
     @AppStorage("contextAwareMode")      private var contextAwareMode: String = "off"
     @AppStorage("showDictationText")     private var showDictationText: Bool = true
     @AppStorage("dictationTheme")        private var dictationTheme: String = DictationTheme.default.rawValue
+    @AppStorage("overlayLineCount")      private var overlayLineCount: Int = 2
+    @AppStorage("overlayWidth")          private var overlayWidth: Double = 210
 
     // MARK: - Navigation State
     private enum Tab { case license, general, appearance, model, updates }
@@ -52,7 +54,7 @@ struct SettingsView: View {
         switch selectedTab {
         case .license: return 178
         case .general: return 518
-        case .appearance: return 348
+        case .appearance: return 430
         case .model: return 312
         case .updates: return 122
         }
@@ -258,6 +260,48 @@ struct SettingsView: View {
                     Toggle("", isOn: $showDictationText)
                         .labelsHidden()
                         .gridColumnAlignment(.leading)
+                }
+
+                Color.clear.frame(height: 8)
+
+                GridRow {
+                    Text(L("overlay.line_count"))
+                        .gridColumnAlignment(.trailing)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("", selection: $overlayLineCount) {
+                            Text("1").tag(1)
+                            Text("2").tag(2)
+                            Text("3").tag(3)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 160)
+                        Text(L("overlay.line_count_desc"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .gridColumnAlignment(.leading)
+                }
+
+                Color.clear.frame(height: 8)
+
+                GridRow {
+                    Text(L("overlay.width"))
+                        .gridColumnAlignment(.trailing)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Slider(value: $overlayWidth, in: 150...400, step: 10)
+                                .frame(maxWidth: 200)
+                            Text("\(Int(overlayWidth)) pt")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .frame(width: 50, alignment: .trailing)
+                        }
+                        Text(L("overlay.width_desc"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .gridColumnAlignment(.leading)
                 }
             }
 

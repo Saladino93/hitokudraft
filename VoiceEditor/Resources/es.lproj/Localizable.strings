@@ -27,7 +27,7 @@
 /* Settings — Recording */
 "recording.max_capture" = "Duración máx:";
 "recording.max_capture_unit" = "%d s";
-"recording.max_capture_desc" = "Duración máxima para una sola grabación.";
+"recording.max_capture_desc" = "Duración máxima para la edición por voz. No se aplica al dictado.";
 "recording.silence_timeout" = "Tiempo de silencio:";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Controla cuánto tiempo una pausa activa la detención. Aumenta si te corta.";
@@ -122,7 +122,9 @@
 "Balanced quality, speed, and multilingual writing" = "Calidad, velocidad y escritura multilingüe equilibradas";
 "Higher-fidelity instruction-tuned editing" = "Edición de alta fidelidad optimizada para instrucciones";
 "Strong multilingual — Italian, French, German, English" = "Fuerte multilingüe — italiano, francés, alemán, inglés";
-"Strongest editing and drafting quality" = "Máxima calidad de edición y redacción";
+"Strong editing and drafting quality" = "Alta calidad de edición y redacción";
+"Smart and multilingual — excellent quality for its size" = "Inteligente y multilingüe — excelente calidad para su tamaño";
+"Best overall quality — top multilingual and reasoning" = "Mejor calidad general — máximo multilingüe y razonamiento";
 
 /* Model descriptions — STT */
 "Fast CoreML speech recognition (25 languages)" = "Reconocimiento de voz CoreML rápido (25 idiomas)";
@@ -144,6 +146,12 @@
 "context.advanced" = "Avanzado";
 "context.desc" = "Estándar lee el contexto de texto. Avanzado añade OCR de pantalla.";
 "permission.screen_recording" = "Grabación de pantalla:";
+
+/* Settings — Overlay Size */
+"overlay.line_count" = "Líneas de texto:";
+"overlay.line_count_desc" = "Máximo de líneas en el panel.";
+"overlay.width" = "Ancho del panel:";
+"overlay.width_desc" = "Ancho de la burbuja de dictado.";
 
 /* Settings — Theme Picker */
 "theme.panel_style" = "Estilo del panel";

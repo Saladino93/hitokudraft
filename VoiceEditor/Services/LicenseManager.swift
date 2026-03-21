@@ -51,6 +51,12 @@ final class LicenseManager: ObservableObject {
     // MARK: - Init
 
     init() {
+        #if DEBUG
+        isActivated = true
+        licenseEmail = "dev@hitokudraft.local"
+        return
+        #endif
+
         if let token = loadAndVerifyToken() {
             isActivated = true
             licenseEmail = token.email
@@ -141,6 +147,9 @@ final class LicenseManager: ObservableObject {
     // MARK: - Silent Re-verification (every launch, 7-day offline grace)
 
     func reVerifyIfNeeded() async {
+        #if DEBUG
+        return
+        #endif
         guard isActivated else { return }
         guard let key = loadKeyFromKeychain() else {
             // License key missing from Keychain — deactivate
