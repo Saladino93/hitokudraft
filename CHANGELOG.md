@@ -4,6 +4,17 @@ All notable changes to Hitoku Draft are documented in this file.
 
 ## [Unreleased — targeting 1.2.0]
 
+### Changed
+- **Qwen3.5 output now more concise** — dedicated system prompt, draft prompt, and tighter token budget (500 tokens vs 800 default) scoped to Qwen3.5 models only.
+- **Simplified smart default selection** — now purely RAM-based (≥16 GB → Qwen3.5 9B, ≥8 GB → Qwen3.5 4B, <8 GB → Granite). Removed English/non-English language branching.
+- **Max capture setting description clarified** — subtitle now states it applies to voice edit only, not dictation, in all 4 languages.
+
+### Removed
+- **Meta-Llama-3.1 8B 4-bit** removed from bundled defaults — redundant with Qwen3.5 4B at half the memory.
+- **Qwen3 4B 4-bit** removed from bundled defaults — superseded by Qwen3.5 4B.
+
+## [1.1.0] — 2026-03-20
+
 ### Added
 - **Qwen3.5 model support** — Qwen3.5 4B and 9B models added as bundled options, with improved multilingual quality across 200+ languages. Smart default now selects Qwen3.5 9B on 16+ GB machines.
 
@@ -24,15 +35,8 @@ All notable changes to Hitoku Draft are documented in this file.
 
 ### Changed
 - **Qwen3.5 output quality fix** — disabled reasoning mode via chat template context (`enable_thinking=false`) and switched to cleaner draft prompt format. Qwen3.5 now produces direct content instead of meta-analysis.
-- **Qwen3.5 output now more concise** — dedicated system prompt, draft prompt, and tighter token budget (500 tokens vs 800 default) scoped to Qwen3.5 models only.
-- **Simplified smart default selection** — now purely RAM-based (≥16 GB → Qwen3.5 9B, ≥8 GB → Qwen3.5 4B, <8 GB → Granite). Removed English/non-English language branching.
-- **Max capture setting description clarified** — subtitle now states it applies to voice edit only, not dictation, in all 4 languages.
 - **Customizable dictation overlay size** — new "Text lines" (1–3) and "Overlay width" (150–400 pt) settings in the Appearance tab let users resize the dictation pill to show more text.
 - Seamless migration for existing activated users: signed token is created from existing Keychain key + UserDefaults email on first launch, then legacy UserDefaults keys are cleaned up. No re-activation required.
-
-### Removed
-- **Meta-Llama-3.1 8B 4-bit** removed from bundled defaults — redundant with Qwen3.5 4B at half the memory.
-- **Qwen3 4B 4-bit** removed from bundled defaults — superseded by Qwen3.5 4B.
 
 ## [1.0.9] — 2026-03-20
 
