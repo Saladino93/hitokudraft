@@ -25,7 +25,8 @@ struct ModelOption: Identifiable, Hashable, Codable {
     /// Resolves the model family strategy by inspecting the model path.
     var family: any ModelFamily {
         let lower = path.lowercased()
-        if lower.contains("qwen3") || lower.contains("qwen3.5") { return Qwen3ModelFamily() }
+        if lower.contains("qwen3.5") { return Qwen35ModelFamily() }
+        if lower.contains("qwen3") { return Qwen3ModelFamily() }
         if lower.contains("lfm") { return LFMModelFamily() }
         if lower.contains("granite") { return GraniteModelFamily() }
         return DefaultModelFamily()
@@ -71,7 +72,12 @@ struct ModelOption: Identifiable, Hashable, Codable {
     /// Qwen3 models get `disableThinking` + extra EOS; LFM models get voice-clean prompt.
     static func autoConfigured(name: String, path: String) -> ModelOption {
         let lower = path.lowercased()
-        if lower.contains("qwen3") {
+        if lower.contains("qwen3.5") {
+            return ModelOption(
+                name: name, path: path,
+                extraEOSTokens: ["<|im_end|>"]
+            )
+        } else if lower.contains("qwen3") {
             return ModelOption(
                 name: name, path: path,
                 extraEOSTokens: ["<|im_end|>"],
@@ -165,63 +171,48 @@ enum ModelRegistry {
             estimatedMemoryGB: 1.8
         ),
         ModelOption(
-            name: "Qwen3 4B 4-bit",
-            path: "mlx-community/Qwen3-4B-4bit",
-            extraEOSTokens: ["<|im_end|>"],
-            disableThinking: true,
-            description: "Balanced quality, speed, and multilingual writing",
-            estimatedMemoryGB: 2.26
-        ),
-        ModelOption(
             name: "Granite 4 Micro 8-bit",
             path: "mlx-community/granite-4.0-h-micro-8bit",
             description: "Higher-fidelity instruction-tuned editing",
             estimatedMemoryGB: 3.4
         ),
         ModelOption(
-            name: "Meta-Llama-3.1 8B 4-bit",
-            path: "mlx-community/Meta-Llama-3.1-8B-Instruct-4bit",
-            description: "Strong multilingual — Italian, French, German, English",
-            estimatedMemoryGB: 4.5
-        ),
-        ModelOption(
             name: "Qwen3 8B 4-bit",
             path: "mlx-community/Qwen3-8B-4bit",
             extraEOSTokens: ["<|im_end|>"],
             disableThinking: true,
-            description: "Strongest editing and drafting quality",
+            description: "Strong editing and drafting quality",
             estimatedMemoryGB: 4.61
+        ),
+        ModelOption(
+            name: "Qwen3.5 4B 4-bit",
+            path: "mlx-community/Qwen3.5-4B-4bit",
+            extraEOSTokens: ["<|im_end|>"],
+            description: "Smart and multilingual — excellent quality for its size",
+            estimatedMemoryGB: 2.5
+        ),
+        ModelOption(
+            name: "Qwen3.5 9B 4-bit",
+            path: "mlx-community/Qwen3.5-9B-4bit",
+            extraEOSTokens: ["<|im_end|>"],
+            description: "Best overall quality — top multilingual and reasoning",
+            estimatedMemoryGB: 6.5
         ),
     ]
 
-    /// Selects the best default model for the current device's RAM and language.
-    /// ≥48 GB → Qwen3 8B | ≥16 GB → Meta-Llama-3.1-8B | <16 GB → language-dependent
+    /// Selects the best default model for the current device's RAM.
+    /// ≥16 GB → Qwen3.5 9B | ≥8 GB → Qwen3.5 4B | <8 GB → Granite 4 Micro 4-bit
     static var smartDefault: ModelOption {
         let ramGB = ProcessInfo.processInfo.physicalMemory / 1_073_741_824  // UInt64
 
-        // Detect whether the user is primarily English-speaking.
-        // Check both the app setting and system locale — a German user whose app
-        // falls back to "en" (because German isn't localized) should still get
-        // multilingual defaults, not English-optimized ones.
-        let appLang = UserDefaults.standard.string(forKey: "appLanguage")
-        let systemLang = Locale.preferredLanguages.first.map { String($0.prefix(2)) } ?? "en"
-        let isEnglishNative = (appLang ?? systemLang) == "en" && systemLang == "en"
-
         let preferred: String
         switch ramGB {
-        case 48...:
-            preferred = "Qwen3-8B"
         case 16...:
-            preferred = "Meta-Llama-3.1-8B"
+            preferred = "Qwen3.5-9B"
+        case 8...:
+            preferred = "Qwen3.5-4B"
         default:
-            // <16 GB: English gets fast LFM2.5, non-English gets multilingual models
-            if isEnglishNative {
-                preferred = "LFM2.5"
-            } else if ramGB >= 8 {
-                preferred = "Qwen3-4B"
-            } else {
-                preferred = "granite-4.0"   // Granite 4 Micro 4-bit
-            }
+            preferred = "granite-4.0"   // Granite 4 Micro 4-bit (1.8 GB)
         }
         return availableModels.first { $0.path.contains(preferred) } ?? availableModels[0]
     }

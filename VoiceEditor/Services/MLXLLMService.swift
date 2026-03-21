@@ -19,7 +19,7 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
         let userInput = UserInput(chat: [
             .system(self.systemPrompt),
             .user(effectivePrompt)
-        ])
+        ], additionalContext: family.templateContext)
         let lmInput = try await modelContainer.prepare(input: userInput)
 
         let parameters = GenerateParameters(

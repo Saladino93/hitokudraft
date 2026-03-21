@@ -49,9 +49,6 @@ enum Prompts {
     }
 
     static func draft(instruction: String, context: ScreenContext? = nil) -> String {
-        let langCode = LanguageDetector.detect(instruction)
-        let langRule = languageRule(for: langCode)
-
         let contextBlock: String
         if let block = context?.promptBlock {
             contextBlock = "\n\(block)\n"
@@ -60,7 +57,6 @@ enum Prompts {
         }
 
         return """
-        \(langRule)
         You are a writing assistant. The user asked you to write something via voice.
         Produce ONLY the requested content — no preamble, no commentary.
         Do NOT repeat or paraphrase the user's request.
@@ -128,6 +124,45 @@ enum Prompts {
         You can see what the user has on their screen. \
         Use this context when relevant. Ignore it when unrelated.
         """
+
+    /// Concise system prompt for capable reasoning models (e.g. Qwen3.5) that
+    /// tend to over-generate. Stronger brevity constraints than the default.
+    static let conciseSystemPrompt = """
+        You are a precise, concise text editor and writing assistant. \
+        Follow instructions exactly. Output ONLY the requested text — \
+        no commentary, no explanations, no preamble. \
+        Be brief. Prefer short, direct responses. Do not elaborate \
+        unless the user explicitly asks for detail.
+        """
+
+    static let screenAwareConciseSystemPrompt = """
+        You are a precise, concise text editor and writing assistant. \
+        Follow instructions exactly. Output ONLY the requested text — \
+        no commentary, no explanations, no preamble. \
+        Be brief. Prefer short, direct responses. Do not elaborate \
+        unless the user explicitly asks for detail. \
+        You can see what the user has on their screen (app name, window title, visible text). \
+        Use this context when relevant to give more accurate results. \
+        If the screen context is unrelated to the request, ignore it completely.
+        """
+
+    /// Draft prompt for capable reasoning models — concise, no encouragement
+    /// to write at length. Avoids labeled fields that reasoning models over-analyze.
+    static func conciseDraft(instruction: String, context: ScreenContext? = nil) -> String {
+        let contextBlock: String
+        if let block = context?.promptBlock {
+            contextBlock = "\n\(block)\n\n"
+        } else {
+            contextBlock = ""
+        }
+
+        return """
+        Write what the user asks for. Be concise — match the scope of \
+        the request. Do not repeat the request. Do not explain. \
+        Output only the content itself.
+        \(contextBlock)\(instruction)
+        """
+    }
 
     /// Draft prompt for small models — avoids labeled fields that small models echo,
     /// but still clearly instructs the model to generate new content.

@@ -107,6 +107,7 @@ final class VoiceActivityDetector: @unchecked Sendable {
                     case .speechStart:
                         Self.log.info("VAD: speechStart at sample \(event.sampleIndex)")
                         speechDetected.set()
+                        silenceAfterSpeech.reset()
                     case .speechEnd:
                         Self.log.info("VAD: speechEnd at sample \(event.sampleIndex)")
                         silenceAfterSpeech.set()

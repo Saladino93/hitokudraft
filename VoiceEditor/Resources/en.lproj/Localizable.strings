@@ -27,7 +27,7 @@
 /* Settings — Recording */
 "recording.max_capture" = "Max capture:";
 "recording.max_capture_unit" = "%d s";
-"recording.max_capture_desc" = "Maximum duration limit for a single recording.";
+"recording.max_capture_desc" = "Maximum duration for a voice edit recording. Does not apply to dictation.";
 "recording.silence_timeout" = "Silence timeout:";
 "recording.silence_timeout_unit" = "%.1f s";
 "recording.silence_timeout_desc" = "Controls how long a pause triggers stop. Increase if you get cut off.";
@@ -122,7 +122,9 @@
 "Balanced quality, speed, and multilingual writing" = "Balanced quality, speed, and multilingual writing";
 "Higher-fidelity instruction-tuned editing" = "Higher-fidelity instruction-tuned editing";
 "Strong multilingual — Italian, French, German, English" = "Strong multilingual — Italian, French, German, English";
-"Strongest editing and drafting quality" = "Strongest editing and drafting quality";
+"Strong editing and drafting quality" = "Strong editing and drafting quality";
+"Smart and multilingual — excellent quality for its size" = "Smart and multilingual — excellent quality for its size";
+"Best overall quality — top multilingual and reasoning" = "Best overall quality — top multilingual and reasoning";
 
 /* Model descriptions — STT */
 "Fast CoreML speech recognition (25 languages)" = "Fast CoreML speech recognition (25 languages)";
@@ -144,6 +146,12 @@
 "context.advanced" = "Advanced";
 "context.desc" = "Standard reads some text. Advanced adds screen OCR.";
 "permission.screen_recording" = "Screen Recording:";
+
+/* Settings — Overlay Size */
+"overlay.line_count" = "Text lines:";
+"overlay.line_count_desc" = "Maximum lines shown in the overlay.";
+"overlay.width" = "Overlay width:";
+"overlay.width_desc" = "Width of the dictation pill.";
 
 /* Settings — Theme Picker */
 "theme.panel_style" = "Panel style";

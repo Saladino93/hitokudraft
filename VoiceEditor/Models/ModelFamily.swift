@@ -27,6 +27,10 @@ protocol ModelFamily {
     /// Whether to append /no_think to user prompts (Qwen3).
     var disableThinking: Bool { get }
 
+    /// Extra key-value pairs injected into the chat template's Jinja context.
+    /// Qwen3.5 uses this to pass `enable_thinking: false`.
+    var templateContext: [String: any Sendable]? { get }
+
     /// Maximum tokens for draft generation.
     var draftMaxTokens: Int { get }
 
@@ -37,6 +41,7 @@ protocol ModelFamily {
 // MARK: - Protocol defaults
 
 extension ModelFamily {
+    var templateContext: [String: any Sendable]? { nil }
     var draftMaxTokens: Int { Prompts.draftMaxTokens }
     func editMaxTokens(for text: String) -> Int { Prompts.editMaxTokens(for: text) }
 }
@@ -92,6 +97,44 @@ struct Qwen3ModelFamily: ModelFamily {
     let topP: Float = 0.9
     let repetitionPenalty: Float = 1.2
     let disableThinking = true
+}
+
+// MARK: - Qwen3.5
+
+struct Qwen35ModelFamily: ModelFamily {
+    let familyName = "Qwen3.5"
+
+    func systemPrompt(screenAware: Bool) -> String {
+        screenAware ? Prompts.screenAwareConciseSystemPrompt : Prompts.conciseSystemPrompt
+    }
+
+    func editPrompt(text: String, instruction: String, context: ScreenContext?) -> String {
+        Prompts.edit(text: text, instruction: instruction, context: context)
+    }
+
+    /// Concise draft prompt — no encouragement to write at length.
+    func draftPrompt(instruction: String, context: ScreenContext?) -> String {
+        Prompts.conciseDraft(instruction: instruction, context: context)
+    }
+
+    /// Safety net: strip any thinking blocks that slip through despite
+    /// enable_thinking=false (e.g. older chat template versions).
+    func postProcess(_ rawOutput: String) -> String {
+        OutputCleaner.cleanModelOutput(rawOutput)
+    }
+
+    let temperature: Float = 0.5
+    let topP: Float = 0.9
+    let repetitionPenalty: Float = 1.2
+    let disableThinking = false
+
+    /// Tighter token budget — Qwen3.5 is capable enough to say it in fewer tokens.
+    let draftMaxTokens: Int = 500
+
+    /// Disable thinking at the Jinja template level — no <think> blocks produced.
+    var templateContext: [String: any Sendable]? {
+        ["enable_thinking": false]
+    }
 }
 
 // MARK: - LFM (Liquid)

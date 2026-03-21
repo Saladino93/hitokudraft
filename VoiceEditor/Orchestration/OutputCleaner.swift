@@ -37,7 +37,7 @@ enum OutputCleaner {
     // Anchors on a "Thinking" header at start of line, matches through to double-newline.
     private static let plainTextThinkingPattern: NSRegularExpression = {
         try! NSRegularExpression(
-            pattern: #"(?m)^\*{0,2}(?:Thinking|Thought|Reasoning|Analysis)(?:\s+Process)?:?\*{0,2}\s*\n[\s\S]*?(?=\n{2,})"#,
+            pattern: #"(?m)^\*{0,2}(?:Thinking|Thought|Reasoning|Analysis)(?:\s+Process)?:?\*{0,2}\s*\n[\s\S]*$"#,
             options: .caseInsensitive
         )
     }()

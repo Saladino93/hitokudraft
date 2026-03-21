@@ -65,6 +65,7 @@ final class AudioCaptureService {
         let silenceLimit = useVAD
             ? max(self.silenceDurationLimit - vadInternalSilence, 0.3)
             : self.silenceDurationLimit
+        let rawSilenceLimit = self.silenceDurationLimit   // for RMS fast-path (no VAD subtraction)
         let maxDuration = self.maxRecordingDuration
         let noSpeechLimit = self.noSpeechTimeout
 
@@ -76,6 +77,7 @@ final class AudioCaptureService {
         let stream = AsyncStream<Void> { continuation in
             var silenceDuration: TimeInterval = 0
             var vadSilenceDuration: TimeInterval = 0
+            var rmsSilenceDuration: TimeInterval = 0
             var totalDuration: TimeInterval = 0
             var hasReceivedAudio = false
 
@@ -121,16 +123,26 @@ final class AudioCaptureService {
                         hasReceivedAudio = true
                     }
 
-                    // After VAD fires speechEnd, accumulate silence duration
+                    // Primary: VAD pipeline silence countdown
                     if speechEnded {
                         vadSilenceDuration += duration
                     } else {
                         vadSilenceDuration = 0
                     }
 
+                    // Fast-path: RMS-based silence (once VAD confirmed speech).
+                    // Bypasses async VAD pipeline latency for responsive end-of-speech detection.
+                    if speechStarted && rms < threshold {
+                        rmsSilenceDuration += duration
+                    } else {
+                        rmsSilenceDuration = 0
+                    }
+
                     let shouldStop =
                         // VAD detected end of speech + user's silence limit elapsed
                         (speechEnded && vadSilenceDuration >= silenceLimit)
+                        // RMS fast-path: VAD confirmed speech, then audio level drops
+                        || (speechStarted && rmsSilenceDuration >= rawSilenceLimit)
                         // No speech detected within timeout
                         || (!speechStarted && totalDuration >= noSpeechLimit)
                         // Hard max duration
@@ -140,7 +152,7 @@ final class AudioCaptureService {
                         if !speechStarted && totalDuration >= noSpeechLimit {
                             stopReason.set("noSpeech")
                         }
-                        Self.log.info("recordUntilSilence(VAD): stopping — speech=\(speechStarted) speechEnd=\(speechEnded) vadSilence=\(vadSilenceDuration, format: .fixed(precision: 2))s total=\(totalDuration, format: .fixed(precision: 2))s")
+                        Self.log.info("recordUntilSilence(VAD): stopping — speech=\(speechStarted) speechEnd=\(speechEnded) vadSilence=\(vadSilenceDuration, format: .fixed(precision: 2))s rmsSilence=\(rmsSilenceDuration, format: .fixed(precision: 2))s total=\(totalDuration, format: .fixed(precision: 2))s")
                         continuation.yield()
                         continuation.finish()
                     }
@@ -254,9 +266,11 @@ final class AudioCaptureService {
             var hasReceivedAudio = false
             var silenceDuration: TimeInterval = 0
             var vadSilenceDuration: TimeInterval = 0
+            var rmsSilenceDuration: TimeInterval = 0
             var totalDuration: TimeInterval = 0
             let silenceThreshold: Float = 0.015
             let silenceLimit = effectiveSilenceLimit
+            let rawSilenceLimit = silenceDurationLimit  // for RMS fast-path (no VAD subtraction)
             var cumulativeSamples = 0
 
             AudioCaptureService.log.info("ContinuousSession: starting with tapFormat=\(tapFormat, privacy: .public) useVAD=\(useVAD)")
@@ -306,15 +320,25 @@ final class AudioCaptureService {
                         hasReceivedAudio = true
                     }
 
+                    // Primary: VAD pipeline silence countdown
                     if speechEnded {
                         vadSilenceDuration += duration
                     } else {
                         vadSilenceDuration = 0
                     }
 
-                    // VAD speechEnd + user's silence limit
-                    if speechEnded && vadSilenceDuration >= silenceLimit {
-                        AudioCaptureService.log.info("ContinuousSession(VAD): silence detected — vadSilence=\(vadSilenceDuration, format: .fixed(precision: 2))s")
+                    // Fast-path: RMS-based silence (once VAD confirmed speech).
+                    // Bypasses async VAD pipeline latency for responsive end-of-speech detection.
+                    if speechStarted && rms < silenceThreshold {
+                        rmsSilenceDuration += duration
+                    } else {
+                        rmsSilenceDuration = 0
+                    }
+
+                    // Stop on whichever fires first: VAD pipeline or RMS fast-path
+                    if (speechEnded && vadSilenceDuration >= silenceLimit)
+                        || (speechStarted && rmsSilenceDuration >= rawSilenceLimit) {
+                        AudioCaptureService.log.info("ContinuousSession: silence detected — vad=\(vadSilenceDuration, format: .fixed(precision: 2))s rms=\(rmsSilenceDuration, format: .fixed(precision: 2))s")
                         flag.set()
                     }
 
