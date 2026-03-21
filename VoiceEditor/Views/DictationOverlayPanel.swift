@@ -186,34 +186,7 @@ private struct DictationOverlayContent: View {
         let needed = max(1, Int(ceil(rect.height / lineHeight)))
         cachedLineCount = min(needed, maxLines)
 
-        // For 1-line mode: extract the tail that fits in one line
-        if maxLines == 1 && needed > 1 {
-            let chars = Array(viewModel.text)
-            var lo = 0
-            var hi = chars.count
-            while lo < hi {
-                let mid = (lo + hi) / 2
-                let sub = String(chars[mid...])
-                let r = (sub as NSString).boundingRect(
-                    with: CGSize(width: width, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    attributes: attrs, context: nil
-                )
-                if Int(ceil(r.height / lineHeight)) <= 1 {
-                    hi = mid
-                } else {
-                    lo = mid + 1
-                }
-            }
-            // Snap to next word boundary
-            var start = lo
-            while start < chars.count && !chars[start].isWhitespace { start += 1 }
-            while start < chars.count && chars[start].isWhitespace { start += 1 }
-            if start >= chars.count { start = lo }
-            cachedTailText = String(chars[start...])
-        } else {
-            cachedTailText = viewModel.text
-        }
+        cachedTailText = viewModel.text
     }
 
     private var capsuleHeight: CGFloat {
@@ -234,12 +207,13 @@ private struct DictationOverlayContent: View {
 
             if effectiveShowText {
                 if maxLines == 1 {
-                    // 1-line mode: horizontal tail trim — show most recent words
-                    Text(cachedTailText)
+                    // 1-line mode: SwiftUI handles tail-trimming natively
+                    Text(viewModel.text)
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.92))
                         .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                         .lineLimit(1)
+                        .truncationMode(.head)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     // 2–3 line mode: vertical scroll pinned to bottom
@@ -276,6 +250,7 @@ private struct DictationOverlayContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { recompute() }
         .onChange(of: viewModel.text) { recompute() }
+        .onChange(of: viewModel.isStatus) { recompute() }
         .animation(.easeInOut(duration: 0.2), value: effectiveShowText)
         .animation(.easeInOut(duration: 0.15), value: cachedLineCount)
     }
