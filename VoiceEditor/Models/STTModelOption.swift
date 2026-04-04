@@ -1,8 +1,9 @@
 import Foundation
 
 enum STTBackend: String, Hashable, Sendable {
-    case fluidAudio      // CoreML Parakeet TDT
-    case mlxAudio        // Transformer models via mlx-audio-swift
+    case fluidAudio      // CoreML Parakeet TDT (ANE)
+    case mlxAudio        // Transformer models via mlx-audio-swift (Metal GPU)
+    case whisperKit      // Whisper models via WhisperKit (CoreML/ANE)
 }
 
 struct STTModelOption: Identifiable, Hashable {
@@ -20,6 +21,24 @@ struct STTModelOption: Identifiable, Hashable {
 
 enum STTModelRegistry {
     static let availableModels: [STTModelOption] = [
+        STTModelOption(
+            name: "Whisper Tiny",
+            path: "tiny.en",
+            backend: .whisperKit,
+            description: "Fastest, lower accuracy (English only)",
+            estimatedMemoryGB: 0.09,
+            supportsNativeStreaming: false,
+            languageRestriction: "English only"
+        ),
+        STTModelOption(
+            name: "Whisper Base",
+            path: "base.en",
+            backend: .whisperKit,
+            description: "Fast, lower accuracy (English only)",
+            estimatedMemoryGB: 0.18,
+            supportsNativeStreaming: false,
+            languageRestriction: "English only"
+        ),
         STTModelOption(
             name: "Parakeet TDT v3",
             path: "",
