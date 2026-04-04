@@ -68,5 +68,18 @@ enum STTModelRegistry {
         ),
     ]
 
-    static var defaultModel: STTModelOption { availableModels[0] }
+    /// RAM-based default, matching the same thresholds as LLM smartDefault.
+    /// ≥16 GB → Parakeet TDT v3 (best quality, multilingual, 0.6 GB, ANE)
+    /// ≥8 GB  → Whisper Base (180 MB, English only)
+    /// <8 GB  → Whisper Tiny (90 MB, English only)
+    static var defaultModel: STTModelOption {
+        let ramGB = ProcessInfo.processInfo.physicalMemory / 1_073_741_824
+        if ramGB >= 16 {
+            return availableModels.first { $0.backend == .fluidAudio } ?? availableModels[0]
+        } else if ramGB >= 8 {
+            return availableModels.first { $0.path == "base.en" } ?? availableModels[0]
+        } else {
+            return availableModels.first { $0.path == "tiny.en" } ?? availableModels[0]
+        }
+    }
 }

@@ -77,6 +77,13 @@ struct AcknowledgmentsView: View {
                 )
 
                 LibraryCard(
+                    name: "WhisperKit",
+                    source: "github.com/argmaxinc/WhisperKit",
+                    license: "MIT — Copyright © 2024 Argmax, Inc.",
+                    usedFor: "CoreML/ANE speech recognition for Whisper Tiny and Whisper Base (English-only models)"
+                )
+
+                LibraryCard(
                     name: "swift-huggingface — v0.8.1",
                     source: "github.com/huggingface/swift-huggingface",
                     license: "Apache 2.0",
@@ -150,6 +157,12 @@ struct AcknowledgmentsView: View {
                     note: "Free for companies with < $10M annual revenue. Above that threshold, a paid license from Liquid AI is required."
                 )
 
+                ModelCard(
+                    name: "OpenAI Whisper tiny.en / base.en",
+                    license: "MIT — Commercial use permitted",
+                    by: "OpenAI"
+                )
+
                 // License Texts
                 AckSectionHeader("License Texts")
 
@@ -205,7 +218,7 @@ struct AcknowledgmentsView: View {
 
                 Divider()
 
-                Text("Last updated: March 2026")
+                Text("Last updated: April 2026")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
