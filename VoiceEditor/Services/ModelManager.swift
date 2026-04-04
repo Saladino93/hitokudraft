@@ -162,6 +162,9 @@ final class ModelManager: ObservableObject {
         case .mlxAudio:
             // Coordinator will handle loading via MLXAudioSTTService init
             break
+        case .whisperKit:
+            // Coordinator will handle loading via WhisperKitSTTService init (downloads internally)
+            break
         }
 
         statusMessage = ""
