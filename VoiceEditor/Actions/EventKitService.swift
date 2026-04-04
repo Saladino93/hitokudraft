@@ -46,7 +46,10 @@ final class EventKitService {
            let cal = store.calendars(for: .event).first(where: { $0.title == name }) {
             event.calendar = cal
         } else {
-            event.calendar = store.defaultCalendarForNewEvents
+            guard let cal = store.defaultCalendarForNewEvents else {
+                throw EventKitError.saveFailed("No default calendar found. Check Calendar app settings.")
+            }
+            event.calendar = cal
         }
         do {
             try store.save(event, span: .thisEvent)

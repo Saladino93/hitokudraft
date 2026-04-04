@@ -30,32 +30,32 @@ struct ActionRouter {
         ]
 
         return """
-        Current date and time (ISO 8601): \(nowISO)  (\(weekday))
+        Current date and time: \(nowISO)  (\(weekday))
 
-        The user dictated a voice command. Classify it as ONE of:
-        1. calendar_event — something scheduled at a specific time/date
+        Classify the user's voice command as ONE of:
+        1. calendar_event — scheduled at a specific time/date
         2. reminder — a to-do or reminder (may or may not have a due date)
-        3. unknown — cannot be classified as either
+        3. unknown — cannot be classified
 
         Respond with ONLY a JSON object on a single line. No markdown, no commentary.
 
         For calendar_event:
-        {"type":"calendar_event","title":"...","start_iso":"<ISO8601>","end_iso":"<ISO8601>","location":"..." or null}
+        {"type":"calendar_event","title":"...","start_iso":"<YYYY-MM-DDTHH:mm:ss>","duration_minutes":<number>,"location":"..." or null}
 
         For reminder:
-        {"type":"reminder","title":"...","due_iso":"<ISO8601>" or null,"notes":"..." or null}
+        {"type":"reminder","title":"...","due_iso":"<YYYY-MM-DDTHH:mm:ss>" or null,"notes":"..." or null}
 
         For unknown:
         {"type":"unknown"}
 
         Rules:
-        - "remind me to…" or "don't forget to…" → reminder. "schedule", "book", "meet" → calendar_event.
-        - Resolve relative dates using the current date above ("tomorrow", "next Monday", "in 2 hours").
-        - Default event duration: 1 hour if end time not specified.
-        - Title must be clean and concise (no filler words like "please", "can you").
-        - ISO 8601 format: YYYY-MM-DDTHH:mm:ss (local time, no timezone suffix needed).
+        - "remind me to", "don't forget" → reminder. "schedule", "book", "meeting", "appointment" → calendar_event.
+        - Resolve relative dates ("tomorrow", "next Monday", "in 2 hours") using the current date above.
+        - duration_minutes: use ONLY what the user explicitly stated (e.g. "2-hour meeting" → 120). Otherwise output 60.
+        - Title must be clean and concise (no filler words).
+        - Dates are local time, no timezone suffix.
         - If you cannot determine a start time for a calendar event, make it a reminder instead.
-        - If the intent is unclear, output {"type":"unknown"}.
+        - If intent is unclear, output {"type":"unknown"}.
 
         User command: \(transcript)
 
@@ -99,12 +99,10 @@ struct ActionRouter {
         else {
             return .unknown(transcript: raw)
         }
-        let end: Date
-        if let endStr = dict["end_iso"] as? String, let parsedEnd = parseDate(endStr) {
-            end = parsedEnd
-        } else {
-            end = start.addingTimeInterval(3600)
-        }
+        // Use duration_minutes; clamp to 15min–8h; default 60 min
+        let rawMinutes = dict["duration_minutes"] as? Int ?? 60
+        let clampedMinutes = max(15, min(rawMinutes, 480))
+        let end = start.addingTimeInterval(Double(clampedMinutes) * 60)
         let location = dict["location"] as? String
         return .calendarEvent(.init(
             title: title,
