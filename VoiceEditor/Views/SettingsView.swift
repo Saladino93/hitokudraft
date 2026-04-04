@@ -55,7 +55,7 @@ struct SettingsView: View {
         switch selectedTab {
         case .license: return 178
         case .general: return 518
-        case .appearance: return 430
+        case .appearance: return 473
         case .model: return 395
         case .updates: return 122
         }
@@ -184,18 +184,24 @@ struct SettingsView: View {
             GridRow {
                 Text(L("shortcut.voice_edit"))
                 KeyboardShortcuts.Recorder("", name: .voiceEdit)
+                    .padding(.leading, -6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .gridColumnAlignment(.leading)
             }
             Color.clear.frame(height: 4)
             GridRow {
                 Text(L("shortcut.grammar_fix"))
                 KeyboardShortcuts.Recorder("", name: .grammarFix)
+                    .padding(.leading, -6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .gridColumnAlignment(.leading)
             }
             Color.clear.frame(height: 4)
             GridRow {
                 Text(L("shortcut.dictation"))
                 KeyboardShortcuts.Recorder("", name: .dictation)
+                    .padding(.leading, -6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .gridColumnAlignment(.leading)
             }
 
@@ -331,6 +337,7 @@ struct SettingsView: View {
             }
 
             Divider()
+                .padding(.top, -4)
 
             // Theme picker section
             VStack(alignment: .leading, spacing: 4) {
@@ -340,6 +347,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .padding(.top, -20)
 
             VStack(spacing: 8) {
                 ForEach(DictationTheme.allCases) { theme in
@@ -417,32 +425,44 @@ struct SettingsView: View {
 
     private var modelTab: some View {
         VStack(spacing: 0) {
-            Form {
-                // --- Active Models ---
-                Picker(L("model.active_llm"), selection: $modelManager.selectedModel) {
-                    ForEach(ModelRegistry.availableModels) { model in
-                        Button {} label: {
-                            HStack(spacing: 4) {
-                                Text(model.description.isEmpty ? model.name : L(model.description))
-                                if !ModelRegistry.isBundled(model) {
-                                    Text("custom").font(.caption2)
-                                        .padding(.horizontal, 5).padding(.vertical, 1)
-                                        .background(Capsule().fill(Color.blue.opacity(0.2)))
-                                        .foregroundStyle(.blue)
+            Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline),
+                 horizontalSpacing: 12, verticalSpacing: 0) {
+
+                // ---- Active Models ----
+                GridRow {
+                    Text(L("model.active_llm"))
+                        .gridColumnAlignment(.trailing)
+                    Picker("", selection: $modelManager.selectedModel) {
+                        ForEach(ModelRegistry.availableModels) { model in
+                            Button {} label: {
+                                HStack(spacing: 4) {
+                                    Text(model.description.isEmpty ? model.name : L(model.description))
+                                    if !ModelRegistry.isBundled(model) {
+                                        Text("custom").font(.caption2)
+                                            .padding(.horizontal, 5).padding(.vertical, 1)
+                                            .background(Capsule().fill(Color.blue.opacity(0.2)))
+                                            .foregroundStyle(.blue)
+                                    }
                                 }
+                                Text(model.estimatedMemoryGB > 0
+                                     ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))"
+                                     : model.name)
                             }
-                            Text(model.estimatedMemoryGB > 0 ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))" : model.name)
+                            .tag(model)
+                            .disabled(modelExceedsRAM(model.estimatedMemoryGB))
                         }
-                        .tag(model)
-                        .disabled(modelExceedsRAM(model.estimatedMemoryGB))
                     }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                    .gridColumnAlignment(.leading)
                 }
 
                 if !ModelRegistry.isBundled(modelManager.selectedModel) {
-                    LabeledContent("") {
+                    Color.clear.frame(height: 4)
+                    GridRow {
+                        Text("")
                         Button(L("model.remove")) {
                             let toRemove = modelManager.selectedModel
-                            // Restore the previously-used model to avoid unnecessary downloads
                             if let prevPath = modelManager.previousModelPath,
                                prevPath != toRemove.path,
                                let prev = ModelRegistry.availableModels.first(where: { $0.path == prevPath }) {
@@ -457,57 +477,51 @@ struct SettingsView: View {
                     }
                 }
 
-                Picker(L("model.active_stt"), selection: $modelManager.selectedSTTModel) {
-                    ForEach(STTModelRegistry.availableModels) { model in
-                        Button {} label: {
-                            HStack(spacing: 4) {
-                                if model.supportsNativeStreaming {
-                                    Text("\(L(model.description)) (\(L("model.streaming")))")
-                                } else {
-                                    Text(L(model.description))
-                                }
-                                if let restriction = model.languageRestriction {
-                                    Text(L(restriction))
-                                        .font(.caption2)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1)
-                                        .background(Capsule().fill(Color.orange.opacity(0.2)))
-                                        .foregroundStyle(.orange)
-                                }
+                Color.clear.frame(height: 6)
+
+                GridRow {
+                    Text(L("model.active_stt"))
+                    Picker("", selection: $modelManager.selectedSTTModel) {
+                        ForEach(STTModelRegistry.availableModels) { model in
+                            Button {} label: {
+                                Text(L(model.description))
+                                Text(model.estimatedMemoryGB > 0
+                                     ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))"
+                                     : model.name)
                             }
-                            Text(model.estimatedMemoryGB > 0 ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))" : model.name)
+                            .tag(model)
+                            .disabled(modelExceedsRAM(model.estimatedMemoryGB))
                         }
-                        .tag(model)
-                        .disabled(modelExceedsRAM(model.estimatedMemoryGB))
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                }
+
+                Color.clear.frame(height: 18)
+
+                // ---- Auto-offload ----
+                GridRow {
+                    Text(L("model.auto_offload"))
+                    HStack(spacing: 10) {
+                        Toggle("", isOn: $modelManager.autoOffloadEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .onChange(of: modelManager.autoOffloadEnabled) {
+                                UserDefaults.standard.set(modelManager.autoOffloadEnabled, forKey: "modelAutoOffload")
+                                if modelManager.autoOffloadEnabled { modelManager.keepAlive() }
+                                else { modelManager.cancelOffload() }
+                            }
+                        Text(L("model.auto_offload_desc"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
-                Spacer().frame(height: 18)
+                Color.clear.frame(height: 18)
 
-                // --- Auto-offload ---
-                LabeledContent(L("model.auto_offload")) {
-                    Toggle("", isOn: $modelManager.autoOffloadEnabled)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .onChange(of: modelManager.autoOffloadEnabled) {
-                            UserDefaults.standard.set(modelManager.autoOffloadEnabled, forKey: "modelAutoOffload")
-                            if modelManager.autoOffloadEnabled {
-                                modelManager.keepAlive()
-                            } else {
-                                modelManager.cancelOffload()
-                            }
-                        }
-                }
-                LabeledContent("") {
-                    Text(L("model.auto_offload_desc"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer().frame(height: 18)
-
-                // --- Custom Model Loading ---
-                LabeledContent(L("model.custom_source")) {
+                // ---- Custom Model ----
+                GridRow {
+                    Text(L("model.custom_source"))
                     Picker("", selection: $customSourceType) {
                         ForEach(CustomModelSourceType.allCases, id: \.self) { source in
                             Text(L(source.rawValue)).tag(source)
@@ -519,64 +533,68 @@ struct SettingsView: View {
                     .onChange(of: customSourceType) { customValidation = .unchecked }
                 }
 
-                LabeledContent(L("model.model_path")) {
+                Color.clear.frame(height: 6)
+
+                GridRow {
+                    Text(L("model.model_path"))
                     HStack {
-                        TextField("", text: $customModelPath, prompt: Text(customSourceType == .local ? "/path/to/mlx-model" : "mlx-community/model-name"))
+                        TextField("", text: $customModelPath,
+                                  prompt: Text(customSourceType == .local ? "/path/to/mlx-model" : "mlx-community/model-name"))
                             .textFieldStyle(.roundedBorder)
                             .onChange(of: customModelPath) { validateCustomModel() }
-
-                        ZStack {
+                        if customSourceType == .local {
                             Button(L("model.browse")) { browseForLocalModel() }
-                                .opacity(customSourceType == .local ? 1 : 0)
-                                .disabled(customSourceType != .local)
                         }
+                        Button(L("model.add")) { addCustomModel() }
+                            .disabled(!canAddCustomModel)
                     }
                 }
 
-                LabeledContent("") {
+                GridRow {
+                    Text("")
                     HStack {
                         Text(customSourceType == .local ? L("model.local_hint") : L("model.hf_hint"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
-
                         Spacer()
                         validationIndicator
-                        Button(L("model.add")) { addCustomModel() }.disabled(!canAddCustomModel)
                     }
                 }
 
-                Spacer().frame(height: 18)
+                Color.clear.frame(height: 18)
 
-                // --- System Status ---
-                LabeledContent(L("model.system_status")) {
+                // ---- System Status ----
+                GridRow {
+                    Text(L("model.system_status"))
                     HStack(spacing: 16) {
                         statusIndicator(label: "LLM", ready: modelManager.llmReady, loading: isLLMLoading, disabled: modelManager.llmDisabled)
                         statusIndicator(label: "STT", ready: modelManager.sttReady)
                     }
                 }
 
-                LabeledContent(L("model.cache_directory")) {
+                Color.clear.frame(height: 6)
+
+                GridRow {
+                    Text(L("model.cache_directory"))
                     HStack {
                         Text(cacheDirectory)
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .foregroundStyle(.secondary)
                             .help(cacheDirectory)
-
                         if let cacheSizeText {
                             Text(cacheSizeText)
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
-
                         Button(L("model.show_in_finder")) {
                             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: cacheDirectory)
                         }
                         .controlSize(.small)
                     }
                 }
-
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer().frame(height: 36)
 
