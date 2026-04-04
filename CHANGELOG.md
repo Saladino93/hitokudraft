@@ -2,7 +2,7 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
-## [Unreleased]
+## [1.3.0] — 2026-04-04
 
 ### Added
 - **Whisper Base (English) and Whisper Tiny (English) STT models** — two new English-only speech recognition options using WhisperKit (CoreML/ANE). Whisper Base uses ~180 MB RAM; Whisper Tiny uses ~90 MB. Both run on Apple Neural Engine, leaving GPU free for the language model. Ideal for users with < 8 GB RAM or those who only need English transcription.
