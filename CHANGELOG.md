@@ -5,6 +5,9 @@ All notable changes to Hitoku Draft are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Action Mode (Ctrl+A, no selection)** — when no text is selected, Ctrl+A opens the overlay and listens for a voice command. Supports creating Calendar events and Reminders via EventKit. The LLM parses the intent and resolves relative dates ("tomorrow at 3pm", "next Monday"); a confirmation alert always appears before anything is written. Calendar events and reminders with or without due dates are both supported.
+
+
 
 - **"None" LLM option** — First entry in the LLM picker disables the language model entirely. Voice edit pastes the raw STT transcript directly; grammar fix silently no-ops. Saves 2–7 GB RAM when transcription without editing is sufficient.
 - **Auto-offload models** — New toggle in the Models tab releases both LLM and STT weights after 5 minutes of inactivity. Models reload from local cache on next use. Default: on.

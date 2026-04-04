@@ -26,6 +26,8 @@ final class ConversationCoordinator: ObservableObject {
     private var streamingTask: Task<Void, Never>?
     private var voiceEditTask: Task<Void, Never>?
     private let dictationOverlay = DictationOverlayPanel()
+    /// Action Mode module. Setting this to nil (or deleting Actions/) fully disables the feature.
+    private var actionCoordinator: ActionCoordinator?
 
     /// Live transcription text for the overlay (updated during streaming; empty = show status label).
     @Published private(set) var liveTranscriptionText: String = ""
@@ -164,6 +166,16 @@ final class ConversationCoordinator: ObservableObject {
         }
 
         setupHotkeys()
+
+        // Wire Action Mode — remove these lines + the Actions/ folder to fully disable.
+        actionCoordinator = ActionCoordinator(
+            audioCapture: audioCapture,
+            getSTT: { [weak self] in self?.stt },
+            getLLM: { [weak self] in self?.llm },
+            getVADDetector: { [weak self] in self?.modelManager.vadDetector }
+        )
+        actionCoordinator?.onStateChange = { [weak self] newState in self?.state = newState }
+
         modelManager.statusMessage = ""
         state = .idle
         await drainPendingSwitches()
@@ -614,12 +626,13 @@ final class ConversationCoordinator: ObservableObject {
             savedClipboard = textCapture.saveClipboard()
             let selectedText = try await textCapture.captureSelectedText()
 
-            // Bail if nothing selected or only whitespace
+            // Bail if nothing selected or only whitespace → delegate to Action Mode
             let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 if let saved = savedClipboard {
                     textCapture.restoreClipboard(saved)
                 }
+                if let ac = actionCoordinator { await ac.handle() }
                 return
             }
 
