@@ -24,6 +24,9 @@ packages:
   swift-huggingface:
     url: https://github.com/huggingface/swift-huggingface
     from: 0.8.1
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit
+    from: 0.18.0
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: 2.0.0
@@ -88,5 +91,7 @@ targets:
         product: MLXAudio
       - package: swift-huggingface
         product: HuggingFace
+      - package: WhisperKit
+        product: WhisperKit
       - package: Sparkle
         product: Sparkle
