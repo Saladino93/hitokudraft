@@ -175,6 +175,7 @@ final class ConversationCoordinator: ObservableObject {
             getVADDetector: { [weak self] in self?.modelManager.vadDetector }
         )
         actionCoordinator?.onStateChange = { [weak self] newState in self?.state = newState }
+        actionCoordinator?.setLiveTranscript = { [weak self] text in self?.liveTranscriptionText = text }
 
         modelManager.statusMessage = ""
         state = .idle

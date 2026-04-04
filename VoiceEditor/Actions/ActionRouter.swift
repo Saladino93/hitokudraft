@@ -124,17 +124,13 @@ struct ActionRouter {
         return .reminder(.init(title: title, dueDate: due, listName: nil, notes: notes))
     }
 
-    /// Tries ISO 8601 first, then several lenient formats.
+    /// Parses an ISO-8601-style date string as **local time**.
+    /// The LLM outputs local times without a timezone suffix (per our prompt),
+    /// so we must NOT use ISO8601DateFormatter (it assumes UTC for tz-less strings).
     private static func parseDate(_ s: String) -> Date? {
-        // Strict ISO 8601 with colons
-        let strict = ISO8601DateFormatter()
-        strict.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime,
-                                .withDashSeparatorInDate]
-        if let d = strict.date(from: s) { return d }
-
-        // Lenient: various formats the LLM might emit
         let fmt = DateFormatter()
         fmt.locale = Locale(identifier: "en_US_POSIX")
+        // timeZone intentionally left at default (current locale) — correct for LLM output
         for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm",
                        "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] {
             fmt.dateFormat = format
