@@ -182,31 +182,17 @@ enum ModelRegistry {
             estimatedMemoryGB: 1.24
         ),
         ModelOption(
-            name: "Granite 4 Micro 4-bit",
-            path: "mlx-community/granite-4.0-h-micro-4bit",
-            description: "Compact and instruction-tuned for reliable edits",
-            estimatedMemoryGB: 1.8
+            name: "Qwen3.5 4B 4-bit",
+            path: "mlx-community/Qwen3.5-4B-4bit",
+            extraEOSTokens: ["<|im_end|>"],
+            description: "Smart and multilingual — excellent quality for its size",
+            estimatedMemoryGB: 2.5
         ),
         ModelOption(
             name: "Granite 4 Micro 8-bit",
             path: "mlx-community/granite-4.0-h-micro-8bit",
             description: "Higher-fidelity instruction-tuned editing",
             estimatedMemoryGB: 3.4
-        ),
-        ModelOption(
-            name: "Qwen3 8B 4-bit",
-            path: "mlx-community/Qwen3-8B-4bit",
-            extraEOSTokens: ["<|im_end|>"],
-            disableThinking: true,
-            description: "Strong editing and drafting quality",
-            estimatedMemoryGB: 4.61
-        ),
-        ModelOption(
-            name: "Qwen3.5 4B 4-bit",
-            path: "mlx-community/Qwen3.5-4B-4bit",
-            extraEOSTokens: ["<|im_end|>"],
-            description: "Smart and multilingual — excellent quality for its size",
-            estimatedMemoryGB: 2.5
         ),
         ModelOption(
             name: "Qwen3.5 9B 4-bit",
@@ -218,7 +204,7 @@ enum ModelRegistry {
     ]
 
     /// Selects the best default model for the current device's RAM.
-    /// ≥16 GB → Qwen3.5 9B | ≥8 GB → Qwen3.5 4B | <8 GB → Granite 4 Micro 4-bit
+    /// ≥16 GB → Qwen3.5 9B | ≥8 GB → Qwen3.5 4B | <8 GB → LFM2.5 1.2B 8-bit
     static var smartDefault: ModelOption {
         let ramGB = ProcessInfo.processInfo.physicalMemory / 1_073_741_824  // UInt64
 
@@ -229,7 +215,7 @@ enum ModelRegistry {
         case 8...:
             preferred = "Qwen3.5-4B"
         default:
-            preferred = "granite-4.0"   // Granite 4 Micro 4-bit (1.8 GB)
+            preferred = "LFM2.5-1.2B-Instruct-8bit"   // 1.24 GB — fits comfortably on <8 GB
         }
         return availableModels.first { $0.path.contains(preferred) }
             ?? availableModels.first { !$0.isNone }

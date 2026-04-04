@@ -13,24 +13,25 @@ final class EventKitService {
     enum EKPermission { case granted, denied, notDetermined }
 
     func requestCalendarAccess() async -> EKPermission {
-        await withCheckedContinuation { continuation in
+        do {
+            let granted: Bool
             if #available(macOS 14.0, *) {
-                store.requestWriteOnlyAccessToEvents { granted, _ in
-                    continuation.resume(returning: granted ? .granted : .denied)
-                }
+                granted = try await store.requestWriteOnlyAccessToEvents()
             } else {
-                store.requestAccess(to: .event) { granted, _ in
-                    continuation.resume(returning: granted ? .granted : .denied)
-                }
+                granted = try await store.requestAccess(to: .event)
             }
+            return granted ? .granted : .denied
+        } catch {
+            return .denied
         }
     }
 
     func requestRemindersAccess() async -> EKPermission {
-        await withCheckedContinuation { continuation in
-            store.requestAccess(to: .reminder) { granted, _ in
-                continuation.resume(returning: granted ? .granted : .denied)
-            }
+        do {
+            let granted = try await store.requestAccess(to: .reminder)
+            return granted ? .granted : .denied
+        } catch {
+            return .denied
         }
     }
 

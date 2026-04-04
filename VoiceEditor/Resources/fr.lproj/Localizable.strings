@@ -35,6 +35,7 @@
 "recording.no_speech_timeout_unit" = "%d s";
 "recording.no_speech_timeout_desc" = "Annule automatiquement si aucune parole détectée.";
 "recording.show_dictation_text" = "Afficher le texte dicté :";
+"recording.show_dictation_text_desc" = "Affiche le texte transcrit dans le panneau.";
 
 /* Settings — Sounds */
 "sound.activation" = "Son d'activation :";

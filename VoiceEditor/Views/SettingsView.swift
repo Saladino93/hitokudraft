@@ -72,6 +72,7 @@ struct SettingsView: View {
                 .tabItem { Label(L("tab.model"), systemImage: "cpu") }
 
             appearanceTab
+                .padding(.top, 20)
                 .tag(Tab.appearance)
                 .tabItem { Label(L("tab.theme"), systemImage: "paintbrush") }
 
@@ -183,16 +184,19 @@ struct SettingsView: View {
             GridRow {
                 Text(L("shortcut.voice_edit"))
                 KeyboardShortcuts.Recorder("", name: .voiceEdit)
+                    .gridColumnAlignment(.leading)
             }
             Color.clear.frame(height: 4)
             GridRow {
                 Text(L("shortcut.grammar_fix"))
                 KeyboardShortcuts.Recorder("", name: .grammarFix)
+                    .gridColumnAlignment(.leading)
             }
             Color.clear.frame(height: 4)
             GridRow {
                 Text(L("shortcut.dictation"))
                 KeyboardShortcuts.Recorder("", name: .dictation)
+                    .gridColumnAlignment(.leading)
             }
 
             Color.clear.frame(height: 18)
@@ -258,10 +262,17 @@ struct SettingsView: View {
                 GridRow {
                     Text(L("recording.show_dictation_text"))
                         .gridColumnAlignment(.trailing)
-                    Toggle("", isOn: $showDictationText)
-                        .labelsHidden()
-                        .gridColumnAlignment(.leading)
+                    HStack(spacing: 8) {
+                        Toggle("", isOn: $showDictationText)
+                            .labelsHidden()
+                        Text(L("recording.show_dictation_text_desc"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .gridColumnAlignment(.leading)
                 }
+
+                Color.clear.frame(height: 6)
 
                 GridRow {
                     Text(L("overlay.show_llm_streaming"))
@@ -276,7 +287,7 @@ struct SettingsView: View {
                     .gridColumnAlignment(.leading)
                 }
 
-                Color.clear.frame(height: 8)
+                Color.clear.frame(height: 14)
 
                 GridRow {
                     Text(L("overlay.line_count"))
@@ -297,7 +308,7 @@ struct SettingsView: View {
                     .gridColumnAlignment(.leading)
                 }
 
-                Color.clear.frame(height: 8)
+                Color.clear.frame(height: 14)
 
                 GridRow {
                     Text(L("overlay.width"))
@@ -305,7 +316,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Slider(value: $overlayWidth, in: 150...400, step: 10)
-                                .frame(maxWidth: 200)
+                                .frame(maxWidth: 210)
                             Text("\(Int(overlayWidth)) pt")
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()

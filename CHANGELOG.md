@@ -7,6 +7,18 @@ All notable changes to Hitoku Draft are documented in this file.
 ### Added
 - **Action Mode (Ctrl+A, no selection)** — when no text is selected, Ctrl+A opens the overlay and listens for a voice command. Supports creating Calendar events and Reminders via EventKit. The LLM parses the intent and resolves relative dates ("tomorrow at 3pm", "next Monday"); a confirmation alert always appears before anything is written. Calendar events and reminders with or without due dates are both supported.
 
+### Fixed
+- **Action Mode: Calendar/Reminders permission dialog never appeared** — added `com.apple.security.personal-information.calendars` entitlement. With Hardened Runtime enabled, macOS silently blocks EventKit requests without this entitlement even for non-sandboxed apps; no dialog was shown and no TCC entry was created.
+- **Action Mode: EventKit async bridging** — replaced `withCheckedContinuation` callback wrappers with native `async throws` EventKit APIs (`requestWriteOnlyAccessToEvents()`, `requestAccess(to:)`), which work correctly in Swift concurrency contexts.
+- **Grammar fix triggered by Finder file selection** — `captureSelectedText()` now returns empty string when the clipboard contains file URL types (`public.file-url`) after Cmd+C. Previously, selecting a file in Finder and pressing Ctrl+A would pass the filename to grammar fix instead of routing to Action Mode.
+- **Removed model no longer silently drops user to No LLM** — `ModelManager` now falls back to `smartDefault` when the saved model path is not found in the current bundled list (e.g. after a model is removed in an update). Previously it fell back to `noLLM`, leaving users in STT-only mode without warning.
+
+### Changed
+- **Model list pruned and sorted** — removed Granite 4 Micro 4-bit (1.8 GB) and Qwen3 8B 4-bit (4.6 GB) from bundled defaults. Remaining five models now appear in ascending size order: LFM2.5 1.2B 4-bit (676 MB) → LFM2.5 1.2B 8-bit (1.2 GB) → Qwen3.5 4B 4-bit (2.5 GB) → Granite 4 Micro 8-bit (3.4 GB) → Qwen3.5 9B 4-bit (6.5 GB). Smart default for <8 GB RAM now selects LFM2.5 1.2B 8-bit.
+
+### Developer
+- **Settings — Theme tab polish** — added subtitle caption to "Show dictation text" toggle (mirrors "Show text while generating"). Added vertical spacing between toggle rows and before Text lines / Overlay width controls. Keyboard shortcut recorders aligned to Grid column left edge via `.gridColumnAlignment(.leading)`.
+
 
 
 - **"None" LLM option** — First entry in the LLM picker disables the language model entirely. Voice edit pastes the raw STT transcript directly; grammar fix silently no-ops. Saves 2–7 GB RAM when transcription without editing is sufficient.

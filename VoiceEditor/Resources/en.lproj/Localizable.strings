@@ -35,6 +35,7 @@
 "recording.no_speech_timeout_unit" = "%d s";
 "recording.no_speech_timeout_desc" = "Auto-cancels if no speech detected.";
 "recording.show_dictation_text" = "Show dictation text:";
+"recording.show_dictation_text_desc" = "Show transcribed text in the overlay.";
 
 /* Settings — Sounds */
 "sound.activation" = "Activation sound:";
