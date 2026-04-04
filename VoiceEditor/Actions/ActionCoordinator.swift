@@ -26,11 +26,15 @@ final class ActionCoordinator {
 
     private let eventKit = EventKitService()
 
-    // MARK: - State reporting callback
+    // MARK: - Callbacks
 
     /// Called to update the host coordinator's `state` property.
     /// Drives the DictationOverlayPanel automatically.
     var onStateChange: ((AppState) -> Void)?
+
+    /// Called to show/clear the transcript text in the overlay (via liveTranscriptionText).
+    /// Pass "" to clear. Wired in ConversationCoordinator.setup().
+    var setLiveTranscript: ((String) -> Void)?
 
     // MARK: - Init
 
@@ -86,6 +90,9 @@ final class ActionCoordinator {
             return
         }
 
+        // Show transcript in overlay so user sees what was heard
+        setLiveTranscript?(trimmed)
+
         // Phase 3: Route via LLM
         onStateChange?(.generating)
         let action: PendingAction
@@ -96,7 +103,8 @@ final class ActionCoordinator {
             return
         }
 
-        // Return to idle BEFORE showing the modal so the overlay hides cleanly
+        // Return to idle and clear transcript BEFORE showing the modal
+        setLiveTranscript?("")
         onStateChange?(.idle)
 
         // Phase 4: Confirm (always required — never fire-and-forget)
