@@ -57,7 +57,7 @@
 "model.show_in_finder" = "Show in Finder";
 "model.ai_warning" = "AI models can make mistakes. Review outputs before use.";
 "model.status_ready" = "Ready";
-"model.status_not_loaded" = "Idle";
+"model.status_not_loaded" = "Not loaded";
 "model.status_loading" = "Loading…";
 "model.compatible" = "Compatible";
 "model.needs_conversion" = "May need conversion";

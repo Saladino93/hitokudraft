@@ -171,34 +171,34 @@ enum ModelRegistry {
             name: "LFM2.5 1.2B 4-bit",
             path: "mlx-community/LFM2.5-1.2B-Instruct-4bit",
             useVoiceCleanPrompt: true,
-            description: "Fast, lightweight — best for quick edits",
+            description: "Fast, very lightweight (lower output quality)",
             estimatedMemoryGB: 0.66
         ),
         ModelOption(
             name: "LFM2.5 1.2B 8-bit",
             path: "mlx-community/LFM2.5-1.2B-Instruct-8bit",
             useVoiceCleanPrompt: true,
-            description: "Better quality, still very efficient",
+            description: "Fast, lightweight (moderate output quality)",
             estimatedMemoryGB: 1.24
         ),
         ModelOption(
             name: "Qwen3.5 4B 4-bit",
             path: "mlx-community/Qwen3.5-4B-4bit",
             extraEOSTokens: ["<|im_end|>"],
-            description: "Smart and multilingual — excellent quality for its size",
+            description: "Smart multilingual editing (excellent for its size)",
             estimatedMemoryGB: 2.5
         ),
         ModelOption(
             name: "Granite 4 Micro 8-bit",
             path: "mlx-community/granite-4.0-h-micro-8bit",
-            description: "Higher-fidelity instruction-tuned editing",
+            description: "Higher-fidelity instruction following",
             estimatedMemoryGB: 3.4
         ),
         ModelOption(
             name: "Qwen3.5 9B 4-bit",
             path: "mlx-community/Qwen3.5-9B-4bit",
             extraEOSTokens: ["<|im_end|>"],
-            description: "Best overall quality — top multilingual and reasoning",
+            description: "Best overall quality (top multilingual and reasoning)",
             estimatedMemoryGB: 6.5
         ),
     ]

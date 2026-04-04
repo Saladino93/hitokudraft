@@ -57,7 +57,7 @@
 "model.show_in_finder" = "Afficher dans le Finder";
 "model.ai_warning" = "Les modèles IA peuvent faire des erreurs. Vérifiez les résultats avant utilisation.";
 "model.status_ready" = "Prêt";
-"model.status_not_loaded" = "Inactif";
+"model.status_not_loaded" = "Non chargé";
 "model.status_loading" = "Chargement…";
 "model.compatible" = "Compatible";
 "model.needs_conversion" = "Conversion possible requise";
