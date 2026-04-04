@@ -1,5 +1,4 @@
 import Foundation
-import MLXAudioSTT
 import os
 
 private let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pipeline")
@@ -33,8 +32,6 @@ func runStreamingTranscription(
                     }
                 case .ended(let fullText):
                     lastConfirmed.set(fullText)
-                default:
-                    break
                 }
             }
         }
@@ -106,6 +103,11 @@ func runStreamingTranscription(
             }
         }
     }
+
+    // Stop recording immediately — mic indicator off, no need to keep capturing.
+    // The in-flight transcriptionTask already holds a buffer snapshot, so this is safe.
+    // (Mirrors Path B which calls streamSession.stop() before its drain wait.)
+    session.stop()
 
     // Wait for in-flight transcription (up to 45s) after silence detected
     if let task = transcriptionTask {
