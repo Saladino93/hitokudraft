@@ -51,6 +51,12 @@ final class TextCaptureService {
             return ""  // No selection captured
         }
 
+        // If the clipboard has file references (e.g. Finder file selection), treat as no text selected.
+        // File copies always include public.file-url; text selections never do.
+        if pasteboard.types?.contains(.fileURL) == true {
+            return ""
+        }
+
         return pasteboard.string(forType: .string) ?? ""
     }
 

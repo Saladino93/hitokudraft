@@ -35,6 +35,7 @@
 "recording.no_speech_timeout_unit" = "%d s";
 "recording.no_speech_timeout_desc" = "Annulla automaticamente se non viene rilevato parlato.";
 "recording.show_dictation_text" = "Mostra testo dettatura:";
+"recording.show_dictation_text_desc" = "Mostra il testo trascritto nell'overlay.";
 
 /* Settings — Sounds */
 "sound.activation" = "Suono attivazione:";

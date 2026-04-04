@@ -46,6 +46,9 @@ final class ModelManager: ObservableObject {
         } else if let savedPath = UserDefaults.standard.string(forKey: "selectedModelPath"),
                   let match = ModelRegistry.availableModels.first(where: { $0.path == savedPath }) {
             self.selectedModel = match
+        } else if UserDefaults.standard.string(forKey: "selectedModelPath") != nil {
+            // Saved model no longer in the list (removed from bundled defaults) — fall back to smart default
+            self.selectedModel = ModelRegistry.smartDefault
         } else {
             self.selectedModel = ModelRegistry.noLLM
         }
