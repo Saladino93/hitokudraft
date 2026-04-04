@@ -550,10 +550,10 @@ final class ConversationCoordinator: ObservableObject {
                     raw.reserveCapacity(4096)
                     for try await chunk in llm.generateStream(prompt: prompt, maxTokens: maxTokens) {
                         raw += chunk
-                        // Publish family-cleaned text for display; raw is preserved for final paste.
-                        // postProcess() is safe on partial strings (handles unclosed thinking blocks).
-                        // stripEcho() runs only on the final string since it needs the full output.
-                        streamingLLMText = family.postProcess(raw)
+                        // Show raw tokens in overlay — postProcess() runs once on the final string.
+                        // Running regex cleanup per-token was O(N²); models with enable_thinking=false
+                        // produce no thinking blocks to strip mid-stream anyway.
+                        streamingLLMText = raw
                     }
                     streamingLLMText = ""
                     var cleaned = OutputCleaner.clean(family.postProcess(raw))
@@ -845,6 +845,9 @@ final class ConversationCoordinator: ObservableObject {
             let path = modelManager.selectedSTTModel.path
             guard !path.isEmpty else { return nil }
             return try await MLXAudioSTTService(modelPath: path, cacheDirectory: modelCacheDirectory)
+        case .whisperKit:
+            let modelName = modelManager.selectedSTTModel.path
+            return try await WhisperKitSTTService(modelName: modelName)
         }
     }
 

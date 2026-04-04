@@ -6,7 +6,10 @@ import os
 ///
 /// Accumulates 16 kHz samples into 4096-sample chunks and runs Silero VAD on each.
 /// Publishes thread-safe flags that `AudioCaptureService` reads from its tap callback.
-final class VoiceActivityDetector: @unchecked Sendable {
+/// Actor-isolated VAD: all mutable state (`sampleBuffer`, `streamState`) is serialized
+/// automatically. Public flags are `nonisolated let` because they are already thread-safe
+/// via NSLock internally and must be readable from the synchronous RT tap callback.
+actor VoiceActivityDetector {
     private static let log = Logger(subsystem: "com.hitokudraft.vad", category: "detector")
 
     /// Number of 16 kHz samples per VAD chunk (256 ms).
@@ -14,26 +17,26 @@ final class VoiceActivityDetector: @unchecked Sendable {
 
     private let vadManager: VadManager
 
-    /// Accumulation buffer for incoming 16 kHz samples (guarded by lock).
-    private let lock = NSLock()
+    /// Accumulation buffer for incoming 16 kHz samples — actor-isolated.
     private var sampleBuffer: [Float] = []
 
     /// Streaming state for the VAD — carries LSTM hidden/cell state across chunks.
+    /// Actor isolation ensures only one `feedSamples` call reads/writes this at a time.
     private var streamState: VadStreamState
 
     /// Segmentation config tuned for real-time dictation.
     private let segConfig: VadSegmentationConfig
 
-    // MARK: - Public Flags
+    // MARK: - Public Flags (nonisolated — safe to read from synchronous tap callback)
 
     /// Set when a `speechStart` event fires.
-    let speechDetected = LockedFlag()
+    nonisolated let speechDetected = LockedFlag()
 
     /// Set when a `speechEnd` event fires (speech was detected, then silence followed).
-    let silenceAfterSpeech = LockedFlag()
+    nonisolated let silenceAfterSpeech = LockedFlag()
 
     /// Current speech probability (0.0–1.0) — for optional UI use.
-    let speechProbability = LockedFloat()
+    nonisolated let speechProbability = LockedFloat()
 
     // MARK: - Init
 
@@ -59,9 +62,7 @@ final class VoiceActivityDetector: @unchecked Sendable {
 
     /// Resets all state for a new recording session.
     func reset() async {
-        lock.lock()
         sampleBuffer.removeAll(keepingCapacity: true)
-        lock.unlock()
 
         speechDetected.reset()
         silenceAfterSpeech.reset()
@@ -73,23 +74,15 @@ final class VoiceActivityDetector: @unchecked Sendable {
     // MARK: - Sample Processing
 
     /// Accumulates 16 kHz samples and runs VAD when a full chunk (4096 samples) is ready.
-    /// Called from the processing queue in `AudioCaptureService`.
+    /// Actor isolation serializes concurrent calls — no explicit locking needed.
     func feedSamples(_ samples: [Float]) async {
-        // Append samples under lock
-        lock.lock()
         sampleBuffer.append(contentsOf: samples)
-        lock.unlock()
 
         // Process all complete chunks
         while true {
-            lock.lock()
-            guard sampleBuffer.count >= Self.chunkSize else {
-                lock.unlock()
-                return
-            }
+            guard sampleBuffer.count >= Self.chunkSize else { return }
             let chunk = Array(sampleBuffer.prefix(Self.chunkSize))
             sampleBuffer.removeFirst(Self.chunkSize)
-            lock.unlock()
 
             do {
                 let result = try await vadManager.processStreamingChunk(
