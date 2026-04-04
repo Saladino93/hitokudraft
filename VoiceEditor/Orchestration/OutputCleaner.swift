@@ -94,7 +94,24 @@ enum OutputCleaner {
         return result
     }
 
-    // MARK: - Full cleaning pipeline
+    // MARK: - Inline markdown stripping
+
+    /// Removes inline bold/italic markers produced by Qwen3.5 and similar models
+    /// while preserving the wrapped text content.
+    /// Only strips inline markers (`**`, `*`, `***`); leaves headings, lists,
+    /// code blocks, and tables untouched — those may be intentional.
+    static func stripInlineMarkdown(_ text: String) -> String {
+        var result = text
+        // Bold-italic must come first — otherwise ** would partially match ***
+        result = result.replacingOccurrences(
+            of: #"\*\*\*(.+?)\*\*\*"#, with: "$1", options: .regularExpression)
+        result = result.replacingOccurrences(
+            of: #"\*\*(.+?)\*\*"#, with: "$1", options: .regularExpression)
+        // Italic: single asterisks; no newlines inside to avoid cross-paragraph grabs
+        result = result.replacingOccurrences(
+            of: #"(?<!\*)\*([^*\n]+)\*(?!\*)"#, with: "$1", options: .regularExpression)
+        return result
+    }
 
     // MARK: - Instruction-echo detection
 

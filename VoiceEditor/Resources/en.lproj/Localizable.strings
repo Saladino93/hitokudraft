@@ -56,7 +56,7 @@
 "model.show_in_finder" = "Show in Finder";
 "model.ai_warning" = "AI models can make mistakes. Review outputs before use.";
 "model.status_ready" = "Ready";
-"model.status_not_loaded" = "Not loaded";
+"model.status_not_loaded" = "Idle";
 "model.status_loading" = "Loading…";
 "model.compatible" = "Compatible";
 "model.needs_conversion" = "May need conversion";
@@ -133,6 +133,14 @@
 "Lightweight streaming ASR" = "Lightweight streaming ASR";
 "High-quality streaming ASR" = "High-quality streaming ASR";
 
+/* None LLM sentinel */
+"model.none_description" = "No LLM — voice edit pastes transcript directly.";
+"status.llm_disabled" = "Disabled";
+
+/* Auto-offload */
+"model.auto_offload" = "Auto-offload:";
+"model.auto_offload_desc" = "Release model weights after 5 min of inactivity.";
+
 /* Model UI labels */
 "model.streaming" = "streaming";
 "English only" = "English only";
@@ -148,6 +156,8 @@
 "permission.screen_recording" = "Screen Recording:";
 
 /* Settings — Overlay Size */
+"overlay.show_llm_streaming" = "Show text while generating:";
+"overlay.show_llm_streaming_desc" = "Show LLM output live in the overlay.";
 "overlay.line_count" = "Text lines:";
 "overlay.line_count_desc" = "Maximum lines shown in the overlay.";
 "overlay.width" = "Overlay width:";

@@ -1,14 +1,77 @@
 import Foundation
 import NaturalLanguage
 
+// MARK: - JSON Config Structures
+
+private struct PromptsConfig: Codable {
+    let version: Int
+    let systemPrompts: SystemPrompts
+    let templates: Templates
+
+    struct SystemPrompts: Codable {
+        let standard: String
+        let screenAware: String
+        let voiceClean: String
+        let screenAwareVoiceClean: String
+        let concise: String
+        let screenAwareConcise: String
+
+        enum CodingKeys: String, CodingKey {
+            case standard = "default"
+            case screenAware, voiceClean, screenAwareVoiceClean, concise, screenAwareConcise
+        }
+    }
+
+    struct Templates: Codable {
+        let edit: String
+        let draft: String
+        let conciseDraft: String
+        let voiceCleanDraft: String
+    }
+}
+
+// MARK: - Loader
+
+/// Loads from user override (~/Library/Application Support/HitokuDraft/prompts.json),
+/// then from the bundled PromptsConfig.json, then falls back to hardcoded strings.
+private func loadPromptsConfig() -> PromptsConfig? {
+    let decoder = JSONDecoder()
+
+    // 1. User override
+    if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        let userURL = appSupport.appendingPathComponent("HitokuDraft/prompts.json")
+        if FileManager.default.fileExists(atPath: userURL.path),
+           let data = try? Data(contentsOf: userURL),
+           let config = try? decoder.decode(PromptsConfig.self, from: data) {
+            return config
+        }
+    }
+
+    // 2. Bundled JSON
+    if let url = Bundle.main.url(forResource: "PromptsConfig", withExtension: "json"),
+       let data = try? Data(contentsOf: url),
+       let config = try? decoder.decode(PromptsConfig.self, from: data) {
+        return config
+    }
+
+    return nil
+}
+
+// MARK: - Prompts
+
 enum Prompts {
-    static let systemPrompt = """
+
+    private static let config: PromptsConfig? = loadPromptsConfig()
+
+    // MARK: System Prompts
+
+    static let systemPrompt: String = config?.systemPrompts.standard ?? """
         You are a precise, concise text editor and writing assistant. \
         Follow instructions exactly. Output ONLY the requested text — \
         no commentary, no explanations, no preamble.
         """
 
-    static let screenAwareSystemPrompt = """
+    static let screenAwareSystemPrompt: String = config?.systemPrompts.screenAware ?? """
         You are a precise, concise text editor and writing assistant. \
         Follow instructions exactly. Output ONLY the requested text — \
         no commentary, no explanations, no preamble. \
@@ -17,15 +80,60 @@ enum Prompts {
         If the screen context is unrelated to the request, ignore it completely.
         """
 
+    static let voiceCleanSystemPrompt: String = config?.systemPrompts.voiceClean ?? """
+        You are a helpful writing assistant. Your job is to produce the content \
+        the user asks for — NOT to repeat, echo, or paraphrase their request. \
+        The user's input was dictated via voice — it may contain filler words, \
+        hesitations, or minor transcription errors. Interpret the user's intent. \
+        Output ONLY the requested content — no commentary, no explanations, no preamble. \
+        NEVER start your response by restating what the user asked. \
+        Reply in the SAME language as the input.
+        """
+
+    static let screenAwareVoiceCleanSystemPrompt: String = config?.systemPrompts.screenAwareVoiceClean ?? """
+        You are a helpful writing assistant. Your job is to produce the content \
+        the user asks for — NOT to repeat, echo, or paraphrase their request. \
+        The user's input was dictated via voice — it may contain filler words, \
+        hesitations, or minor transcription errors. Interpret the user's intent. \
+        Output ONLY the requested content — no commentary, no explanations, no preamble. \
+        NEVER start your response by restating what the user asked. \
+        Reply in the SAME language as the input. \
+        You can see what the user has on their screen. \
+        Use this context when relevant. Ignore it when unrelated.
+        """
+
+    static let conciseSystemPrompt: String = config?.systemPrompts.concise ?? """
+        You are a precise, concise text editor and writing assistant. \
+        Follow instructions exactly. Output ONLY the requested text — \
+        no commentary, no explanations, no preamble. \
+        Be brief. Prefer short, direct responses. Do not elaborate \
+        unless the user explicitly asks for detail.
+        """
+
+    static let screenAwareConciseSystemPrompt: String = config?.systemPrompts.screenAwareConcise ?? """
+        You are a precise, concise text editor and writing assistant. \
+        Follow instructions exactly. Output ONLY the requested text — \
+        no commentary, no explanations, no preamble. \
+        Be brief. Prefer short, direct responses. Do not elaborate \
+        unless the user explicitly asks for detail. \
+        You can see what the user has on their screen (app name, window title, visible text). \
+        Use this context when relevant to give more accurate results. \
+        If the screen context is unrelated to the request, ignore it completely.
+        """
+
+    // MARK: Template Functions
+
     static func edit(text: String, instruction: String, context: ScreenContext? = nil) -> String {
         let langCode = LanguageDetector.detect(text)
         let langRule = languageRule(for: langCode)
+        let contextBlock: String = context.flatMap { $0.promptBlock }.map { "\n\($0)\n" } ?? ""
 
-        let contextBlock: String
-        if let block = context?.promptBlock {
-            contextBlock = "\n\(block)\n"
-        } else {
-            contextBlock = ""
+        if let template = config?.templates.edit {
+            return template
+                .replacingOccurrences(of: "{{text}}", with: text)
+                .replacingOccurrences(of: "{{instruction}}", with: instruction)
+                .replacingOccurrences(of: "{{langRule}}", with: langRule)
+                .replacingOccurrences(of: "{{contextBlock}}", with: contextBlock)
         }
 
         return """
@@ -49,11 +157,12 @@ enum Prompts {
     }
 
     static func draft(instruction: String, context: ScreenContext? = nil) -> String {
-        let contextBlock: String
-        if let block = context?.promptBlock {
-            contextBlock = "\n\(block)\n"
-        } else {
-            contextBlock = ""
+        let contextBlock: String = context.flatMap { $0.promptBlock }.map { "\n\($0)\n" } ?? ""
+
+        if let template = config?.templates.draft {
+            return template
+                .replacingOccurrences(of: "{{instruction}}", with: instruction)
+                .replacingOccurrences(of: "{{contextBlock}}", with: contextBlock)
         }
 
         return """
@@ -68,18 +177,12 @@ enum Prompts {
     }
 
     /// Returns a language rule that names the detected language explicitly.
-    /// Uses Apple's NLLanguage to get the localized language name (e.g. "Italian", "Arabic"),
-    /// so it works for any language Apple can detect — no hardcoded list.
     private static func languageRule(for langCode: String) -> String {
         guard langCode != "en" else {
             return "Reply in English."
         }
-
-        // Get the language name in English (e.g. "it" → "Italian", "ar" → "Arabic")
         let locale = Locale(identifier: "en")
         let languageName = locale.localizedString(forLanguageCode: langCode)
-
-        // Also get the language name in its own language (e.g. "it" → "italiano")
         let nativeLocale = Locale(identifier: langCode)
         let nativeName = nativeLocale.localizedString(forLanguageCode: langCode)
 
@@ -98,62 +201,15 @@ enum Prompts {
 
     static let draftMaxTokens = 800
 
-    // MARK: - Voice-clean prompt (for small models that echo labeled fields)
+    // MARK: - Concise Draft (reasoning models, e.g. Qwen3.5)
 
-    /// Broader system prompt for small models (e.g. LFM2.5 1.2B) that echo
-    /// labeled prompt fields instead of generating content.
-    /// Supports editing, drafting, and general tasks — not just voice cleanup.
-    static let voiceCleanSystemPrompt = """
-        You are a helpful writing assistant. Your job is to produce the content \
-        the user asks for — NOT to repeat, echo, or paraphrase their request. \
-        The user's input was dictated via voice — it may contain filler words, \
-        hesitations, or minor transcription errors. Interpret the user's intent. \
-        Output ONLY the requested content — no commentary, no explanations, no preamble. \
-        NEVER start your response by restating what the user asked. \
-        Reply in the SAME language as the input.
-        """
-
-    static let screenAwareVoiceCleanSystemPrompt = """
-        You are a helpful writing assistant. Your job is to produce the content \
-        the user asks for — NOT to repeat, echo, or paraphrase their request. \
-        The user's input was dictated via voice — it may contain filler words, \
-        hesitations, or minor transcription errors. Interpret the user's intent. \
-        Output ONLY the requested content — no commentary, no explanations, no preamble. \
-        NEVER start your response by restating what the user asked. \
-        Reply in the SAME language as the input. \
-        You can see what the user has on their screen. \
-        Use this context when relevant. Ignore it when unrelated.
-        """
-
-    /// Concise system prompt for capable reasoning models (e.g. Qwen3.5) that
-    /// tend to over-generate. Stronger brevity constraints than the default.
-    static let conciseSystemPrompt = """
-        You are a precise, concise text editor and writing assistant. \
-        Follow instructions exactly. Output ONLY the requested text — \
-        no commentary, no explanations, no preamble. \
-        Be brief. Prefer short, direct responses. Do not elaborate \
-        unless the user explicitly asks for detail.
-        """
-
-    static let screenAwareConciseSystemPrompt = """
-        You are a precise, concise text editor and writing assistant. \
-        Follow instructions exactly. Output ONLY the requested text — \
-        no commentary, no explanations, no preamble. \
-        Be brief. Prefer short, direct responses. Do not elaborate \
-        unless the user explicitly asks for detail. \
-        You can see what the user has on their screen (app name, window title, visible text). \
-        Use this context when relevant to give more accurate results. \
-        If the screen context is unrelated to the request, ignore it completely.
-        """
-
-    /// Draft prompt for capable reasoning models — concise, no encouragement
-    /// to write at length. Avoids labeled fields that reasoning models over-analyze.
     static func conciseDraft(instruction: String, context: ScreenContext? = nil) -> String {
-        let contextBlock: String
-        if let block = context?.promptBlock {
-            contextBlock = "\n\(block)\n\n"
-        } else {
-            contextBlock = ""
+        let contextBlock: String = context.flatMap { $0.promptBlock }.map { "\n\($0)\n\n" } ?? ""
+
+        if let template = config?.templates.conciseDraft {
+            return template
+                .replacingOccurrences(of: "{{instruction}}", with: instruction)
+                .replacingOccurrences(of: "{{contextBlock}}", with: contextBlock)
         }
 
         return """
@@ -164,14 +220,15 @@ enum Prompts {
         """
     }
 
-    /// Draft prompt for small models — avoids labeled fields that small models echo,
-    /// but still clearly instructs the model to generate new content.
+    // MARK: - Voice-Clean Draft (small models)
+
     static func voiceCleanDraft(instruction: String, context: ScreenContext? = nil) -> String {
-        let contextBlock: String
-        if let block = context?.promptBlock {
-            contextBlock = "\n\(block)\n\n"
-        } else {
-            contextBlock = ""
+        let contextBlock: String = context.flatMap { $0.promptBlock }.map { "\n\($0)\n\n" } ?? ""
+
+        if let template = config?.templates.voiceCleanDraft {
+            return template
+                .replacingOccurrences(of: "{{instruction}}", with: instruction)
+                .replacingOccurrences(of: "{{contextBlock}}", with: contextBlock)
         }
 
         return """

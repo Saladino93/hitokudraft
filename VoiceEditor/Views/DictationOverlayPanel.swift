@@ -9,6 +9,7 @@ import SwiftUI
 final class DictationOverlayPanel {
     private var panel: NSPanel?
     private let viewModel = OverlayViewModel()
+    private var cancellables = Set<AnyCancellable>()
 
     private var theme: DictationTheme { .current }
 
@@ -28,20 +29,93 @@ final class DictationOverlayPanel {
         viewModel.startPolling(session: session)
     }
 
-    func hide() {
+    func stopLevelPolling() {
         viewModel.stopPolling()
+    }
+
+    func hide() {
+        stopLevelPolling()
         panel?.orderOut(nil)
         panel = nil
+    }
+
+    /// Subscribe to coordinator published properties so the overlay reacts
+    /// to state changes without being commanded directly.
+    func observe(_ coordinator: ConversationCoordinator) {
+        // Show/hide and set text based on pipeline state
+        coordinator.$state
+            .receive(on: RunLoop.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .listening:
+                    self.show(text: L("overlay.listening"), isStatus: true)
+                case .transcribing:
+                    // Only update if panel is already open (voice edit opened it at .listening).
+                    // Grammar fix never opens the panel, so it must stay hidden here.
+                    if self.panel != nil { self.show(text: L("overlay.transcribing"), isStatus: true) }
+                case .generating:
+                    if self.panel != nil { self.show(text: L("overlay.generating"), isStatus: true) }
+                case .pasting:
+                    if self.panel != nil { self.show(text: L("overlay.pasting"), isStatus: true) }
+                case .dictating(let text):
+                    self.show(text: text.isEmpty ? L("overlay.dictating") : text,
+                              isStatus: text.isEmpty)
+                case .idle, .error, .downloading, .warmingUp:
+                    self.hide()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Live transcription text during voice recording
+        coordinator.$liveTranscriptionText
+            .receive(on: RunLoop.main)
+            .sink { [weak self] text in
+                guard let self, !text.isEmpty else { return }
+                self.show(text: text, isStatus: false)
+            }
+            .store(in: &cancellables)
+
+        // Streaming LLM tokens — only updates an already-open panel (voice edit).
+        // Grammar fix never opens the panel so panel == nil there; this is a no-op.
+        // Forces 3-line mode via isStreamingLLM flag for the duration of generation.
+        // Gated by the "showLLMStreamingInOverlay" user setting (default: on).
+        coordinator.$streamingLLMText
+            .receive(on: RunLoop.main)
+            .sink { [weak self] text in
+                guard let self, self.panel != nil else { return }
+                let streamingEnabled = (UserDefaults.standard.object(forKey: "showLLMStreamingInOverlay") as? Bool) ?? true
+                if text.isEmpty {
+                    self.viewModel.isStreamingLLM = false
+                } else if streamingEnabled {
+                    self.viewModel.isStreamingLLM = true
+                    self.show(text: text, isStatus: false)
+                }
+            }
+            .store(in: &cancellables)
+
+        // Waveform level polling — follows the active recording session
+        coordinator.$activeRecordingSession
+            .receive(on: RunLoop.main)
+            .sink { [weak self] session in
+                guard let self else { return }
+                if let session {
+                    self.startLevelPolling(session: session)
+                } else {
+                    self.stopLevelPolling()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func createPanel() {
         // Read user-configurable overlay dimensions
         let capsuleWidth = CGFloat(UserDefaults.standard.double(forKey: "overlayWidth").clamped(to: 150...400, default: 210))
-        let maxLineCount = UserDefaults.standard.integer(forKey: "overlayLineCount").clamped(to: 1...3, default: 2)
 
-        // Size panel for the *maximum* possible capsule height so the adaptive
-        // SwiftUI content has room to grow without misalignment.
-        let maxCapsuleHeight: CGFloat = 35 + CGFloat(maxLineCount - 1) * 18
+        // Always size the panel for 3 lines so LLM streaming can expand to 3
+        // regardless of the user's dictation line-count setting. The transparent
+        // area above/below the capsule is invisible (panel has no background).
+        let maxCapsuleHeight: CGFloat = 35 + CGFloat(2) * 18  // 3-line capacity
         let panelWidth: CGFloat = capsuleWidth + 16
         let panelHeight: CGFloat = maxCapsuleHeight + 33
 
@@ -93,6 +167,7 @@ private final class OverlayViewModel: ObservableObject {
     @Published var audioLevel: CGFloat = 0
     @Published var showText: Bool = (UserDefaults.standard.object(forKey: "showDictationText") as? Bool) ?? true
     @Published var isStatus: Bool = false
+    @Published var isStreamingLLM: Bool = false
     @Published var tick = Date()
 
     private var displayLink: CVDisplayLink?
@@ -144,8 +219,10 @@ private struct DictationOverlayContent: View {
         viewModel.showText && !viewModel.isStatus
     }
 
+    /// During LLM streaming: always 3 lines for maximum readability.
+    /// During dictation/transcription: respect the user's setting.
     private var maxLines: Int {
-        max(1, min(3, overlayLineCount))
+        viewModel.isStreamingLLM ? 3 : max(1, min(3, overlayLineCount))
     }
 
     private var capsuleWidth: CGFloat {
@@ -251,8 +328,10 @@ private struct DictationOverlayContent: View {
         .onAppear { recompute() }
         .onChange(of: viewModel.text) { recompute() }
         .onChange(of: viewModel.isStatus) { recompute() }
+        .onChange(of: viewModel.isStreamingLLM) { recompute() }
         .animation(.easeInOut(duration: 0.2), value: effectiveShowText)
         .animation(.easeInOut(duration: 0.15), value: cachedLineCount)
+        .animation(.spring(duration: 0.25), value: viewModel.isStreamingLLM)
     }
 }
 

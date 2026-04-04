@@ -14,10 +14,17 @@ final class ModelManager: ObservableObject {
     @Published var statusMessage = ""
     @Published var selectedModel: ModelOption
     @Published var selectedSTTModel: STTModelOption = STTModelRegistry.defaultModel
+    @Published var autoOffloadEnabled: Bool = true
 
     private(set) var modelContainer: ModelContainer?
     private(set) var asrModels: AsrModels?
     internal var vadDetector: VoiceActivityDetector?
+
+    private var idleOffloadTask: Task<Void, Never>?
+    private static let offloadDelay: TimeInterval = 5 * 60  // 5 minutes, fixed
+
+    /// True when the None sentinel is selected (no LLM desired).
+    var llmDisabled: Bool { selectedModel.isNone }
 
     /// Path of the last successfully-loaded LLM — prevents redundant reloads.
     private(set) var loadedModelPath: String?
@@ -40,14 +47,64 @@ final class ModelManager: ObservableObject {
                   let match = ModelRegistry.availableModels.first(where: { $0.path == savedPath }) {
             self.selectedModel = match
         } else {
-            self.selectedModel = ModelRegistry.smartDefault
+            self.selectedModel = ModelRegistry.noLLM
         }
+        // Restore saved offload preference; default true when key is absent
+        autoOffloadEnabled = UserDefaults.standard.object(forKey: "modelAutoOffload")
+            .flatMap { $0 as? Bool } ?? false
         startMemoryPressureMonitoring()
     }
+
+    // MARK: - Inactivity Offloading
+
+    /// Reset the 5-minute inactivity countdown. Call after each successful pipeline.
+    func keepAlive() {
+        guard autoOffloadEnabled else { return }
+        idleOffloadTask?.cancel()
+        idleOffloadTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.offloadDelay))
+            guard !Task.isCancelled else { return }
+            self?.offloadAllModels()
+        }
+    }
+
+    /// Cancel any pending offload. Call at the start of any pipeline.
+    func cancelOffload() {
+        idleOffloadTask?.cancel()
+        idleOffloadTask = nil
+    }
+
+    /// Release LLM and STT weights from RAM.
+    /// The coordinator clears its `stt` and `llm` vars via `$sttReady`/`$llmReady` Combine sinks.
+    func offloadAllModels() {
+        if modelContainer != nil {
+            modelContainer = nil
+            llmReady = false
+            Memory.clearCache()
+        }
+        if asrModels != nil {
+            asrModels = nil
+            sttReady = false
+        }
+    }
+
+    // MARK: - Model Loading
 
     /// Load a specific model (downloads if needed, then initializes).
     /// If the model is already loaded (matching `loadedModelPath`), returns immediately.
     func loadModel(_ model: ModelOption) async throws {
+        // None sentinel: clear LLM state; nothing to load
+        guard !model.isNone else {
+            modelContainer = nil
+            llmReady = false
+            Memory.clearCache()
+            loadedModelPath = nil
+            statusMessage = ""
+            return
+        }
+
+        cancelOffload()
+
         if loadedModelPath == model.path, modelContainer != nil {
             return
         }
@@ -85,56 +142,6 @@ final class ModelManager: ObservableObject {
     /// Called when the user changes the model picker.
     func reloadLLM() async throws {
         try await loadModel(selectedModel)
-    }
-
-    func loadAll() async throws {
-        // Set GPU cache limit before loading models
-        Memory.cacheLimit = Self.gpuCacheLimit
-
-        // Load LLM (downloads if not cached, then initializes)
-        statusMessage = "Loading \(selectedModel.name)..."
-        let container = try await LLMModelFactory.shared.loadContainer(
-            configuration: selectedModel.configuration
-        ) { [weak self] progress in
-            Task { @MainActor in
-                self?.llmProgress = progress.fractionCompleted
-                if progress.totalUnitCount > 100 {
-                    let completed = ByteCountFormatter.string(
-                        fromByteCount: progress.completedUnitCount, countStyle: .file)
-                    let total = ByteCountFormatter.string(
-                        fromByteCount: progress.totalUnitCount, countStyle: .file)
-                    self?.statusMessage = "Downloading LLM: \(completed) / \(total)"
-                }
-            }
-        }
-        self.modelContainer = container
-        self.llmReady = true
-        self.loadedModelPath = selectedModel.path
-
-        // Load STT models — branch on selected backend
-        switch selectedSTTModel.backend {
-        case .fluidAudio:
-            // Parakeet TDT v3 supports 25 European languages
-            statusMessage = "Loading STT models..."
-            let models = try await AsrModels.downloadAndLoad(version: .v3)
-            self.asrModels = models
-            self.sttReady = true
-        case .mlxAudio:
-            // MLXAudioSTTService loads weights during init, driven by the coordinator.
-            break
-        }
-
-        // Load Silero VAD for neural silence detection (~2 MB, one-time download)
-        if vadDetector == nil {
-            do {
-                vadDetector = try await VoiceActivityDetector.create()
-            } catch {
-                // VAD failure is non-fatal — falls back to RMS silence detection
-                print("[ModelManager] VAD init failed (will use RMS fallback): \(error.localizedDescription)")
-            }
-        }
-
-        statusMessage = ""
     }
 
     /// Reload only the STT with the currently selected model.

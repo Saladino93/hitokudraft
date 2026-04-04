@@ -27,14 +27,30 @@ final class ConversationCoordinator: ObservableObject {
     private var voiceEditTask: Task<Void, Never>?
     private let dictationOverlay = DictationOverlayPanel()
 
-    private var contextAwareMode: ContextAwareMode {
+    /// Live transcription text for the overlay (updated during streaming; empty = show status label).
+    @Published private(set) var liveTranscriptionText: String = ""
+    /// Accumulating LLM output shown in the overlay during generation; cleared before paste.
+    @Published private(set) var streamingLLMText: String = ""
+    /// The active recording session — non-nil while the mic is recording.
+    /// DictationOverlayPanel subscribes to this to start/stop level polling.
+    @Published private(set) var activeRecordingSession: AudioCaptureService.ContinuousSession?
+
+    @Published private(set) var contextAwareMode: ContextAwareMode = {
         let raw = UserDefaults.standard.string(forKey: "contextAwareMode") ?? "off"
         return ContextAwareMode(rawValue: raw) ?? .off
-    }
-    private var lastContextMode: ContextAwareMode = .off
+    }()
     /// Last finalized text from a native streaming session (Qwen3-ASR).
     /// Set by `runStreamingTranscription` for `stopDictation()` to use.
     private var lastStreamingTranscription: String?
+
+    /// Stores the last successful voice-edit result for follow-up commands.
+    private struct EditContext {
+        let instruction: String
+        let result: String
+        let timestamp: Date
+        var isExpired: Bool { Date().timeIntervalSince(timestamp) > 300 }
+    }
+    private var lastEditContext: EditContext?
 
     /// Cancellable model-loading tasks so a new switch can abort an in-flight download.
     private var llmLoadTask: Task<Void, Never>?
@@ -81,13 +97,25 @@ final class ConversationCoordinator: ObservableObject {
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let newMode = self.contextAwareMode
-                if newMode != self.lastContextMode {
-                    self.lastContextMode = newMode
+                let raw = UserDefaults.standard.string(forKey: "contextAwareMode") ?? "off"
+                let newMode = ContextAwareMode(rawValue: raw) ?? .off
+                if newMode != self.contextAwareMode {
+                    self.contextAwareMode = newMode
                     self.rebuildLLMServiceIfNeeded()
                 }
             }
             .store(in: &cancellables)
+
+        // When memory offload clears models, nil out the service objects this coordinator holds
+        modelManager.$sttReady
+            .sink { [weak self] ready in if !ready { self?.stt = nil } }
+            .store(in: &cancellables)
+        modelManager.$llmReady
+            .sink { [weak self] ready in if !ready { self?.llm = nil } }
+            .store(in: &cancellables)
+
+        // Overlay observes published state instead of being commanded directly
+        dictationOverlay.observe(self)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -101,37 +129,16 @@ final class ConversationCoordinator: ObservableObject {
         guard state == .idle else { return }
         state = .downloading(progress: 0)
 
-        // Phase 1: LLM — wrapped in llmLoadTask so switchModel() can cancel it
-        llmLoadTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.modelManager.loadModel(self.modelManager.selectedModel)
-                try Task.checkCancellation()
-
-                if let container = self.modelManager.modelContainer {
-                    self.llm = self.makeLLMService(container: container)
-                }
-
-                self.state = .warmingUp
-                try await self.llm?.warmup()
-                try Task.checkCancellation()
-
-                self.state = .idle
-                SoundPlayer.shared.play(.glass)
-            } catch is CancellationError {
-                self.state = .idle       // switchModel() takes over for LLM
-            } catch let error as URLError where error.code == .cancelled {
-                self.state = .idle
-            } catch {
-                self.revertToLastLoadedModel()
-                self.state = .error(error.localizedDescription)
-                self.resetErrorAfterDelay()
+        // Phase 0: LLM — start loading in background so STT/VAD setup can run in parallel.
+        // The llmLoadTask will set llmReady = true and state = .idle when done.
+        if llm == nil && !modelManager.selectedModel.isNone {
+            llmLoadTask = Task { [weak self] in
+                guard let self else { return }
+                await self.activateLLM(self.modelManager.selectedModel, drainAfter: false)
             }
-            self.llmLoadTask = nil
         }
-        await llmLoadTask?.value
 
-        // Phase 2: STT — always runs (independent of LLM choice)
+        // Phase 1: STT — always runs (independent of LLM choice)
         if stt == nil {
             modelManager.sttLoading = true
             do {
@@ -158,6 +165,7 @@ final class ConversationCoordinator: ObservableObject {
 
         setupHotkeys()
         modelManager.statusMessage = ""
+        state = .idle
         await drainPendingSwitches()
 
         // License: silent re-verify + first-launch prompt
@@ -170,6 +178,56 @@ final class ConversationCoordinator: ObservableObject {
     func setupHotkeys() {
         guard permissions.accessibilityGranted, hotkeyManager == nil else { return }
         hotkeyManager = HotkeyManager(coordinator: self)
+    }
+
+    // MARK: - LLM Activation (shared loading pattern)
+
+    /// Loads, initializes, and warms up an LLM. Updates state throughout.
+    ///
+    /// - Parameters:
+    ///   - model: The model to load.
+    ///   - drainAfter: Whether to call `drainPendingSwitches()` after completion.
+    ///   - afterLoad: Optional work performed after load succeeds but before service creation
+    ///                (used by `downloadAndAddCustomModel` to register the model).
+    private func activateLLM(
+        _ model: ModelOption,
+        drainAfter: Bool = false,
+        afterLoad: (() async -> Void)? = nil
+    ) async {
+        // None sentinel: release any loaded model weights, clear service
+        guard !model.isNone else {
+            try? await modelManager.loadModel(model)  // clears modelContainer + llmReady + GPU cache
+            llm = nil
+            state = .idle
+            llmLoadTask = nil
+            if drainAfter { await drainPendingSwitches() }
+            return
+        }
+
+        do {
+            try await modelManager.loadModel(model)
+            try Task.checkCancellation()
+            await afterLoad?()
+            if let container = modelManager.modelContainer {
+                llm = makeLLMService(container: container)
+            }
+            state = .warmingUp
+            try await llm?.warmup()
+            try Task.checkCancellation()
+            modelManager.keepAlive()
+            state = .idle
+            SoundPlayer.shared.play(.glass)
+        } catch is CancellationError {
+            state = .idle
+        } catch let error as URLError where error.code == .cancelled {
+            state = .idle
+        } catch {
+            revertToLastLoadedModel()
+            state = .error(error.localizedDescription)
+            resetErrorAfterDelay()
+        }
+        llmLoadTask = nil
+        if drainAfter { await drainPendingSwitches() }
     }
 
     // MARK: - Model Switching
@@ -202,31 +260,7 @@ final class ConversationCoordinator: ObservableObject {
 
         llmLoadTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                try await self.modelManager.reloadLLM()
-                try Task.checkCancellation()
-
-                if let container = self.modelManager.modelContainer {
-                    self.llm = self.makeLLMService(container: container)
-                }
-
-                self.state = .warmingUp
-                try await self.llm?.warmup()
-                try Task.checkCancellation()
-
-                self.state = .idle
-                SoundPlayer.shared.play(.glass)
-            } catch is CancellationError {
-                self.state = .idle
-            } catch let error as URLError where error.code == .cancelled {
-                self.state = .idle
-            } catch {
-                self.revertToLastLoadedModel()
-                self.state = .error(error.localizedDescription)
-                self.resetErrorAfterDelay()
-            }
-            self.llmLoadTask = nil
-            await self.drainPendingSwitches()
+            await self.activateLLM(self.modelManager.selectedModel, drainAfter: true)
         }
     }
 
@@ -299,44 +333,48 @@ final class ConversationCoordinator: ObservableObject {
 
         llmLoadTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                try await self.modelManager.loadModel(model)
-                try Task.checkCancellation()
-
-                // Download succeeded — add to registry with measured size
+            await self.activateLLM(model, drainAfter: true) {
+                // Download succeeded — register the model with its measured on-disk size.
+                // Set as selected model — triggers onChange → switchModel(), which early-returns
+                // because loadedModelPath already matches, then redoes service creation + warmup.
                 var finalModel = model
                 let measured = ModelRegistry.measureModelOnDisk(model)
                 if measured > 0 { finalModel.estimatedMemoryGB = measured }
                 ModelRegistry.addModel(finalModel)
-
-                // Set as selected model — triggers onChange → switchModel() which
-                // will early-return from reloadLLM() because loadedModelPath matches,
-                // then redo makeLLMService + warmup (cheap, ~200ms)
                 self.modelManager.selectedModel = finalModel
                 UserDefaults.standard.set(finalModel.path, forKey: "selectedModelPath")
-
-                if let container = self.modelManager.modelContainer {
-                    self.llm = self.makeLLMService(container: container)
-                }
-
-                self.state = .warmingUp
-                try await self.llm?.warmup()
-                try Task.checkCancellation()
-
-                self.state = .idle
-                SoundPlayer.shared.play(.glass)
-            } catch is CancellationError {
-                self.state = .idle
-            } catch let error as URLError where error.code == .cancelled {
-                self.state = .idle
-            } catch {
-                self.revertToLastLoadedModel()
-                self.state = .error(error.localizedDescription)
-                self.resetErrorAfterDelay()
             }
-            self.llmLoadTask = nil
-            await self.drainPendingSwitches()
         }
+    }
+
+    // MARK: - On-Demand Model Reload (post-offload)
+
+    /// Reloads STT from disk if it was offloaded. No-op if already loaded.
+    private func ensureSTTReady() async throws {
+        guard stt == nil else { return }
+        modelManager.sttLoading = true
+        defer { modelManager.sttLoading = false }
+        try await modelManager.reloadSTT()
+        stt = try await makeSttService()
+        modelManager.sttReady = (stt != nil)
+    }
+
+    /// Reloads LLM from disk if it was offloaded. No-op for None sentinel or already-loaded.
+    /// Reuses the activateLLM path so warmup runs, but skips the glass sound.
+    private func ensureLLMReady() async throws {
+        guard !modelManager.selectedModel.isNone else { return }
+        guard llm == nil else { return }
+        // Use loadModel directly to avoid duplicate sounds from activateLLM
+        state = .warmingUp
+        let model = modelManager.selectedModel
+        try await modelManager.loadModel(model)
+        if let container = modelManager.modelContainer {
+            llm = makeLLMService(container: container)
+        }
+        try await llm?.warmup()
+        modelManager.keepAlive()
+        state = .idle
+        guard llm != nil else { throw VoiceEditorError.modelsNotLoaded }
     }
 
     // MARK: - Voice Edit
@@ -357,13 +395,19 @@ final class ConversationCoordinator: ObservableObject {
 
         guard state == .idle else { return }
 
-        guard let stt else {
-            state = .error(VoiceEditorError.modelsNotLoaded.localizedDescription)
+        modelManager.cancelOffload()
+
+        // Reload STT and LLM from disk cache if they were offloaded
+        do {
+            try await ensureSTTReady()
+            try await ensureLLMReady()
+        } catch {
+            state = .error(error.localizedDescription)
             resetErrorAfterDelay()
             return
         }
 
-        guard let llm else {
+        guard let stt else {
             state = .error(VoiceEditorError.modelsNotLoaded.localizedDescription)
             resetErrorAfterDelay()
             return
@@ -386,23 +430,26 @@ final class ConversationCoordinator: ObservableObject {
                 let session = try await audioCapture.startContinuousRecording(
                     vadDetector: modelManager.vadDetector
                 )
-                dictationOverlay.show(text: L("overlay.listening"), isStatus: true)
-                dictationOverlay.startLevelPolling(session: session)
+                // Expose session so overlay can poll audio level for waveform animation
+                activeRecordingSession = session
+                liveTranscriptionText = ""
 
                 // Streaming transcription loop — shows live text while recording
                 // Path A (legacy): 300ms re-transcription poll
                 // Path B (native): Qwen3-ASR StreamingInferenceSession
                 let lastTranscription = await runStreamingTranscription(
                     session: session,
-                    onTextUpdate: { [dictationOverlay] text in
-                        dictationOverlay.show(text: text)
+                    stt: stt,
+                    onTextUpdate: { [weak self] text in
+                        self?.liveTranscriptionText = text
                     }
                 )
 
                 // Check cancellation after recording phase
                 guard !Task.isCancelled else {
                     session.stop()
-                    dictationOverlay.hide()
+                    activeRecordingSession = nil
+                    liveTranscriptionText = ""
                     if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
                     state = .idle
                     voiceEditTask = nil
@@ -410,17 +457,17 @@ final class ConversationCoordinator: ObservableObject {
                 }
 
                 session.stop()
+                activeRecordingSession = nil
+                liveTranscriptionText = ""
 
                 // Handle no-speech timeout from VAD
                 if session.isNoSpeechTimeout {
-                    dictationOverlay.hide()
                     if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
                     throw AudioCaptureService.AudioCaptureError.noSpeechDetected
                 }
 
                 let samples = session.audioBuffer.getAll()
                 guard samples.count >= 16_000 else {
-                    dictationOverlay.hide()
                     throw VoiceEditorError.emptyTranscription
                 }
 
@@ -431,7 +478,6 @@ final class ConversationCoordinator: ObservableObject {
                     command = lastTranscription
                 } else {
                     state = .transcribing
-                    dictationOverlay.show(text: L("overlay.transcribing"), isStatus: true)
                     do {
                         command = try await stt.transcribe(samples: samples)
                     } catch {
@@ -442,7 +488,6 @@ final class ConversationCoordinator: ObservableObject {
 
                 let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedCommand.isEmpty else {
-                    dictationOverlay.hide()
                     throw VoiceEditorError.emptyTranscription
                 }
 
@@ -450,44 +495,69 @@ final class ConversationCoordinator: ObservableObject {
                 let wordCount = trimmedCommand.split(separator: " ").count
                 guard wordCount >= 2 else {
                     Self.log.warning("Transcription too short (\(wordCount) word): '\(trimmedCommand)' — likely noise")
-                    dictationOverlay.hide()
                     throw VoiceEditorError.emptyTranscription
                 }
 
                 let draftMode = selectedText.isEmpty || DraftDetector.isDraftCommand(trimmedCommand)
 
-                // Phase 3: LLM generation
-                state = .generating
-                dictationOverlay.show(text: L("overlay.generating"), isStatus: true)
+                // Clear stale multi-turn context when the user has selected new text.
+                if !selectedText.isEmpty { lastEditContext = nil }
 
-                let family = modelManager.selectedModel.family
-                let prompt: String
-                let maxTokens: Int
+                if let llm = self.llm {
+                    // Phase 3: LLM generation
+                    state = .generating
 
-                if draftMode {
-                    prompt = family.draftPrompt(instruction: trimmedCommand, context: screenContext)
-                    maxTokens = family.draftMaxTokens
+                    let family = modelManager.selectedModel.family
+                    let prompt: String
+                    let maxTokens: Int
+
+                    // Build effective instruction — prepend previous result for follow-up commands.
+                    let effectiveInstruction: String
+                    if let ctx = lastEditContext, !ctx.isExpired, selectedText.isEmpty {
+                        effectiveInstruction = """
+                        Previous result: \(ctx.result)
+                        Follow-up: \(trimmedCommand)
+                        """
+                    } else {
+                        effectiveInstruction = trimmedCommand
+                    }
+
+                    if draftMode {
+                        prompt = family.draftPrompt(instruction: effectiveInstruction, context: screenContext)
+                        maxTokens = family.draftMaxTokens
+                    } else {
+                        prompt = family.editPrompt(text: selectedText, instruction: effectiveInstruction, context: screenContext)
+                        maxTokens = family.editMaxTokens(for: selectedText)
+                    }
+
+                    var raw = ""
+                    raw.reserveCapacity(4096)
+                    for try await chunk in llm.generateStream(prompt: prompt, maxTokens: maxTokens) {
+                        raw += chunk
+                        // Publish family-cleaned text for display; raw is preserved for final paste.
+                        // postProcess() is safe on partial strings (handles unclosed thinking blocks).
+                        // stripEcho() runs only on the final string since it needs the full output.
+                        streamingLLMText = family.postProcess(raw)
+                    }
+                    streamingLLMText = ""
+                    var cleaned = OutputCleaner.clean(family.postProcess(raw))
+                    cleaned = OutputCleaner.stripEcho(cleaned, instruction: trimmedCommand)
+
+                    guard !cleaned.isEmpty else {
+                        throw VoiceEditorError.emptyOutput
+                    }
+
+                    state = .pasting
+                    try await textCapture.pasteText(cleaned)
+                    lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
+                    SoundPlayer.shared.playCompletion()
+                    modelManager.keepAlive()
                 } else {
-                    prompt = family.editPrompt(text: selectedText, instruction: trimmedCommand, context: screenContext)
-                    maxTokens = family.editMaxTokens(for: selectedText)
+                    // STT-only mode (None selected): paste raw transcript directly
+                    state = .pasting
+                    try await textCapture.pasteText(trimmedCommand)
+                    SoundPlayer.shared.playCompletion()
                 }
-
-                let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
-                var cleaned = OutputCleaner.clean(family.postProcess(raw))
-                cleaned = OutputCleaner.stripEcho(cleaned, instruction: trimmedCommand)
-
-                guard !cleaned.isEmpty else {
-                    dictationOverlay.hide()
-                    throw VoiceEditorError.emptyOutput
-                }
-
-                state = .pasting
-                dictationOverlay.show(text: L("overlay.pasting"), isStatus: true)
-                try await textCapture.pasteText(cleaned)
-
-                // Audio cue: done
-                SoundPlayer.shared.playCompletion()
-                dictationOverlay.hide()
 
                 if let saved = savedClipboard {
                     // Small delay before restore so paste completes
@@ -498,7 +568,9 @@ final class ConversationCoordinator: ObservableObject {
                 state = .idle
                 voiceEditTask = nil
             } catch {
-                dictationOverlay.hide()
+                activeRecordingSession = nil
+                liveTranscriptionText = ""
+                streamingLLMText = ""
                 if let saved = savedClipboard {
                     textCapture.restoreClipboard(saved)
                 }
@@ -522,7 +594,19 @@ final class ConversationCoordinator: ObservableObject {
             return
         }
 
-        guard state == .idle, let llm else { return }
+        guard state == .idle else { return }
+
+        modelManager.cancelOffload()
+
+        // Reload LLM from cache if it was offloaded
+        do { try await ensureLLMReady() } catch {
+            state = .error(error.localizedDescription)
+            resetErrorAfterDelay()
+            return
+        }
+
+        // None selected → silently no-op (no LLM, no grammar fix)
+        guard let llm else { return }
 
         var savedClipboard: TextCaptureService.ClipboardSnapshot?
 
@@ -568,6 +652,7 @@ final class ConversationCoordinator: ObservableObject {
 
             // Audio cue: done
             SoundPlayer.shared.playCompletion()
+            modelManager.keepAlive()
 
             if let saved = savedClipboard {
                 try? await Task.sleep(for: .milliseconds(300))
@@ -601,6 +686,14 @@ final class ConversationCoordinator: ObservableObject {
 
         guard state == .idle else { return }
 
+        modelManager.cancelOffload()
+
+        do { try await ensureSTTReady() } catch {
+            state = .error(error.localizedDescription)
+            resetErrorAfterDelay()
+            return
+        }
+
         guard stt != nil else {
             state = .error(VoiceEditorError.modelsNotLoaded.localizedDescription)
             resetErrorAfterDelay()
@@ -616,15 +709,15 @@ final class ConversationCoordinator: ObservableObject {
 
             SoundPlayer.shared.playActivation()
             state = .dictating("")
-            dictationOverlay.show(text: L("overlay.dictating"), isStatus: true)
-            dictationOverlay.startLevelPolling(session: session)
+            activeRecordingSession = session
 
             // Streaming loop — picks native streaming (Path B) or legacy poll (Path A)
             // and auto-stops when silence is detected after speech.
             streamingTask = Task { [weak self] in
-                guard let self else { return }
-                let finalText = await self.runStreamingTranscription(
+                guard let self, let stt = self.stt else { return }
+                let finalText = await runStreamingTranscription(
                     session: session,
+                    stt: stt,
                     onTextUpdate: { [weak self] text in
                         self?.updateDictationText(text)
                     }
@@ -637,7 +730,7 @@ final class ConversationCoordinator: ObservableObject {
                         guard let self else { return }
                         self.dictationSession = nil
                         session.stop()
-                        self.dictationOverlay.hide()
+                        self.activeRecordingSession = nil
                         self.state = .error(L("error.no_speech_detected"))
                         self.resetErrorAfterDelay()
                     }
@@ -660,11 +753,6 @@ final class ConversationCoordinator: ObservableObject {
     private func updateDictationText(_ text: String) {
         if case .dictating = state {
             state = .dictating(text)
-            if text.isEmpty {
-                dictationOverlay.show(text: L("overlay.dictating"), isStatus: true)
-            } else {
-                dictationOverlay.show(text: text)
-            }
         }
     }
 
@@ -682,18 +770,17 @@ final class ConversationCoordinator: ObservableObject {
         streamingTask = nil
 
         guard let session = dictationSession else {
-            dictationOverlay.hide()
             state = .idle
             return
         }
         dictationSession = nil
         session.stop()
+        activeRecordingSession = nil
 
         // Final transcription on the complete buffer
         let samples = session.audioBuffer.getAll()
         guard samples.count >= 16_000, let stt else {
             SoundPlayer.shared.playCompletion()
-            dictationOverlay.hide()
             lastStreamingTranscription = nil
             state = .idle
             return
@@ -710,7 +797,6 @@ final class ConversationCoordinator: ObservableObject {
             lastStreamingTranscription = nil
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
-                dictationOverlay.hide()
                 state = .idle
                 return
             }
@@ -719,14 +805,13 @@ final class ConversationCoordinator: ObservableObject {
             try await textCapture.pasteText(trimmed)
 
             SoundPlayer.shared.playCompletion()
-            dictationOverlay.hide()
+            modelManager.keepAlive()
 
             try? await Task.sleep(for: .milliseconds(300))
             textCapture.restoreClipboard(savedClipboard)
 
             state = .idle
         } catch {
-            dictationOverlay.hide()
             state = .error(error.localizedDescription)
             resetErrorAfterDelay()
         }
@@ -766,128 +851,6 @@ final class ConversationCoordinator: ObservableObject {
             family: family,
             systemPrompt: family.systemPrompt(screenAware: isScreenAware)
         )
-    }
-
-    /// Runs the appropriate streaming loop for the current STT backend.
-    /// - **Path A** (legacy): 300ms re-transcription of the growing buffer
-    /// - **Path B** (native): Qwen3-ASR `StreamingInferenceSession`
-    ///
-    /// Returns the final transcription text once silence is detected or the task is cancelled.
-    private func runStreamingTranscription(
-        session: AudioCaptureService.ContinuousSession,
-        onTextUpdate: @escaping @MainActor (String) -> Void
-    ) async -> String {
-        guard let stt else { return "" }
-
-        // Path B: Native streaming for Qwen3-ASR
-        if let mlxStt = stt as? MLXAudioSTTService,
-           let streamSession = mlxStt.createStreamingSession() {
-
-            // Shared state — written by event task, read after it completes
-            nonisolated(unsafe) var lastConfirmed = ""
-
-            // Event listener — updates overlay with confirmed + provisional text
-            let eventTask = Task.detached {
-                for await event in streamSession.events {
-                    switch event {
-                    case .displayUpdate(let confirmedText, let provisionalText):
-                        let display = confirmedText + provisionalText
-                        lastConfirmed = confirmedText
-                        if !display.isEmpty {
-                            await onTextUpdate(display)
-                        }
-                    case .ended(let fullText):
-                        lastConfirmed = fullText
-                    default:
-                        break
-                    }
-                }
-            }
-
-            // Audio feed loop — polls buffer for new samples every 100ms
-            var lastFedCount = 0
-            while true {
-                try? await Task.sleep(for: .milliseconds(100))
-                if Task.isCancelled || session.isSilenceDetected { break }
-
-                let currentCount = session.audioBuffer.count
-                if currentCount > lastFedCount {
-                    let newSamples = session.audioBuffer.getSuffix(from: lastFedCount)
-                    streamSession.feedAudio(samples: newSamples)
-                    lastFedCount = currentCount
-                }
-            }
-
-            // Flush pending audio, promote provisional tokens, emit .ended
-            streamSession.stop()
-            // Race eventTask against a 30s timeout so a stalled MLX session can't hang forever
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await eventTask.value }
-                group.addTask { try? await Task.sleep(for: .seconds(30)) }
-                _ = await group.next()
-                group.cancelAll()
-            }
-            return lastConfirmed
-        }
-
-        // Path A: Non-blocking polling for non-streaming models (e.g. ForcedAligner)
-        // Transcription runs in a detached Task so the main loop keeps
-        // checking silence every 200ms without blocking on inference.
-        var lastTranscription = ""
-        let pendingText = LockedString()
-        let taskDone = LockedFlag()
-        var transcriptionTask: Task<Void, Never>? = nil
-        let logger = Self.log
-
-        while true {
-            try? await Task.sleep(for: .milliseconds(200))
-            if Task.isCancelled || session.isSilenceDetected { break }
-
-            // Harvest completed transcription result
-            if taskDone.value {
-                if let text = pendingText.value {
-                    lastTranscription = text
-                    await MainActor.run { onTextUpdate(text) }
-                }
-                pendingText.set(nil)
-                transcriptionTask = nil
-                taskDone.reset()
-            }
-
-            // Launch new transcription if none in-flight and buffer has data
-            if transcriptionTask == nil {
-                let count = session.audioBuffer.count
-                if count >= 16_000 {
-                    let snapshot = session.audioBuffer.getPrefix(count)
-                    let sttRef = stt
-                    transcriptionTask = Task.detached {
-                        do {
-                            let text = try await sttRef.transcribe(samples: snapshot)
-                            pendingText.set(text)
-                        } catch {
-                            logger.error("Path A transcription: \(error.localizedDescription, privacy: .public)")
-                        }
-                        taskDone.set()
-                    }
-                }
-            }
-        }
-
-        // Wait for in-flight transcription (up to 45s) after silence detected
-        if let task = transcriptionTask {
-            logger.info("Waiting for in-flight transcription (up to 45s)")
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await task.value }
-                group.addTask { try? await Task.sleep(for: .seconds(45)) }
-                _ = await group.next()
-                group.cancelAll()
-            }
-            if let text = pendingText.value {
-                lastTranscription = text
-            }
-        }
-
-        return lastTranscription
     }
 
     private func resetErrorAfterDelay() {

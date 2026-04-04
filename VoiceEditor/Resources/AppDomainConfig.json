@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "description": "Domain hint config for Hitoku Draft. Add categories and apps here — no Swift changes required.",
+
+  "browsers": [
+    "safari", "google chrome", "chrome", "firefox", "arc",
+    "microsoft edge", "brave browser", "opera", "orion", "vivaldi"
+  ],
+
+  "categories": [
+    {
+      "id": "email",
+      "hint": "email — professional tone",
+      "appPatterns": ["mail", "outlook", "spark", "thunderbird", "mimestream", "superhuman"],
+      "titlePatterns": ["gmail", "protonmail", "fastmail", "outlook"]
+    },
+    {
+      "id": "messaging",
+      "hint": "messaging — brief, conversational",
+      "appPatterns": ["messages", "slack", "discord", "telegram", "whatsapp", "signal", "microsoft teams"],
+      "titlePatterns": ["slack", "discord", "telegram", "whatsapp", "messenger"]
+    },
+    {
+      "id": "coding",
+      "hint": "code editor — technical language, code blocks",
+      "appPatterns": ["xcode", "visual studio code", "cursor", "zed", "sublime text", "nova", "intellij", "pycharm", "webstorm"],
+      "titlePatterns": ["github.com", "gitlab.com"]
+    },
+    {
+      "id": "notes",
+      "hint": "writing app — structured prose",
+      "appPatterns": ["notes", "notion", "obsidian", "bear", "craft", "ulysses", "ia writer", "scrivener"],
+      "titlePatterns": ["notion.so", "docs.google.com"]
+    },
+    {
+      "id": "terminal",
+      "hint": "terminal — shell-ready syntax",
+      "appPatterns": ["terminal", "iterm", "warp", "alacritty", "kitty"],
+      "titlePatterns": []
+    }
+  ]
+}

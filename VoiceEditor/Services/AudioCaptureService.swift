@@ -75,11 +75,7 @@ final class AudioCaptureService {
         let stopReason = LockedString()
 
         let stream = AsyncStream<Void> { continuation in
-            var silenceDuration: TimeInterval = 0
-            var vadSilenceDuration: TimeInterval = 0
-            var rmsSilenceDuration: TimeInterval = 0
-            var totalDuration: TimeInterval = 0
-            var hasReceivedAudio = false
+            var silenceState = SilenceDetectionState()
 
             inputNode.removeTap(onBus: 0)
 
@@ -90,7 +86,6 @@ final class AudioCaptureService {
                 guard frames > 0 else { return }
 
                 let duration = Double(frames) / tapSampleRate
-                totalDuration += duration
 
                 // RMS via Accelerate — safe on RT thread (kept for waveform + muted mic gate)
                 let rms = Self.calculateRMS(buffer: buffer)
@@ -108,72 +103,27 @@ final class AudioCaptureService {
 
                     // Feed VAD if available and mic isn't muted
                     if let vad = vadDetector, rms >= Self.mutedMicThreshold {
-                        Task {
-                            await vad.feedSamples(samples)
-                        }
+                        Task { await vad.feedSamples(samples) }
                     }
                 }
 
-                if useVAD, let vad = vadDetector {
-                    // VAD-driven silence detection
-                    let speechStarted = vad.speechDetected.value
-                    let speechEnded = vad.silenceAfterSpeech.value
+                let speechStarted = useVAD ? (vadDetector?.speechDetected.value ?? false) : false
+                let speechEnded = useVAD ? (vadDetector?.silenceAfterSpeech.value ?? false) : false
 
-                    if speechStarted {
-                        hasReceivedAudio = true
-                    }
-
-                    // Primary: VAD pipeline silence countdown
-                    if speechEnded {
-                        vadSilenceDuration += duration
-                    } else {
-                        vadSilenceDuration = 0
-                    }
-
-                    // Fast-path: RMS-based silence (once VAD confirmed speech).
-                    // Bypasses async VAD pipeline latency for responsive end-of-speech detection.
-                    if speechStarted && rms < threshold {
-                        rmsSilenceDuration += duration
-                    } else {
-                        rmsSilenceDuration = 0
-                    }
-
-                    let shouldStop =
-                        // VAD detected end of speech + user's silence limit elapsed
-                        (speechEnded && vadSilenceDuration >= silenceLimit)
-                        // RMS fast-path: VAD confirmed speech, then audio level drops
-                        || (speechStarted && rmsSilenceDuration >= rawSilenceLimit)
-                        // No speech detected within timeout
-                        || (!speechStarted && totalDuration >= noSpeechLimit)
-                        // Hard max duration
-                        || totalDuration >= maxDuration
-
-                    if shouldStop {
-                        if !speechStarted && totalDuration >= noSpeechLimit {
-                            stopReason.set("noSpeech")
-                        }
-                        Self.log.info("recordUntilSilence(VAD): stopping — speech=\(speechStarted) speechEnd=\(speechEnded) vadSilence=\(vadSilenceDuration, format: .fixed(precision: 2))s rmsSilence=\(rmsSilenceDuration, format: .fixed(precision: 2))s total=\(totalDuration, format: .fixed(precision: 2))s")
-                        continuation.yield()
-                        continuation.finish()
-                    }
-                } else {
-                    // RMS fallback (original logic)
-                    if rms > threshold {
-                        hasReceivedAudio = true
-                        silenceDuration = 0
-                    } else if hasReceivedAudio {
-                        silenceDuration += duration
-                    }
-
-                    let shouldStop =
-                        (hasReceivedAudio && silenceDuration >= silenceLimit)
-                        || totalDuration >= maxDuration
-
-                    if shouldStop {
-                        Self.log.info("recordUntilSilence(RMS): stopping — hasAudio=\(hasReceivedAudio) silenceDur=\(silenceDuration, format: .fixed(precision: 2))s totalDur=\(totalDuration, format: .fixed(precision: 2))s")
-                        continuation.yield()
-                        continuation.finish()
-                    }
+                if let reason = silenceState.update(
+                    rms: rms, duration: duration,
+                    speechStarted: speechStarted, speechEnded: speechEnded,
+                    useVAD: useVAD,
+                    threshold: threshold,
+                    silenceLimit: silenceLimit,
+                    rawSilenceLimit: rawSilenceLimit,
+                    maxDuration: maxDuration,
+                    noSpeechTimeout: noSpeechLimit
+                ) {
+                    if reason == .noSpeech { stopReason.set("noSpeech") }
+                    Self.log.info("recordUntilSilence: stopping — reason=\(String(describing: reason), privacy: .public) vad=\(silenceState.vadSilenceDuration, format: .fixed(precision: 2))s rms=\(silenceState.rmsSilenceDuration, format: .fixed(precision: 2))s total=\(silenceState.totalDuration, format: .fixed(precision: 2))s")
+                    continuation.yield()
+                    continuation.finish()
                 }
             }
 
@@ -262,16 +212,11 @@ final class AudioCaptureService {
                 ? max(silenceDurationLimit - vadInternalSilence, 0.3)
                 : silenceDurationLimit
 
-            // Mutable state captured by the tap closure (audio thread only)
-            var hasReceivedAudio = false
-            var silenceDuration: TimeInterval = 0
-            var vadSilenceDuration: TimeInterval = 0
-            var rmsSilenceDuration: TimeInterval = 0
-            var totalDuration: TimeInterval = 0
             let silenceThreshold: Float = 0.015
             let silenceLimit = effectiveSilenceLimit
             let rawSilenceLimit = silenceDurationLimit  // for RMS fast-path (no VAD subtraction)
             var cumulativeSamples = 0
+            var silenceState = SilenceDetectionState()
 
             AudioCaptureService.log.info("ContinuousSession: starting with tapFormat=\(tapFormat, privacy: .public) useVAD=\(useVAD)")
 
@@ -282,7 +227,6 @@ final class AudioCaptureService {
                 guard frames > 0 else { return }
 
                 let duration = Double(frames) / tapSampleRate
-                totalDuration += duration
                 let rms = AudioCaptureService.calculateRMS(buffer: pcmBuffer)
 
                 // Publish level for waveform visualization
@@ -301,9 +245,7 @@ final class AudioCaptureService {
 
                     // Feed VAD if available and mic isn't muted
                     if let vad = vadDetector, rms >= AudioCaptureService.mutedMicThreshold {
-                        Task {
-                            await vad.feedSamples(samples)
-                        }
+                        Task { await vad.feedSamples(samples) }
                     }
 
                     if cumulativeSamples % 32_000 < samples.count {
@@ -311,54 +253,30 @@ final class AudioCaptureService {
                     }
                 }
 
-                if useVAD, let vad = vadDetector {
-                    // VAD-driven silence detection
-                    let speechStarted = vad.speechDetected.value
-                    let speechEnded = vad.silenceAfterSpeech.value
+                let speechStarted = useVAD ? (vadDetector?.speechDetected.value ?? false) : false
+                let speechEnded = useVAD ? (vadDetector?.silenceAfterSpeech.value ?? false) : false
 
-                    if speechStarted {
-                        hasReceivedAudio = true
-                    }
-
-                    // Primary: VAD pipeline silence countdown
-                    if speechEnded {
-                        vadSilenceDuration += duration
-                    } else {
-                        vadSilenceDuration = 0
-                    }
-
-                    // Fast-path: RMS-based silence (once VAD confirmed speech).
-                    // Bypasses async VAD pipeline latency for responsive end-of-speech detection.
-                    if speechStarted && rms < silenceThreshold {
-                        rmsSilenceDuration += duration
-                    } else {
-                        rmsSilenceDuration = 0
-                    }
-
-                    // Stop on whichever fires first: VAD pipeline or RMS fast-path
-                    if (speechEnded && vadSilenceDuration >= silenceLimit)
-                        || (speechStarted && rmsSilenceDuration >= rawSilenceLimit) {
-                        AudioCaptureService.log.info("ContinuousSession: silence detected — vad=\(vadSilenceDuration, format: .fixed(precision: 2))s rms=\(rmsSilenceDuration, format: .fixed(precision: 2))s")
+                // ContinuousSession has no hard maxDuration — the user controls stop.
+                if let reason = silenceState.update(
+                    rms: rms, duration: duration,
+                    speechStarted: speechStarted, speechEnded: speechEnded,
+                    useVAD: useVAD,
+                    threshold: silenceThreshold,
+                    silenceLimit: silenceLimit,
+                    rawSilenceLimit: rawSilenceLimit,
+                    maxDuration: .infinity,
+                    noSpeechTimeout: noSpeechTimeout
+                ) {
+                    switch reason {
+                    case .silence:
+                        AudioCaptureService.log.info("ContinuousSession: silence detected — vad=\(silenceState.vadSilenceDuration, format: .fixed(precision: 2))s rms=\(silenceState.rmsSilenceDuration, format: .fixed(precision: 2))s")
                         flag.set()
-                    }
-
-                    // No speech timeout
-                    if !speechStarted && totalDuration >= noSpeechTimeout {
-                        AudioCaptureService.log.info("ContinuousSession(VAD): no speech within \(noSpeechTimeout, format: .fixed(precision: 1))s")
+                    case .noSpeech:
+                        AudioCaptureService.log.info("ContinuousSession: no speech within \(noSpeechTimeout, format: .fixed(precision: 1))s")
                         noSpeechFlag.set()
                         flag.set()
-                    }
-                } else {
-                    // RMS fallback (original logic)
-                    if rms > silenceThreshold {
-                        hasReceivedAudio = true
-                        silenceDuration = 0
-                    } else if hasReceivedAudio {
-                        silenceDuration += duration
-                        if silenceDuration >= silenceLimit {
-                            AudioCaptureService.log.info("ContinuousSession(RMS): silence detected after \(silenceDuration, format: .fixed(precision: 2))s")
-                            flag.set()
-                        }
+                    case .maxDuration:
+                        break   // never fires when maxDuration == .infinity
                     }
                 }
             }
@@ -622,6 +540,82 @@ final class AudioCaptureService {
         return copy
     }
 }
+
+// MARK: - SilenceDetectionState
+
+/// Mutable value type tracking silence-detection counters across tap callbacks.
+/// Shared by both `recordUntilSilence` and `ContinuousSession` to avoid duplicated logic.
+/// All operations are synchronous and allocation-free — safe on the real-time audio thread.
+private struct SilenceDetectionState {
+    var hasReceivedAudio = false
+    var totalDuration: TimeInterval = 0
+    var vadSilenceDuration: TimeInterval = 0
+    var rmsSilenceDuration: TimeInterval = 0
+    var silenceDuration: TimeInterval = 0   // RMS-only fallback path
+
+    enum StopReason { case silence, noSpeech, maxDuration }
+
+    /// Updates counters for one tap buffer and returns a stop reason if recording should end.
+    /// - Parameters:
+    ///   - rms: Current buffer RMS energy.
+    ///   - duration: Duration of this buffer in seconds.
+    ///   - speechStarted: VAD `speechDetected` flag (ignored when `useVAD` is false).
+    ///   - speechEnded: VAD `silenceAfterSpeech` flag (ignored when `useVAD` is false).
+    ///   - useVAD: Whether VAD-driven logic should be used; falls back to RMS when false.
+    ///   - threshold: RMS threshold below which audio is considered silence.
+    ///   - silenceLimit: VAD-adjusted silence duration that triggers a stop.
+    ///   - rawSilenceLimit: Unadjusted silence limit for the RMS fast-path.
+    ///   - maxDuration: Hard cap on total recording duration (pass `.infinity` to disable).
+    ///   - noSpeechTimeout: Time without any speech before a no-speech stop (VAD path only).
+    mutating func update(
+        rms: Float,
+        duration: TimeInterval,
+        speechStarted: Bool,
+        speechEnded: Bool,
+        useVAD: Bool,
+        threshold: Float,
+        silenceLimit: TimeInterval,
+        rawSilenceLimit: TimeInterval,
+        maxDuration: TimeInterval,
+        noSpeechTimeout: TimeInterval
+    ) -> StopReason? {
+        totalDuration += duration
+
+        if useVAD {
+            if speechStarted { hasReceivedAudio = true }
+
+            // Primary VAD pipeline silence countdown
+            if speechEnded { vadSilenceDuration += duration } else { vadSilenceDuration = 0 }
+
+            // Fast-path RMS silence — bypasses async VAD latency once speech is confirmed
+            if speechStarted && rms < threshold {
+                rmsSilenceDuration += duration
+            } else {
+                rmsSilenceDuration = 0
+            }
+
+            if speechEnded && vadSilenceDuration >= silenceLimit { return .silence }
+            if speechStarted && rmsSilenceDuration >= rawSilenceLimit { return .silence }
+            if !speechStarted && totalDuration >= noSpeechTimeout { return .noSpeech }
+            if totalDuration >= maxDuration { return .maxDuration }
+        } else {
+            // RMS fallback (original logic)
+            if rms > threshold {
+                hasReceivedAudio = true
+                silenceDuration = 0
+            } else if hasReceivedAudio {
+                silenceDuration += duration
+            }
+
+            if hasReceivedAudio && silenceDuration >= silenceLimit { return .silence }
+            if totalDuration >= maxDuration { return .maxDuration }
+        }
+
+        return nil
+    }
+}
+
+// MARK: - Thread-safe primitives
 
 /// A thread-safe write-once boolean flag.
 final class LockedFlag: @unchecked Sendable {

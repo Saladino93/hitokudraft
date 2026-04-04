@@ -45,6 +45,11 @@ final class MLXAudioSTTService: STTService, @unchecked Sendable {
 
     // MARK: - Native Streaming (Qwen3-ASR only)
 
+    /// STTService protocol conformance — returns the streaming session as `any StreamingSession`.
+    func makeStreamingSession() -> (any StreamingSession)? {
+        createStreamingSession()
+    }
+
     /// Creates a `StreamingInferenceSession` for live, incremental transcription.
     func createStreamingSession() -> StreamingInferenceSession? {
         var config = StreamingConfig()

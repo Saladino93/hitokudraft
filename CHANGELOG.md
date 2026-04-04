@@ -2,6 +2,40 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **"None" LLM option** — First entry in the LLM picker disables the language model entirely. Voice edit pastes the raw STT transcript directly; grammar fix silently no-ops. Saves 2–7 GB RAM when transcription without editing is sufficient.
+- **Auto-offload models** — New toggle in the Models tab releases both LLM and STT weights after 5 minutes of inactivity. Models reload from local cache on next use. Default: on.
+
+### Fixed
+
+- **Qwen3.5 inline markdown cleaned** — Qwen3.5 output no longer includes `**bold**` or `*italic*` markers in pasted text. Stripping is scoped to Qwen3.5 only; other model families are unaffected.
+
+### Developer
+
+- **Streaming LLM output** — `LLMService` protocol gains `generateStream()` returning `AsyncThrowingStream<String, Error>`; `MLXLLMService` implements it. `ConversationCoordinator` publishes `streamingLLMText` (accumulated token stream, available for future UI use). Post-processing (`OutputCleaner`, `stripEcho`) runs on the final accumulated string before paste. Grammar fix continues to use batch `generate()`. The overlay shows "Generating…" status; raw tokens are not displayed in the overlay.
+
+- **Lazy LLM warmup** — LLM no longer loads at app launch. `setup()` only loads STT + VAD; the LLM loads on the first hotkey press via the existing `ensureLLMReady()` path. App opens instantly and Settings are fully accessible without a loading spinner. No behavior change for users who trigger a hotkey immediately.
+
+- **Prompt templates externalized to JSON** — all system prompts and edit/draft templates moved from hardcoded Swift to `PromptsConfig.json`. Power users can override via `~/Library/Application Support/HitokuDraft/prompts.json`. Templates use `{{text}}`, `{{instruction}}`, `{{langRule}}`, `{{contextBlock}}` placeholder tokens. Public API unchanged; 3-level fallback chain (user override → bundled JSON → hardcoded Swift constants). "Open in Finder" button added to Models tab.
+
+- **STT protocol type-cast eliminated** — `TranscriptionPipeline` no longer casts `stt as? MLXAudioSTTService` to access streaming. New `StreamingSession` protocol (defined in `STTService.swift`) abstracts `StreamingInferenceSession`'s three public methods; `MLXAudioSTTService` overrides `makeStreamingSession()` from the `STTService` protocol. Retroactive conformance via `extension StreamingInferenceSession: @retroactive StreamingSession {}`.
+
+- **Multi-turn follow-up commands** — after a successful voice edit, the last `(instruction, result)` pair is stored. If the next command has no selected text and arrives within 5 minutes, the prior result is injected as context so the LLM can refine without re-selecting. New selection always clears the context. STT-only mode (None LLM) is unaffected.
+
+- **AppDomainHint refactored — data-driven config** — all hard-coded browsers, app-name rules, and hint texts moved to `AppDomainConfig.json`. New categories and apps can be added without any Swift changes. Hint texts simplified to short style tags (`"email — professional tone"`) replacing verbose conditional sentences. `AppCategory` enum removed; `AppDomainHint` is now a thin JSON loader with the same public API.
+
+- **Architecture refactor — ConversationCoordinator** — seven first-principles issues addressed; no user-facing behavior changes.
+  - `DictationOverlayPanel` decoupled from coordinator: removed 25 direct call sites, replaced with Combine subscriptions on two new `@Published` properties (`liveTranscriptionText`, `activeRecordingSession`). Overlay now reacts to state via `observe(coordinator:)` instead of being commanded imperatively.
+  - `runStreamingTranscription` extracted into `TranscriptionPipeline.swift` (free async function). `ConversationCoordinator` drops from ~900 to ~744 lines.
+  - `activateLLM(_:drainAfter:afterLoad:)` helper eliminates the LLM load→warmup→idle try/catch pattern that was copy-pasted across `setup()`, `switchModel()`, and `downloadAndAddCustomModel()`.
+  - `SilenceDetectionState` private struct in `AudioCaptureService` deduplicates ~80 lines of identical VAD + RMS tap-callback logic shared between `recordUntilSilence` and `ContinuousSession`.
+  - `contextAwareMode` changed from a computed property (re-read UserDefaults on every call) to a `@Published` stored property updated by the existing `didChangeNotification` handler.
+  - `nonisolated(unsafe) var lastConfirmed` in the native-streaming path replaced with the existing `LockedString` type.
+  - `ModelManager.loadAll()` (dead code, never called) deleted.
+
 ## [1.2.1] — 2026-03-21
 
 ### Fixed

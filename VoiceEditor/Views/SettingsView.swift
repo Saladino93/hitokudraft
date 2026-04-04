@@ -20,7 +20,8 @@ struct SettingsView: View {
     @AppStorage("completionSound")      private var completionSound: String = "Glass"
     @AppStorage("appLanguage")           private var appLanguage: String = AppLocalization.detectInitialLanguage()
     @AppStorage("contextAwareMode")      private var contextAwareMode: String = "off"
-    @AppStorage("showDictationText")     private var showDictationText: Bool = true
+    @AppStorage("showDictationText")          private var showDictationText: Bool = true
+    @AppStorage("showLLMStreamingInOverlay")  private var showLLMStreamingInOverlay: Bool = true
     @AppStorage("dictationTheme")        private var dictationTheme: String = DictationTheme.default.rawValue
     @AppStorage("overlayLineCount")      private var overlayLineCount: Int = 2
     @AppStorage("overlayWidth")          private var overlayWidth: Double = 210
@@ -55,7 +56,7 @@ struct SettingsView: View {
         case .license: return 178
         case .general: return 518
         case .appearance: return 430
-        case .model: return 312
+        case .model: return 395
         case .updates: return 122
         }
     }
@@ -262,6 +263,19 @@ struct SettingsView: View {
                         .gridColumnAlignment(.leading)
                 }
 
+                GridRow {
+                    Text(L("overlay.show_llm_streaming"))
+                        .gridColumnAlignment(.trailing)
+                    HStack(spacing: 8) {
+                        Toggle("", isOn: $showLLMStreamingInOverlay)
+                            .labelsHidden()
+                        Text(L("overlay.show_llm_streaming_desc"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .gridColumnAlignment(.leading)
+                }
+
                 Color.clear.frame(height: 8)
 
                 GridRow {
@@ -406,7 +420,7 @@ struct SettingsView: View {
                                         .foregroundStyle(.blue)
                                 }
                             }
-                            Text("\(model.name) (\(formattedSize(model.estimatedMemoryGB)))")
+                            Text(model.estimatedMemoryGB > 0 ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))" : model.name)
                         }
                         .tag(model)
                         .disabled(modelExceedsRAM(model.estimatedMemoryGB))
@@ -450,11 +464,33 @@ struct SettingsView: View {
                                         .foregroundStyle(.orange)
                                 }
                             }
-                            Text("\(model.name) (\(formattedSize(model.estimatedMemoryGB)))")
+                            Text(model.estimatedMemoryGB > 0 ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))" : model.name)
                         }
                         .tag(model)
                         .disabled(modelExceedsRAM(model.estimatedMemoryGB))
                     }
+                }
+
+                Spacer().frame(height: 18)
+
+                // --- Auto-offload ---
+                LabeledContent(L("model.auto_offload")) {
+                    Toggle("", isOn: $modelManager.autoOffloadEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .onChange(of: modelManager.autoOffloadEnabled) {
+                            UserDefaults.standard.set(modelManager.autoOffloadEnabled, forKey: "modelAutoOffload")
+                            if modelManager.autoOffloadEnabled {
+                                modelManager.keepAlive()
+                            } else {
+                                modelManager.cancelOffload()
+                            }
+                        }
+                }
+                LabeledContent("") {
+                    Text(L("model.auto_offload_desc"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer().frame(height: 18)
@@ -503,7 +539,7 @@ struct SettingsView: View {
                 // --- System Status ---
                 LabeledContent(L("model.system_status")) {
                     HStack(spacing: 16) {
-                        statusIndicator(label: "LLM", ready: modelManager.llmReady, loading: isLLMLoading)
+                        statusIndicator(label: "LLM", ready: modelManager.llmReady, loading: isLLMLoading, disabled: modelManager.llmDisabled)
                         statusIndicator(label: "STT", ready: modelManager.sttReady)
                     }
                 }
@@ -528,6 +564,7 @@ struct SettingsView: View {
                         .controlSize(.small)
                     }
                 }
+
             }
 
             Spacer().frame(height: 36)
@@ -632,11 +669,12 @@ struct SettingsView: View {
                 Button(L("models.retry")) { Task { await coordinator.setup() } }
             }
         default:
-            if modelManager.llmReady && modelManager.sttReady {
+            let llmOk = modelManager.llmReady || modelManager.llmDisabled
+            if llmOk && modelManager.sttReady {
                 Label(L("models.all_loaded"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-            } else if modelManager.llmReady && modelManager.sttLoading {
+            } else if llmOk && modelManager.sttLoading {
                 Label(L("download.loading_stt"), systemImage: "arrow.down.circle").foregroundStyle(.blue)
-            } else if modelManager.llmReady {
+            } else if llmOk {
                 Label(L("models.llm_ready_stt_failed"), systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
             } else {
                 Button(L("models.download_setup")) { Task { await coordinator.setup() } }.buttonStyle(.borderedProminent)
@@ -645,10 +683,12 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func statusIndicator(label: String, ready: Bool, loading: Bool = false) -> some View {
+    private func statusIndicator(label: String, ready: Bool, loading: Bool = false, disabled: Bool = false) -> some View {
         HStack(spacing: 5) {
             Text("\(label):").foregroundStyle(.secondary)
-            if ready {
+            if disabled {
+                Label(L("status.llm_disabled"), systemImage: "circle.fill").font(.caption).foregroundStyle(.secondary)
+            } else if ready {
                 Label(L("model.status_ready"), systemImage: "circle.fill").font(.caption).foregroundStyle(.green)
             } else if loading {
                 HStack(spacing: 5) {
