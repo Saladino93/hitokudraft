@@ -14,6 +14,7 @@ struct VoiceEditorApp: App {
 
     init() {
         Self.applyOneTimeMigrations()
+        WhatsNewWindowController.checkAndShowIfNeeded()
     }
 
     /// One-time default overrides applied on upgrade.
