@@ -22,6 +22,9 @@ struct ModelOption: Identifiable, Hashable, Codable {
 
     var isLocal: Bool { path.hasPrefix("/") }
 
+    /// Returns true when this is the "None — STT only" sentinel (no LLM loaded).
+    var isNone: Bool { path == "__none__" }
+
     /// Resolves the model family strategy by inspecting the model path.
     var family: any ModelFamily {
         let lower = path.lowercased()
@@ -110,13 +113,27 @@ enum ModelRegistry {
         .appendingPathComponent(".config/hitokudraft")
     private static let configFile = configDirectory.appendingPathComponent("models.json")
 
-    static private(set) var availableModels: [ModelOption] = loadModels()
+    /// Sentinel: no LLM loaded. Voice edit pastes raw STT transcript; grammar fix silently no-ops.
+    static let noLLM = ModelOption(
+        name: "None — STT only",
+        path: "__none__",
+        description: "model.none_description",
+        estimatedMemoryGB: 0
+    )
+
+    static private(set) var availableModels: [ModelOption] = {
+        var models = loadModels()
+        models.insert(noLLM, at: 0)
+        return models
+    }()
 
     static var defaultModel: ModelOption { availableModels[0] }
 
     /// Reload models from disk (e.g. after config change + app restart).
     static func reload() {
-        availableModels = loadModels()
+        var models = loadModels()
+        models.insert(noLLM, at: 0)
+        availableModels = models
     }
 
     private static func loadModels() -> [ModelOption] {
@@ -214,7 +231,9 @@ enum ModelRegistry {
         default:
             preferred = "granite-4.0"   // Granite 4 Micro 4-bit (1.8 GB)
         }
-        return availableModels.first { $0.path.contains(preferred) } ?? availableModels[0]
+        return availableModels.first { $0.path.contains(preferred) }
+            ?? availableModels.first { !$0.isNone }
+            ?? availableModels[0]
     }
 
     /// Scans the model's cache directory for .safetensors files and returns
@@ -238,9 +257,9 @@ enum ModelRegistry {
 
     // MARK: - Custom Model Management
 
-    /// Returns true if the model is one of the bundled defaults (non-removable).
+    /// Returns true if the model is one of the bundled defaults or the None sentinel (non-removable).
     static func isBundled(_ model: ModelOption) -> Bool {
-        bundledDefaults.contains { $0.path == model.path }
+        model.isNone || bundledDefaults.contains { $0.path == model.path }
     }
 
     /// Adds a custom model to the registry. Returns false if a model with the same path already exists.
@@ -290,7 +309,8 @@ enum ModelRegistry {
     private static func save() {
         do {
             try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(availableModels)
+            // Never persist the None sentinel — it's always prepended at runtime
+            let data = try JSONEncoder().encode(availableModels.filter { !$0.isNone })
             try data.write(to: configFile, options: .atomic)
         } catch {
             print("Warning: Failed to save models to \(configFile.path): \(error)")

@@ -119,8 +119,10 @@ struct Qwen35ModelFamily: ModelFamily {
 
     /// Safety net: strip any thinking blocks that slip through despite
     /// enable_thinking=false (e.g. older chat template versions).
+    /// Also strips inline markdown bold/italic markers (Qwen3.5 emits these freely).
     func postProcess(_ rawOutput: String) -> String {
-        OutputCleaner.cleanModelOutput(rawOutput)
+        let cleaned = OutputCleaner.cleanModelOutput(rawOutput)
+        return OutputCleaner.stripInlineMarkdown(cleaned)
     }
 
     let temperature: Float = 0.5

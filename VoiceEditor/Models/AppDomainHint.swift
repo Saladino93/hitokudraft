@@ -1,107 +1,74 @@
 import Foundation
 
-/// Broad domain categories for the user's active app.
-enum AppCategory {
-    case email, messaging, coding, notes, terminal, unknown
+// MARK: - Codable types
+
+/// One domain entry loaded from AppDomainConfig.json.
+struct AppDomainCategory: Codable {
+    let id: String            // stable key, e.g. "email"
+    let hint: String          // short style tag injected into [Hint: …]
+    let appPatterns: [String] // matched against active app name (lowercased)
+    let titlePatterns: [String] // matched against window title when app is a browser
 }
 
-/// Detects the domain of the user's active app and produces a soft hint for the LLM.
+private struct AppDomainConfig: Codable {
+    let version: Int
+    let browsers: [String]
+    let categories: [AppDomainCategory]
+}
+
+// MARK: - AppDomainHint
+
+/// Detects the domain of the user's active app and returns a short style hint for the LLM.
+///
+/// All data is loaded from `AppDomainConfig.json` in the app bundle — add new apps or
+/// categories there without touching Swift code.
 enum AppDomainHint {
 
-    // MARK: - Known browsers (triggers tier-2 windowTitle inspection)
+    // MARK: - Config loading (once, on first use)
 
-    private static let browsers: Set<String> = [
-        "safari", "google chrome", "chrome", "firefox", "arc",
-        "microsoft edge", "brave browser", "opera", "orion", "vivaldi",
-    ]
-
-    // MARK: - Tier 1: native app name → category
-
-    private static let appNameRules: [(pattern: String, category: AppCategory)] = [
-        // Email
-        ("mail", .email), ("outlook", .email), ("spark", .email),
-        ("thunderbird", .email), ("mimestream", .email), ("superhuman", .email),
-        // Messaging
-        ("messages", .messaging), ("slack", .messaging), ("discord", .messaging),
-        ("telegram", .messaging), ("whatsapp", .messaging), ("signal", .messaging),
-        ("microsoft teams", .messaging),
-        // Coding
-        ("xcode", .coding), ("visual studio code", .coding), ("cursor", .coding),
-        ("zed", .coding), ("sublime text", .coding), ("nova", .coding),
-        ("intellij", .coding), ("pycharm", .coding), ("webstorm", .coding),
-        // Notes
-        ("notes", .notes), ("notion", .notes), ("obsidian", .notes),
-        ("bear", .notes), ("craft", .notes), ("ulysses", .notes),
-        ("ia writer", .notes), ("scrivener", .notes),
-        // Terminal
-        ("terminal", .terminal), ("iterm", .terminal), ("warp", .terminal),
-        ("alacritty", .terminal), ("kitty", .terminal),
-    ]
-
-    // MARK: - Tier 2: windowTitle keywords (for browser windows)
-
-    private static let titleRules: [(pattern: String, category: AppCategory)] = [
-        // Email
-        ("gmail", .email), ("protonmail", .email), ("fastmail", .email),
-        ("outlook", .email),
-        // Messaging
-        ("slack", .messaging), ("discord", .messaging), ("telegram", .messaging),
-        ("whatsapp", .messaging), ("messenger", .messaging),
-        // Coding
-        ("github.com", .coding), ("gitlab.com", .coding),
-        // Notes
-        ("notion.so", .notes), ("docs.google.com", .notes),
-    ]
+    private static let config: AppDomainConfig? = {
+        guard let url = Bundle.main.url(forResource: "AppDomainConfig", withExtension: "json") else {
+            assertionFailure("AppDomainConfig.json not found in bundle — hints disabled")
+            return nil
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(AppDomainConfig.self, from: data)
+        } catch {
+            assertionFailure("AppDomainConfig.json decode failed: \(error)")
+            return nil
+        }
+    }()
 
     // MARK: - Detection
 
-    /// Detect the app domain from the active app name and window title.
-    static func detect(appName: String?, windowTitle: String?) -> AppCategory {
-        guard let app = appName?.lowercased() else { return .unknown }
+    /// Detect the matching category for the active app, or nil if no rule matches.
+    static func detect(appName: String?, windowTitle: String?) -> AppDomainCategory? {
+        guard let cfg = config,
+              let app = appName?.lowercased() else { return nil }
 
-        // Tier 1: direct app name match (first match wins)
-        for rule in appNameRules {
-            if app.contains(rule.pattern) {
-                return rule.category
+        // Tier 1: native app name match (first match wins)
+        for category in cfg.categories {
+            if category.appPatterns.contains(where: { app.contains($0) }) {
+                return category
             }
         }
 
         // Tier 2: if app is a known browser, inspect the window title
-        if browsers.contains(app) || browsers.contains(where: { app.contains($0) }) {
-            if let title = windowTitle?.lowercased() {
-                for rule in titleRules {
-                    if title.contains(rule.pattern) {
-                        return rule.category
-                    }
+        let isBrowser = cfg.browsers.contains(where: { app.contains($0) })
+        if isBrowser, let title = windowTitle?.lowercased() {
+            for category in cfg.categories {
+                if category.titlePatterns.contains(where: { title.contains($0) }) {
+                    return category
                 }
             }
         }
 
-        return .unknown
+        return nil
     }
 
-    // MARK: - Hint text
-
-    /// Returns a hedged, one-sentence domain hint for the given category, or nil for `.unknown`.
-    static func hintText(for category: AppCategory) -> String? {
-        switch category {
-        case .email:
-            return "The user appears to be in an email app. If the request relates to email, use appropriate greeting/sign-off conventions and professional tone."
-        case .messaging:
-            return "The user appears to be in a messaging app. If the request relates to a message, keep the tone conversational and the length brief."
-        case .coding:
-            return "The user appears to be in a code editor. If the request relates to code, use proper code formatting and technical language."
-        case .notes:
-            return "The user appears to be in a writing/notes app. If the request relates to writing, use clear structure with appropriate headings or bullet points."
-        case .terminal:
-            return "The user appears to be in a terminal. If the request relates to commands, output shell-ready syntax."
-        case .unknown:
-            return nil
-        }
-    }
-
-    /// Convenience: detect and return the hint in one call, or nil when no hint applies.
+    /// Convenience: detect and return the hint string, or nil when no hint applies.
     static func hint(appName: String?, windowTitle: String?) -> String? {
-        hintText(for: detect(appName: appName, windowTitle: windowTitle))
+        detect(appName: appName, windowTitle: windowTitle)?.hint
     }
 }

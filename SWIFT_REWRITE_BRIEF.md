@@ -51,10 +51,13 @@ A single, explicit state enum drives the entire UI:
 ```swift
 enum AppState: Equatable {
     case idle
-    case listening
-    case transcribing
-    case generating
-    case pasting
+    case downloading(progress: Double)
+    case warmingUp
+    case listening           // mic recording (voice edit)
+    case transcribing        // final STT pass
+    case generating          // LLM inference
+    case pasting             // clipboard write + CGEvent Cmd+V
+    case dictating(String)   // continuous dictation; associated value is live transcript
     case error(String)
 }
 ```
@@ -64,38 +67,53 @@ enum AppState: Equatable {
 | Module | Responsibility |
 |--------|----------------|
 | `AppShell` | `@main` App, `MenuBarExtra`, `Settings` scene, onboarding |
-| `PermissionsCoordinator` | Accessibility (`AXIsProcessTrusted`), Microphone, optional Notifications |
+| `PermissionsCoordinator` | Accessibility (`AXIsProcessTrusted`), Microphone, Screen Recording |
 | `HotkeyManager` | Global shortcut registration via `KeyboardShortcuts` |
 | `TextCaptureService` | Clipboard-safe selected-text capture (Cmd+C) and paste-back (Cmd+V) |
-| `AudioCaptureService` | `AVAudioEngine` mic recording, RMS silence detection (threshold 0.015, limit 1.5 s) |
-| `STTService` (protocol) | `transcribe(audioURL:) async throws -> String` |
-| `FluidAudioSTT` | Primary `STTService` impl — FluidAudio, Core ML / ANE |
-| `AppleSTT` | Fallback `STTService` impl — `SFSpeechRecognizer` (no model download needed) |
-| `LLMService` (protocol) | `generate(prompt:maxTokens:) async throws -> String` |
-| `MLXLLMService` | `LLMService` impl — `mlx-swift` |
-| `ModelManager` | Download from HuggingFace, on-disk cache, warmup, progress reporting |
-| `ContextCaptureService` | Captures focused app name, window title, and selected text for LLM context |
-| `ScreenContext` | Model for screen context data (app name, window title, selection) |
-| `ConversationCoordinator` | Orchestrates the full pipeline and owns `AppState` |
-| `FeedbackPresenter` | Transient status popover, error banners, listening indicator |
+| `AudioCaptureService` | `AVAudioEngine` mic recording, hybrid VAD + RMS silence detection |
+| `VoiceActivityDetector` | Silero VAD wrapper — neural silence detection; RMS is the fast-path fallback |
+| `STTService` (protocol) | `transcribe(samples:) async throws -> String` |
+| `FluidAudioSTT` | `STTService` impl — FluidAudio Parakeet TDT v3, Core ML / ANE |
+| `MLXAudioSTTService` | `STTService` impl — Qwen3-ASR, native streaming via `StreamingInferenceSession` |
+| `LLMService` (protocol) | `generate(prompt:maxTokens:) async throws -> String` + `warmup()` |
+| `MLXLLMService` | `LLMService` impl — `mlx-swift`, system-prompt aware |
+| `ModelManager` | Download, load, warmup; holds `modelContainer`, `asrModels`, `vadDetector` |
+| `ModelFamily` (protocol) | Per-family prompt strategy (Default, Qwen3, Qwen3.5, LFM, Granite) |
+| `ContextCaptureService` | Captures focused app name + window title for LLM context (3 modes: off / app / full) |
+| `ScreenContext` | Value type for screen context (app name, window title, selection) |
+| `ConversationCoordinator` | Orchestrates the full pipeline; owns `AppState` and all `@Published` state |
+| `TranscriptionPipeline` | Free `async` function — Path A (300ms poll) and Path B (native streaming) STT loops |
+| `DictationOverlayPanel` | Floating `NSPanel` overlay; observes coordinator via Combine (`observe(coordinator:)`) |
+| `LicenseManager` | Gumroad activation; Keychain-backed signed token; launch re-verification |
 
 ### ConversationCoordinator
 
-The coordinator is the single orchestration center. It owns the `AppState` and
-sequences the pipeline:
+The coordinator is the single orchestration center. It owns `AppState` and
+sequences the pipeline. Views observe — they never command the overlay or mutate state.
 
 ```swift
 @MainActor
 final class ConversationCoordinator: ObservableObject {
+    // Primary state — drives menu bar icon and DictationOverlayPanel visibility
     @Published private(set) var state: AppState = .idle
 
-    private let textCapture: TextCaptureService
-    private let audioCapture: AudioCaptureService
-    private let stt: any STTService
-    private let llm: any LLMService
+    // Overlay text content during voice-edit streaming (empty = show status label)
+    @Published private(set) var liveTranscriptionText: String = ""
+    // Non-nil while mic is recording — DictationOverlayPanel polls audio level for waveform
+    @Published private(set) var activeRecordingSession: AudioCaptureService.ContinuousSession?
+    // Cached from UserDefaults; updated by didChangeNotification handler
+    @Published private(set) var contextAwareMode: ContextAwareMode = ...
+
+    let modelManager: ModelManager
+    let licenseManager: LicenseManager
+    let permissions: PermissionsCoordinator
 
     func handleVoiceEdit() async { ... }
     func handleGrammarFix() async { ... }
+    func handleDictation() async { ... }   // toggle: start or stop continuous dictation
+    func switchModel() async { ... }
+    func switchSTTModel() async { ... }
+    func downloadAndAddCustomModel(_ model: ModelOption) async { ... }
 }
 ```
 
@@ -121,6 +139,12 @@ protocol LLMService: Sendable {
   STT and LLM work to background contexts and publishes state updates back to `@MainActor`.
 - **Clipboard operations are treated as critical.** Save → use → restore, with
   rollback if any step fails.
+- **Overlay observes, not listens.** `DictationOverlayPanel` subscribes to `coordinator.$state`,
+  `$liveTranscriptionText`, and `$activeRecordingSession` via Combine. The coordinator never
+  calls overlay methods directly — state transitions drive all visibility changes.
+- **Thread-safe audio primitives.** `LockedString`, `LockedFlag`, `LockedFloat` (in
+  `AudioCaptureService.swift`) provide `NSLock`-backed wrappers for values shared between
+  the real-time audio tap callback and the async STT pipeline.
 
 ---
 
@@ -395,6 +419,10 @@ Localized strings added for English, Spanish, French, and Italian.
 | 1.0.5 | 9 | — | Stability improvements |
 | 1.0.6 | 10 | — | Stability improvements |
 | 1.0.7 | 11 | 2026-03-19 | Context-aware screen capture, paste fix, settings UI tweaks |
+| 1.0.9 | 13 | 2026-03-20 | License activation (Gumroad + Keychain), neural VAD, About window, VAD silence fix |
+| 1.1.0 | 14 | 2026-03-20 | Qwen3.5 models, faster end-of-speech detection, security hardening, customizable dictation overlay |
+| 1.2.0 | 15 | 2026-03-21 | Qwen3.5 concise output, simplified RAM-based model defaults, model cleanup |
+| 1.2.1 | 16 | 2026-03-21 | Fix: dictation overlay 1-line mode text visibility |
 
 ---
 

@@ -56,7 +56,7 @@
 "model.show_in_finder" = "Mostrar en Finder";
 "model.ai_warning" = "Los modelos de IA pueden cometer errores. Revisa los resultados antes de usarlos.";
 "model.status_ready" = "Listo";
-"model.status_not_loaded" = "No cargado";
+"model.status_not_loaded" = "Inactivo";
 "model.status_loading" = "Cargando…";
 "model.compatible" = "Compatible";
 "model.needs_conversion" = "Puede necesitar conversión";
@@ -133,6 +133,14 @@
 "Lightweight streaming ASR" = "ASR en streaming ligero";
 "High-quality streaming ASR" = "ASR en streaming de alta calidad";
 
+/* None LLM sentinel */
+"model.none_description" = "Sin LLM — la edición de voz pega la transcripción directamente.";
+"status.llm_disabled" = "Desactivado";
+
+/* Auto-descarga */
+"model.auto_offload" = "Descarga automática:";
+"model.auto_offload_desc" = "Libera los pesos del modelo tras 5 min de inactividad.";
+
 /* Model UI labels */
 "model.streaming" = "streaming";
 "English only" = "Solo inglés";
@@ -148,6 +156,8 @@
 "permission.screen_recording" = "Grabación de pantalla:";
 
 /* Settings — Overlay Size */
+"overlay.show_llm_streaming" = "Mostrar texto al generar:";
+"overlay.show_llm_streaming_desc" = "Muestra la salida del modelo en el panel.";
 "overlay.line_count" = "Líneas de texto:";
 "overlay.line_count_desc" = "Máximo de líneas en el panel.";
 "overlay.width" = "Ancho del panel:";

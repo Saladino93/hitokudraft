@@ -56,7 +56,7 @@
 "model.show_in_finder" = "Afficher dans le Finder";
 "model.ai_warning" = "Les modèles IA peuvent faire des erreurs. Vérifiez les résultats avant utilisation.";
 "model.status_ready" = "Prêt";
-"model.status_not_loaded" = "Non chargé";
+"model.status_not_loaded" = "Inactif";
 "model.status_loading" = "Chargement…";
 "model.compatible" = "Compatible";
 "model.needs_conversion" = "Conversion possible requise";
@@ -132,6 +132,14 @@
 "Neural end-of-utterance streaming (320ms latency)" = "Fin de phrase neuronale en streaming (latence 320ms)";
 "Lightweight streaming ASR" = "ASR en streaming léger";
 "High-quality streaming ASR" = "ASR en streaming haute qualité";
+
+/* None LLM sentinel */
+"model.none_description" = "Sans LLM — la commande vocale colle la transcription directement.";
+"status.llm_disabled" = "Désactivé";
+
+/* Auto-offload */
+"model.auto_offload" = "Déchargement auto :";
+"model.auto_offload_desc" = "Libère les poids du modèle après 5 min d'inactivité.";
 
 /* Model UI labels */
 "model.streaming" = "streaming";
