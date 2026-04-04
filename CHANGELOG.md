@@ -5,6 +5,7 @@ All notable changes to Hitoku Draft are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Whisper Base (English) and Whisper Tiny (English) STT models** — two new English-only speech recognition options using WhisperKit (CoreML/ANE). Whisper Base uses ~180 MB RAM; Whisper Tiny uses ~90 MB. Both run on Apple Neural Engine, leaving GPU free for the language model. Ideal for users with < 8 GB RAM or those who only need English transcription.
 - **Action Mode (Ctrl+A, no selection)** — when no text is selected, Ctrl+A opens the overlay and listens for a voice command. Supports creating Calendar events and Reminders via EventKit. The LLM parses the intent and resolves relative dates ("tomorrow at 3pm", "next Monday"); a confirmation alert always appears before anything is written. Calendar events and reminders with or without due dates are both supported.
 
 ### Fixed
@@ -17,7 +18,10 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Model list pruned and sorted** — removed Granite 4 Micro 4-bit (1.8 GB) and Qwen3 8B 4-bit (4.6 GB) from bundled defaults. Remaining five models now appear in ascending size order: LFM2.5 1.2B 4-bit (676 MB) → LFM2.5 1.2B 8-bit (1.2 GB) → Qwen3.5 4B 4-bit (2.5 GB) → Granite 4 Micro 8-bit (3.4 GB) → Qwen3.5 9B 4-bit (6.5 GB). Smart default for <8 GB RAM now selects LFM2.5 1.2B 8-bit.
 
 ### Developer
-- **Settings — Theme tab polish** — added subtitle caption to "Show dictation text" toggle (mirrors "Show text while generating"). Added vertical spacing between toggle rows and before Text lines / Overlay width controls. Keyboard shortcut recorders aligned to Grid column left edge via `.gridColumnAlignment(.leading)`.
+- **Settings — Models tab polish** — Converted from `Form {}` to `Grid {}` so all input controls (Active LLM picker, Active STT picker, Custom Source segmented control, Model Path text field) share identical horizontal left-edge alignment. Auto-offload description now appears inline to the right of the toggle. Add button moved to the Model Path row (same line as the text field). Browse button uses conditional visibility instead of hidden ZStack.
+- **Settings — General tab polish** — Voice Edit, Grammar Fix, Dictation keyboard shortcut recorders left-edge aligned with other controls; a `−6 pt` leading offset compensates for the NSViewRepresentable internal inset that `KeyboardShortcuts.Recorder` inherits from its underlying NSButton.
+- **Settings — STT model picker** — Removed "(streaming)" suffix from Qwen3-ASR descriptions. Whisper models now show quality trade-off in description ("lower accuracy") and use "(English only)" in parentheses matching the format of other models. Language restriction badge removed from picker rows (info is in the description text).
+- **Settings — Theme tab polish** — added subtitle caption to "Show dictation text" toggle (mirrors "Show text while generating"). Added vertical spacing between toggle rows and before Text lines / Overlay width controls. Keyboard shortcut recorders aligned to Grid column left edge via `.gridColumnAlignment(.leading)`. Theme tab window height increased from 430 → 473 pt for better bottom spacing.
 
 
 
