@@ -90,15 +90,16 @@ final class ActionCoordinator {
             return
         }
 
-        // Show transcript in overlay so user sees what was heard
+        // Show transcript in overlay — stays visible while LLM routes
+        // (no .generating state change here: that would overwrite the transcript text)
         setLiveTranscript?(trimmed)
 
         // Phase 3: Route via LLM
-        onStateChange?(.generating)
         let action: PendingAction
         do {
             action = try await ActionRouter.route(transcript: trimmed, llm: llm)
         } catch {
+            setLiveTranscript?("")
             onStateChange?(.error(error.localizedDescription))
             return
         }
