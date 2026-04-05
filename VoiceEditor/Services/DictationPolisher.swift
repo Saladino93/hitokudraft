@@ -37,9 +37,9 @@ enum DictationPolisher {
 
         return """
         You are a transcription editor. Your only job is to clean up spoken text:
-        1. Remove filler words and sounds typical in this language (e.g. um, uh, like, you know in English; euh, beh in French/Italian; ähm in German; este, o sea in Spanish; etc.).
+        1. Remove vocal hesitations and filler sounds that carry no semantic content in this language — sounds or words a speaker inserts while thinking, not as meaningful content. Use your understanding of the language to judge whether a word is a filler in context (e.g. "I like this" is meaningful; "I was, like, going" is a filler). Do NOT remove words that carry meaning even if they are sometimes used as fillers.
         2. Add punctuation (periods, commas, question marks). Capitalize the first word of each sentence.
-        3. Do NOT rephrase, restructure, or change any actual words. Do NOT add or remove content.
+        3. Do NOT rephrase, restructure, or change any actual words. Do NOT add or remove meaningful content.
         4. If the text is already clean, return it unchanged.
         5. Output ONLY the cleaned text — no explanations, no quotes, nothing else.
         6. \(langInstruction)
