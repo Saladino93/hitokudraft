@@ -14,6 +14,7 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Settings: "Grammar Fix" renamed to "Tool Use"** — reflects the broader role of the Ctrl+A shortcut (Action Mode + grammar fix + display mode).
 
 ### Fixed
+- **Copy button in display-mode overlay** — Cmd+C cannot reach a non-activating panel (key events go to the frontmost app). A small clipboard icon now appears in the top-right corner of the overlay when a display-mode result is shown. One click copies the full text; the icon shows a checkmark for 1.5 s to confirm. Right-click → Copy still works as before.
 - **Dictation overlay stays visible after manual stop** — pressing Ctrl+S to stop dictation now transitions to the "Transcribing…" state immediately, before the STT transcription completes. Previously the waveform dots stayed visible for up to 10 seconds while the final buffer was being transcribed.
 - **Note creation fails for multi-line body** — the AppleScript used to create Notes now correctly escapes newline characters using AppleScript string concatenation (`" & return & "`). Previously any note body containing a newline would fail silently at the AppleScript level.
 - **LaTeX parser double-consumes `$$` opener as `$`** — the inline-math parser now uses `else if` so the single-dollar branch cannot fire on the same character position when a `$$` match fails.
