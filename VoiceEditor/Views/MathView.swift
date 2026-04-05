@@ -51,16 +51,21 @@ struct MathView: NSViewRepresentable {
 // MARK: - Inline image rendering
 
 extension MathView {
-    /// Renders a LaTeX expression to an `NSImage` using `.text` label mode (inline-sized).
-    /// Used by `OverlayTextRenderer` to build inline `Text + Text(Image(...))` layouts.
-    /// Results are cached by expression so SwiftUI view updates don't re-render on every pass.
-    /// `@MainActor` — MTMathUILabel is an NSView subclass and must be touched on the main thread.
+    /// Renders a LaTeX expression to an `NSImage` using `.text` label mode (inline-sized),
+    /// and returns the math descent so callers can apply `.baselineOffset(-descent)` for
+    /// correct baseline alignment when mixing math images with surrounding text.
+    ///
+    /// `MTMathListDisplay.descent` is the distance from the math baseline to the bottom of
+    /// the rendered image. SwiftUI places `Image` with its bottom on the text baseline, so
+    /// without the offset the math sits `descent` points too high.
+    ///
+    /// Results are cached by expression. `@MainActor` — MTMathUILabel is an NSView subclass.
     @MainActor
     static func renderToImage(
         latex: String,
         fontSize: CGFloat = 14,
         color: NSColor = NSColor.white.withAlphaComponent(0.92)
-    ) -> NSImage? {
+    ) -> (image: NSImage, descent: CGFloat)? {
         let cacheKey = "\(fontSize)|\(color)|\(latex)"
         if let cached = imageCache[cacheKey] { return cached }
 
@@ -82,13 +87,16 @@ extension MathView {
         let image = NSImage(size: size)
         image.addRepresentation(rep)
 
+        let descent = label.displayList?.descent ?? 0
+
         // Evict cache when it grows large (each image is small, but keep it bounded).
         if imageCache.count >= 200 { imageCache.removeAll() }
-        imageCache[cacheKey] = image
-        return image
+        let result = (image: image, descent: descent)
+        imageCache[cacheKey] = result
+        return result
     }
 
     // Internal cache — static so it survives SwiftUI view struct recreation.
     // @MainActor isolation matches renderToImage; no concurrent access possible.
-    @MainActor private static var imageCache: [String: NSImage] = [:]
+    @MainActor private static var imageCache: [String: (image: NSImage, descent: CGFloat)] = [:]
 }

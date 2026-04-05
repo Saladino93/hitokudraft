@@ -507,11 +507,14 @@ private struct OverlayTextRenderer: View {
     private func buildInlineText() -> Text {
         segments.reduce(Text("")) { result, seg in
             if seg.isMath,
-               let image = MathView.renderToImage(
+               let rendered = MathView.renderToImage(
                    latex: seg.content, fontSize: 14,
                    color: NSColor.white.withAlphaComponent(0.92)
                ) {
-                result + Text(Image(nsImage: image))
+                // Apply -descent so the math image sits on the text baseline rather than
+                // floating above it (Image bottom = baseline, but fittingSize includes descent).
+                result + Text(Image(nsImage: rendered.image))
+                    .baselineOffset(-rendered.descent)
             } else {
                 result + Text(seg.isMath ? seg.content : seg.content)
                     .font(.system(size: 14, weight: .medium, design: .rounded))
