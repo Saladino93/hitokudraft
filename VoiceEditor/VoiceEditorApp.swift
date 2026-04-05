@@ -1,6 +1,7 @@
 import SwiftUI
 import MLX
 import Sparkle
+import UserNotifications
 
 @main
 struct VoiceEditorApp: App {
@@ -13,6 +14,9 @@ struct VoiceEditorApp: App {
     )
 
     init() {
+        // Register delegate before any notification is scheduled so it's in place
+        // when TimerService fires (macOS drops notifications to nil delegate).
+        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
         Self.applyOneTimeMigrations()
         WhatsNewWindowController.checkAndShowIfNeeded()
     }

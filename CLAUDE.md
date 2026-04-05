@@ -20,6 +20,21 @@ Apple Silicon only. Everything runs locally, no cloud calls.
 - Clipboard operations must save and restore original contents.
 - Never paste LLM output without running it through output cleaning first.
 
+## Adding new files
+
+**Never manually edit `project.pbxproj`.** The project is managed by xcodegen:
+- `project.yml` is the source of truth (uses `sources: path: VoiceEditor` — auto-globs all Swift files)
+- After creating any new `.swift` file, run: `xcodegen generate`
+- Then verify: `xcodebuild -scheme HitokuDraft -configuration Debug -disablePackageRepositoryCache build`
+
+The release script (`release.sh`) runs `xcodegen generate` automatically, so all new files in `VoiceEditor/` are included without any manual registration.
+
+## Version bumping
+
+Version lives in `project.yml` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`).
+The release script bumps it — do not manually edit `project.pbxproj` build settings.
+Use `./release.sh <version>` for all releases.
+
 ### FOR REFERENCE
 
 Some Common Codes and Examples in this local directory from relevant input.

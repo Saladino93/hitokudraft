@@ -55,7 +55,8 @@ enum DictationPolisher {
 
     /// Strip any preamble the model might add (e.g. "Cleaned text: …") and
     /// fall back to the original transcript if the result is empty or clearly wrong.
-    private static func cleaned(_ raw: String, fallback: String) -> String {
+    /// Internal so unit tests can verify the safety-net logic without an LLM.
+    static func cleaned(_ raw: String, fallback: String) -> String {
         var result = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Strip common model preambles: "Cleaned text:", "Output:", "Result:", etc.

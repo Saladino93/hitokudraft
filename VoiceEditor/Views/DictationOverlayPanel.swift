@@ -441,11 +441,17 @@ private struct DictationOverlayContent: View {
 }
 
 
+// MARK: - Text Segment
+// TextSegment enum and parseSegments(_:) are defined in OverlaySegmentParser.swift
+// so they can be unit-tested without importing AppKit/SwiftUI.
+
+
 // MARK: - Overlay Text Renderer
 //
-// Single extension point for LaTeX rendering (SwiftMath via MathView.swift).
-// To swap the LaTeX backend, update MathView.swift only — this struct and all
-// callers are untouched.
+// Extension points:
+//   LaTeX backend  → MathView.swift only (renderToImage API)
+//   Code highlight → CodeHighlighter.swift only (highlight(code:language:) API)
+// Neither this struct nor any callers change when swapping either backend.
 
 
 private struct OverlayTextRenderer: View {
@@ -453,20 +459,38 @@ private struct OverlayTextRenderer: View {
     let maxLines: Int
     let textAreaHeight: CGFloat
 
-    // Parsed segments — (isMath: true if LaTeX expression, content: stripped string).
-    private var segments: [(isMath: Bool, content: String)] {
-        Self.parseLatexSegments(text)
-    }
+    private var segments: [TextSegment] { parseSegments(text) }
 
-    private var hasLatex: Bool {
-        segments.contains { $0.isMath }
+    /// True when any segment needs non-plain rendering (math, code block, inline code).
+    private var hasComplexContent: Bool {
+        segments.contains {
+            if case .plain = $0 { return false }
+            return true
+        }
     }
 
     var body: some View {
-        if hasLatex {
-            latexScrollView
+        if !hasComplexContent {
+            // Fast path: plain text only — existing behaviour unchanged.
+            plainTextView
         } else if maxLines == 1 {
-            // 1-line mode: SwiftUI handles tail-trimming natively
+            // 1-line streaming mode: too narrow for code blocks; show plain text.
+            Text(text)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+                .truncationMode(.head)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            complexContentView
+        }
+    }
+
+    // MARK: - Fast plain-text path (2–N lines, no math/code)
+
+    @ViewBuilder
+    private var plainTextView: some View {
+        if maxLines == 1 {
             Text(text)
                 .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.92))
@@ -476,9 +500,6 @@ private struct OverlayTextRenderer: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            // 2–N line mode: vertical scroll pinned to bottom.
-            // .textSelection(.enabled) allows click-drag / Cmd+C from the non-activating panel
-            // without stealing focus from the user's active app.
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     Text(text)
@@ -491,118 +512,134 @@ private struct OverlayTextRenderer: View {
                 }
                 .frame(height: textAreaHeight)
                 .clipped()
-                .onChange(of: text) {
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                }
+                .onChange(of: text) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // MARK: - LaTeX rendering
+    // MARK: - Complex rendering path (math and/or code blocks)
 
-    /// Builds a single SwiftUI `Text` with inline math images.
-    /// Each `$...$` segment is rendered to an `NSImage` via `MathView.renderToImage` and
-    /// inserted as `Text(Image(...))` — this gives true inline wrapping with surrounding text.
-    private func buildInlineText() -> Text {
-        segments.reduce(Text("")) { result, seg in
-            if seg.isMath,
-               let rendered = MathView.renderToImage(
-                   latex: seg.content, fontSize: 14,
-                   color: NSColor.white.withAlphaComponent(0.92)
-               ) {
-                // Apply -descent so the math image sits on the text baseline rather than
-                // floating above it (Image bottom = baseline, but fittingSize includes descent).
-                result + Text(Image(nsImage: rendered.image))
-                    .baselineOffset(-rendered.descent)
-            } else {
-                result + Text(seg.isMath ? seg.content : seg.content)
+    /// Groups consecutive plain/math/inlineCode segments so they can be composed into a
+    /// single SwiftUI Text (preserving inline wrapping), while code blocks break the flow.
+    private enum SegmentGroup {
+        case inline([TextSegment])
+        case codeBlock(language: String, code: String)
+    }
+
+    private var groupedSegments: [SegmentGroup] {
+        var groups: [SegmentGroup] = []
+        var accumInline: [TextSegment] = []
+        for seg in segments {
+            switch seg {
+            case .plain, .math, .inlineCode:
+                accumInline.append(seg)
+            case .codeBlock(let lang, let code):
+                if !accumInline.isEmpty { groups.append(.inline(accumInline)); accumInline = [] }
+                groups.append(.codeBlock(language: lang, code: code))
+            }
+        }
+        if !accumInline.isEmpty { groups.append(.inline(accumInline)) }
+        return groups
+    }
+
+    @ViewBuilder
+    private var complexContentView: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(groupedSegments.enumerated()), id: \.offset) { _, group in
+                        switch group {
+                        case .inline(let segs):
+                            buildInlineText(from: segs)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        case .codeBlock(let lang, let code):
+                            CodeBlockView(language: lang, code: code)
+                        }
+                    }
+                }
+                .id("complexBottom")
+            }
+            .frame(height: max(textAreaHeight, 44))
+            .clipped()
+            .onChange(of: text) { proxy.scrollTo("complexBottom", anchor: .bottom) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Inline Text builder (plain + math + inline code → single Text)
+
+    /// Composes consecutive plain / math / inlineCode segments into one SwiftUI `Text`,
+    /// preserving natural inline wrapping between prose and math/code.
+    private func buildInlineText(from segs: [TextSegment]) -> Text {
+        segs.reduce(Text("")) { acc, seg in
+            switch seg {
+            case .plain(let s):
+                return acc + Text(s)
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.92))
+
+            case .math(let expr):
+                if let rendered = MathView.renderToImage(
+                    latex: expr, fontSize: 14,
+                    color: NSColor.white.withAlphaComponent(0.92)
+                ) {
+                    // Apply -descent so the math image sits on the text baseline rather than
+                    // floating above it (Image bottom = baseline, fittingSize includes descent).
+                    return acc + Text(Image(nsImage: rendered.image))
+                        .baselineOffset(-rendered.descent)
+                } else {
+                    return acc + Text(expr)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+
+            case .inlineCode(let code):
+                return acc + Text(code)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+
+            case .codeBlock:
+                return acc  // code blocks render as separate SegmentGroup views
             }
         }
     }
 
-    /// Scrollable view showing inline text + math with proper line wrapping.
-    @ViewBuilder
-    private var latexScrollView: some View {
-        let inlineText = buildInlineText()
-        if maxLines == 1 {
-            inlineText
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    inlineText
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .id("latexBottom")
-                }
-                .frame(height: max(textAreaHeight, 44))
-                .clipped()
-                .onChange(of: text) {
-                    proxy.scrollTo("latexBottom", anchor: .bottom)
+    // parseSegments(_:) lives in OverlaySegmentParser.swift (module-level, internal, testable).
+}
+
+
+// MARK: - Code Block View
+
+/// Renders a syntax-highlighted code block with a dark inset background and horizontal scroll.
+/// Coloring is provided by CodeHighlighter (pure Swift, no external deps).
+private struct CodeBlockView: View {
+    let language: String
+    let code: String
+
+    /// Highlighted NSAttributedString → AttributedString for SwiftUI Text.
+    private var highlightedText: AttributedString? {
+        let ns = CodeHighlighter.highlight(code: code, language: language)
+        return try? AttributedString(ns, including: \.appKit)
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Group {
+                if let attr = highlightedText {
+                    Text(attr)
+                } else {
+                    Text(code)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
         }
-    }
-
-    // MARK: - LaTeX segment parser
-
-    /// Splits `text` into alternating text and math segments.
-    /// Recognises `$$...$$`, `$...$`, `\[...\]`, and `\(...\)` delimiters.
-    /// Unclosed delimiters are treated as plain text (no fallthrough mis-parse).
-    /// Returns `[(false, text)]` if no LaTeX markers are found.
-    static func parseLatexSegments(_ text: String) -> [(isMath: Bool, content: String)] {
-        var result: [(isMath: Bool, content: String)] = []
-        var currentText = ""
-        var i = text.startIndex
-
-        while i < text.endIndex {
-            let c = text[i]
-            let nextI = text.index(after: i)
-
-            // Display math: $$...$$  (must be checked before single-$ to avoid fallthrough)
-            if c == "$", nextI < text.endIndex, text[nextI] == "$",
-               let afterDollarDollar = text.index(nextI, offsetBy: 1, limitedBy: text.endIndex),
-               let closeRange = text.range(of: "$$", range: afterDollarDollar..<text.endIndex) {
-                if !currentText.isEmpty { result.append((false, currentText)); currentText = "" }
-                result.append((true, String(text[afterDollarDollar..<closeRange.lowerBound])))
-                i = closeRange.upperBound
-                continue
-            }
-
-            // Inline math: $...$  (else-if so the same $ is not re-examined after a failed $$ match)
-            else if c == "$",
-               let closeRange = text.range(of: "$", range: nextI..<text.endIndex) {
-                if !currentText.isEmpty { result.append((false, currentText)); currentText = "" }
-                result.append((true, String(text[nextI..<closeRange.lowerBound])))
-                i = closeRange.upperBound
-                continue
-            }
-
-            // Block math: \[...\]  or inline math: \(...\)
-            if c == "\\", nextI < text.endIndex {
-                let nc = text[nextI]
-                let (close, skip): (String, Int) = nc == "[" ? ("\\]", 1) : nc == "(" ? ("\\)", 1) : ("", 0)
-                if skip > 0,
-                   let afterOpen = text.index(nextI, offsetBy: skip, limitedBy: text.endIndex),
-                   let closeRange = text.range(of: close, range: afterOpen..<text.endIndex) {
-                    if !currentText.isEmpty { result.append((false, currentText)); currentText = "" }
-                    result.append((true, String(text[afterOpen..<closeRange.lowerBound])))
-                    i = closeRange.upperBound
-                    continue
-                }
-            }
-
-            currentText.append(c)
-            i = nextI
-        }
-
-        if !currentText.isEmpty { result.append((false, currentText)) }
-        return result.isEmpty ? [(false, text)] : result
+        .background(Color.black.opacity(0.35))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 
