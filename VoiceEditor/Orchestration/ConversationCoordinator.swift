@@ -18,6 +18,11 @@ final class ConversationCoordinator: ObservableObject {
     private let textCapture = TextCaptureService()
     private let audioCapture = AudioCaptureService()
     private let contextCapture = ContextCaptureService()
+    private let editabilityDetector: any EditabilityDetector
+
+    /// Non-empty when the last result was displayed in the overlay instead of pasted
+    /// (focused element was not editable). Auto-cleared after 20 seconds.
+    @Published private(set) var displayModeResult: String = ""
     private var stt: (any STTService)?
     private var llm: (any LLMService)?
     private var hotkeyManager: HotkeyManager?
@@ -57,6 +62,8 @@ final class ConversationCoordinator: ObservableObject {
     /// Cancellable model-loading tasks so a new switch can abort an in-flight download.
     private var llmLoadTask: Task<Void, Never>?
     private var sttLoadTask: Task<Void, Never>?
+    /// Scheduled auto-clear for display-mode results; cancelled early by clearDisplayModeResult().
+    private var displayModeClearTask: Task<Void, Never>?
 
     /// Pending model switches that couldn't run because state wasn't idle.
     private var pendingLLMSwitch = false
@@ -76,7 +83,8 @@ final class ConversationCoordinator: ObservableObject {
         }
     }
 
-    init() {
+    init(editabilityDetector: any EditabilityDetector = AXEditabilityDetector()) {
+        self.editabilityDetector = editabilityDetector
         // Forward child ObservableObject changes so SwiftUI re-renders
         permissions.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
@@ -563,22 +571,14 @@ final class ConversationCoordinator: ObservableObject {
                         throw VoiceEditorError.emptyOutput
                     }
 
-                    state = .pasting
-                    try await textCapture.pasteText(cleaned)
+                    try await presentOutput(cleaned, savedClipboard: savedClipboard)
                     lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
                     SoundPlayer.shared.playCompletion()
                     modelManager.keepAlive()
                 } else {
                     // STT-only mode (None selected): paste raw transcript directly
-                    state = .pasting
-                    try await textCapture.pasteText(trimmedCommand)
+                    try await presentOutput(trimmedCommand, savedClipboard: savedClipboard)
                     SoundPlayer.shared.playCompletion()
-                }
-
-                if let saved = savedClipboard {
-                    // Small delay before restore so paste completes
-                    try? await Task.sleep(for: .milliseconds(300))
-                    textCapture.restoreClipboard(saved)
                 }
 
                 state = .idle
@@ -664,17 +664,12 @@ final class ConversationCoordinator: ObservableObject {
                 throw VoiceEditorError.emptyOutput
             }
 
-            state = .pasting
-            try await textCapture.pasteText(cleaned)
+            // Grammar fix always pastes — no overlay display mode for Ctrl+A.
+            try await presentOutput(cleaned, savedClipboard: savedClipboard, useDisplayMode: false)
 
             // Audio cue: done
             SoundPlayer.shared.playCompletion()
             modelManager.keepAlive()
-
-            if let saved = savedClipboard {
-                try? await Task.sleep(for: .milliseconds(300))
-                textCapture.restoreClipboard(saved)
-            }
 
             state = .idle
         } catch {
@@ -774,6 +769,11 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     private func stopDictation() async {
+        // Stop the waveform animation and mic indicator immediately — before any async wait.
+        // This gives instant visual feedback when the user presses the stop shortcut.
+        activeRecordingSession = nil
+        if case .dictating = state { state = .transcribing }
+
         streamingTask?.cancel()
         // Race streaming task against a 10s timeout so stop-dictation stays responsive
         if let task = streamingTask {
@@ -792,7 +792,7 @@ final class ConversationCoordinator: ObservableObject {
         }
         dictationSession = nil
         session.stop()
-        activeRecordingSession = nil
+        // (activeRecordingSession already cleared above)
 
         // Final transcription on the complete buffer
         let samples = session.audioBuffer.getAll()
@@ -818,20 +818,61 @@ final class ConversationCoordinator: ObservableObject {
                 return
             }
 
-            let savedClipboard = textCapture.saveClipboard()
-            try await textCapture.pasteText(trimmed)
+            var savedClipboardOpt: TextCaptureService.ClipboardSnapshot? = textCapture.saveClipboard()
+            // Dictation always pastes the raw transcript — never shows in the overlay.
+            try await presentOutput(trimmed, savedClipboard: savedClipboardOpt, useDisplayMode: false)
 
             SoundPlayer.shared.playCompletion()
             modelManager.keepAlive()
-
-            try? await Task.sleep(for: .milliseconds(300))
-            textCapture.restoreClipboard(savedClipboard)
 
             state = .idle
         } catch {
             state = .error(error.localizedDescription)
             resetErrorAfterDelay()
         }
+    }
+
+    // MARK: - Output Routing
+
+    /// Routes `text` to either paste (editable element focused) or overlay display mode (non-editable).
+    /// Encapsulates clipboard restore so callers don't need to handle it separately.
+    /// Always fails open: if editability detection is unavailable, pastes as before.
+    /// Routes `text` to paste (editable) or overlay display (non-editable, LLM-produced output only).
+    ///
+    /// `useDisplayMode` must be `false` for raw dictation results — dictation always pastes, never
+    /// shows in the overlay, regardless of whether the focused element is editable.
+    private func presentOutput(
+        _ text: String,
+        savedClipboard: TextCaptureService.ClipboardSnapshot?,
+        useDisplayMode: Bool = true
+    ) async throws {
+        if !useDisplayMode || editabilityDetector.focusedElementIsEditable() {
+            // Editable path (or dictation — always paste).
+            state = .pasting
+            try await textCapture.pasteText(text)
+            if let saved = savedClipboard {
+                try? await Task.sleep(for: .milliseconds(300))
+                textCapture.restoreClipboard(saved)
+            }
+        } else {
+            // Non-editable path — show LLM result in overlay, restore clipboard immediately.
+            displayModeResult = text
+            state = .idle
+            if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
+            displayModeClearTask?.cancel()
+            displayModeClearTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(20))
+                self?.displayModeResult = ""
+                self?.displayModeClearTask = nil
+            }
+        }
+    }
+
+    /// Dismisses the display-mode overlay immediately (called by Esc key handler).
+    func clearDisplayModeResult() {
+        displayModeClearTask?.cancel()
+        displayModeClearTask = nil
+        displayModeResult = ""
     }
 
     // MARK: - Helpers

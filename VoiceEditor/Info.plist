@@ -35,7 +35,7 @@
     <string>Hitoku Draft can add calendar events from your voice commands.</string>
     <key>NSRemindersUsageDescription</key>
     <string>Hitoku Draft can create reminders from your voice commands.</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
+<key>NSSpeechRecognitionUsageDescription</key>
     <string>Hitoku Draft uses speech recognition as a fallback transcription engine.</string>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 Hitoku Draft</string>

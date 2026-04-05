@@ -21,7 +21,7 @@
 
 /* Settings — Shortcuts */
 "shortcut.voice_edit" = "Edición por voz:";
-"shortcut.grammar_fix" = "Corrección gramatical:";
+"shortcut.grammar_fix" = "Uso de herramienta:";
 "shortcut.dictation" = "Dictado:";
 
 /* Settings — Recording */

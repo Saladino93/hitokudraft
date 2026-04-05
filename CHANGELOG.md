@@ -2,6 +2,22 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Action Mode: Notes** — say "take a note" or "note that…" to create a note in Apple Notes via AppleScript. A confirmation modal shows the title and body before anything is created.
+- **Action Mode: Timer** — say "set a timer for 10 minutes" or "remind me in 30 seconds" to schedule a local macOS notification countdown. Uses `UNUserNotificationCenter`; prompts for notification permission on first use.
+- **Action Mode: Email** — say "email John that I'll be late" to open a pre-filled compose window in your default mail client (Mail, Thunderbird, or any app set as default). If you speak a name without an email address, the compose window opens with an empty recipient field for you to fill in. Raw email addresses work directly. Never sends automatically — the user must press Send.
+- **Gemma 4 E2B 5-bit** — added `mlx-community/gemma-4-e2b-5bit` (4.1 GB, Apache 2.0) to bundled model defaults. 140-language support, 128K context, thinking-block stripping in post-processing.
+- **Overlay display mode** — when the focused element is not editable (PDF viewer, Finder, Terminal output), the LLM result from voice edit (Ctrl+Z) is shown in the overlay for 20 seconds instead of pasting into the void. Dictation and grammar fix always paste regardless. Falls back to paste if Accessibility detection is unavailable. The overlay auto-sizes its height to fit the response text (up to 10 lines); press Esc to dismiss early. Overlay shape uses a fixed-radius RoundedRectangle (17.5 pt) instead of Capsule, preventing the elliptical distortion for tall results.
+- **LaTeX math rendering in overlay** — the overlay detects `$...$`, `$$...$$`, and `\[...\]` LaTeX delimiters and renders them with SwiftMath (SwiftMath 1.7+, native CoreText rendering, no WebKit). Mixed text + math responses render as an alternating VStack of plain text and math segments. `MathView.swift` is the sole file to change when swapping the LaTeX backend.
+- **Settings: "Grammar Fix" renamed to "Tool Use"** — reflects the broader role of the Ctrl+A shortcut (Action Mode + grammar fix + display mode).
+
+### Fixed
+- **Dictation overlay stays visible after manual stop** — pressing Ctrl+S to stop dictation now transitions to the "Transcribing…" state immediately, before the STT transcription completes. Previously the waveform dots stayed visible for up to 10 seconds while the final buffer was being transcribed.
+- **Note creation fails for multi-line body** — the AppleScript used to create Notes now correctly escapes newline characters using AppleScript string concatenation (`" & return & "`). Previously any note body containing a newline would fail silently at the AppleScript level.
+- **LaTeX parser double-consumes `$$` opener as `$`** — the inline-math parser now uses `else if` so the single-dollar branch cannot fire on the same character position when a `$$` match fails.
+
 ## [1.3.0] — 2026-04-04
 
 ### Added

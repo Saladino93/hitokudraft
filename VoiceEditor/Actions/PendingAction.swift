@@ -19,8 +19,27 @@ enum PendingAction: Sendable {
         let notes: String?
     }
 
+    struct Note: Sendable {
+        let title: String
+        let body: String
+    }
+
+    struct TimerAction: Sendable {
+        let durationSeconds: Int
+        let label: String
+    }
+
+    struct EmailAction: Sendable {
+        let to: String           // name or raw email address
+        let subject: String
+        let body: String
+    }
+
     case calendarEvent(CalendarEvent)
     case reminder(Reminder)
+    case note(Note)
+    case timer(TimerAction)
+    case email(EmailAction)
     case unknown(transcript: String)  // LLM could not classify
 }
 
@@ -44,6 +63,17 @@ extension PendingAction {
             if let due = r.dueDate { s += "\nDue: \(fmt.string(from: due))" }
             if let notes = r.notes, !notes.isEmpty { s += "\n\(notes)" }
             return s
+        case .note(let n):
+            return "\"\(n.title)\"\n\(n.body.prefix(120))"
+        case .timer(let t):
+            let mins = t.durationSeconds / 60
+            let secs = t.durationSeconds % 60
+            let duration = mins > 0 ? "\(mins) min\(secs > 0 ? " \(secs) sec" : "")" : "\(secs) sec"
+            return "\(duration) — \(t.label)"
+        case .email(let e):
+            // If "to" has no @, it's a spoken name — compose window opens with empty recipient.
+            let recipientLine = e.to.contains("@") ? "To: \(e.to)" : "Intended for: \(e.to) (you'll add the address)"
+            return "\(recipientLine)\nSubject: \(e.subject)\n\(e.body.prefix(120))"
         case .unknown(let t):
             return "Could not understand: \"\(t)\""
         }
@@ -54,6 +84,9 @@ extension PendingAction {
         switch self {
         case .calendarEvent: return "Add to Calendar"
         case .reminder:      return "Add Reminder"
+        case .note:          return "Create Note"
+        case .timer:         return "Set Timer"
+        case .email:         return "Open Compose"
         case .unknown:       return "OK"
         }
     }

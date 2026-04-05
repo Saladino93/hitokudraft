@@ -30,6 +30,9 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: 2.0.0
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath
+    from: 1.7.0
 
 schemes:
   HitokuDraft:
@@ -95,3 +98,5 @@ targets:
         product: WhisperKit
       - package: Sparkle
         product: Sparkle
+      - package: SwiftMath
+        product: SwiftMath

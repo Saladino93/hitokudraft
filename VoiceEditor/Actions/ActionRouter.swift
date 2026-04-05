@@ -35,7 +35,10 @@ struct ActionRouter {
         Classify the user's voice command as ONE of:
         1. calendar_event — scheduled at a specific time/date
         2. reminder — a to-do or reminder (may or may not have a due date)
-        3. unknown — cannot be classified
+        3. note — create a note in Apple Notes
+        4. timer — set a countdown timer (not a calendar event)
+        5. email — compose an email (opens compose window for review; never auto-sends)
+        6. unknown — cannot be classified
 
         Respond with ONLY a JSON object on a single line. No markdown, no commentary.
 
@@ -45,14 +48,29 @@ struct ActionRouter {
         For reminder:
         {"type":"reminder","title":"...","due_iso":"<YYYY-MM-DDTHH:mm:ss>" or null,"notes":"..." or null}
 
+        For note:
+        {"type":"note","title":"...","body":"..."}
+
+        For timer:
+        {"type":"timer","duration_seconds":<number>,"label":"..."}
+
+        For email:
+        {"type":"email","to":"<email address or spoken name>","subject":"...","body":"..."}
+        Note: if the user said a name without an email address, put that name in "to" — the app opens a compose window without filling the recipient, and the user adds the address themselves.
+
+
         For unknown:
         {"type":"unknown"}
 
         Rules:
         - "remind me to", "don't forget" → reminder. "schedule", "book", "meeting", "appointment" → calendar_event.
+        - "take a note", "note that", "jot down" → note. Body is the content; title is a short summary.
+        - "set a timer", "timer for", "remind me in X minutes/seconds" (countdown) → timer.
+        - "email", "send a message to", "write to" → email. Put a raw email address in "to" if given; otherwise put the spoken name.
         - Resolve relative dates ("tomorrow", "next Monday", "in 2 hours") using the current date above.
         - duration_minutes: use ONLY what the user explicitly stated (e.g. "2-hour meeting" → 120). Otherwise output 60.
-        - Title must be clean and concise (no filler words).
+        - duration_seconds: convert as needed (e.g. "10 minutes" → 600, "30 seconds" → 30).
+        - Title/subject must be clean and concise (no filler words).
         - Dates are local time, no timezone suffix.
         - If you cannot determine a start time for a calendar event, make it a reminder instead.
         - If intent is unclear, output {"type":"unknown"}.
@@ -85,6 +103,12 @@ struct ActionRouter {
             return parseCalendarEvent(dict: dict, raw: raw)
         case "reminder":
             return parseReminder(dict: dict, raw: raw)
+        case "note":
+            return parseNote(dict: dict, raw: raw)
+        case "timer":
+            return parseTimer(dict: dict, raw: raw)
+        case "email":
+            return parseEmail(dict: dict, raw: raw)
         default:
             return .unknown(transcript: raw)
         }
@@ -120,6 +144,33 @@ struct ActionRouter {
         let due = (dict["due_iso"] as? String).flatMap { parseDate($0) }
         let notes = dict["notes"] as? String
         return .reminder(.init(title: title, dueDate: due, listName: nil, notes: notes))
+    }
+
+    private static func parseNote(dict: [String: Any], raw: String) -> PendingAction {
+        guard let title = dict["title"] as? String, !title.isEmpty,
+              let body = dict["body"] as? String
+        else {
+            return .unknown(transcript: raw)
+        }
+        return .note(.init(title: title, body: body))
+    }
+
+    private static func parseTimer(dict: [String: Any], raw: String) -> PendingAction {
+        guard let seconds = dict["duration_seconds"] as? Int, seconds > 0 else {
+            return .unknown(transcript: raw)
+        }
+        let label = dict["label"] as? String ?? "Timer"
+        return .timer(.init(durationSeconds: seconds, label: label))
+    }
+
+    private static func parseEmail(dict: [String: Any], raw: String) -> PendingAction {
+        guard let to = dict["to"] as? String, !to.isEmpty,
+              let subject = dict["subject"] as? String,
+              let body = dict["body"] as? String
+        else {
+            return .unknown(transcript: raw)
+        }
+        return .email(.init(to: to, subject: subject, body: body))
     }
 
     /// Parses an ISO-8601-style date string as **local time**.
