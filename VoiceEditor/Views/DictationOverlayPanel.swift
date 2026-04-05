@@ -41,6 +41,7 @@ final class DictationOverlayPanel {
     func hide() {
         stopLevelPolling()
         viewModel.isStreamingLLM = false
+        viewModel.isDisplayMode = false
         viewModel.displayModeMaxLines = 3
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
@@ -128,6 +129,7 @@ final class DictationOverlayPanel {
                     let lines = self.calculateLinesNeeded(for: text)
                     self.viewModel.displayModeMaxLines = lines
                     self.viewModel.isStreamingLLM = true  // keeps 3-line+ mode
+                    self.viewModel.isDisplayMode = true
                     self.show(text: text, isStatus: false)
                     self.resizePanel(forLines: lines)
                     // Global Esc monitor — dismisses overlay from any app.
@@ -280,6 +282,7 @@ private final class OverlayViewModel: ObservableObject {
     @Published var showText: Bool = (UserDefaults.standard.object(forKey: "showDictationText") as? Bool) ?? true
     @Published var isStatus: Bool = false
     @Published var isStreamingLLM: Bool = false
+    @Published var isDisplayMode: Bool = false
     @Published var displayModeMaxLines: Int = 3  // increased when showing long display-mode results
     @Published var tick = Date()
 
@@ -415,6 +418,15 @@ private struct DictationOverlayContent: View {
         .overlay {
             RoundedRectangle(cornerRadius: 17.5, style: .continuous)
                 .strokeBorder(theme.panelBorder, lineWidth: 1)
+        }
+        .overlay(alignment: .topTrailing) {
+            // Copy button — only in display mode. Cmd+C doesn't reach a non-activating panel
+            // (key events go to the active app), so this button is the reliable copy path.
+            if viewModel.isDisplayMode {
+                CopyButton(text: viewModel.text)
+                    .padding(.top, 7)
+                    .padding(.trailing, 10)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { recompute() }
@@ -583,6 +595,37 @@ private struct OverlayTextRenderer: View {
 
         if !currentText.isEmpty { result.append((false, currentText)) }
         return result.isEmpty ? [(false, text)] : result
+    }
+}
+
+
+// MARK: - Copy Button
+
+
+/// A small clipboard icon that copies `text` to the pasteboard.
+/// Shows a checkmark for 1.5 s after a successful copy.
+/// Used in display mode because Cmd+C never reaches a non-activating NSPanel.
+private struct CopyButton: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            copied = true
+            Task {
+                try? await Task.sleep(for: .milliseconds(1500))
+                copied = false
+            }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.clipboard")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(copied ? 0.9 : 0.45))
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.2), value: copied)
     }
 }
 
