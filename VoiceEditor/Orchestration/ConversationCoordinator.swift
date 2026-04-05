@@ -47,6 +47,12 @@ final class ConversationCoordinator: ObservableObject {
         let raw = UserDefaults.standard.string(forKey: "contextAwareMode") ?? "off"
         return ContextAwareMode(rawValue: raw) ?? .off
     }()
+
+    /// When true, raw dictation transcripts are passed through a lightweight LLM pass
+    /// that removes filler words and adds punctuation — without changing actual words.
+    /// Only takes effect when an LLM is loaded (not the None sentinel).
+    @Published private(set) var polishDictation: Bool =
+        UserDefaults.standard.bool(forKey: "polishDictation")
     /// Last finalized text from a native streaming session (Qwen3-ASR).
     /// Set by `runStreamingTranscription` for `stopDictation()` to use.
     private var lastStreamingTranscription: String?
@@ -114,6 +120,8 @@ final class ConversationCoordinator: ObservableObject {
                     self.contextAwareMode = newMode
                     self.rebuildLLMServiceIfNeeded()
                 }
+                let polish = UserDefaults.standard.bool(forKey: "polishDictation")
+                if polish != self.polishDictation { self.polishDictation = polish }
             }
             .store(in: &cancellables)
 
@@ -830,9 +838,19 @@ final class ConversationCoordinator: ObservableObject {
                 return
             }
 
+            // Optional polish pass: remove filler words + add punctuation via LLM.
+            // Runs only when the setting is on and an LLM is loaded.
+            let finalText: String
+            if polishDictation, let llm, !modelManager.selectedModel.isNone {
+                state = .generating
+                finalText = (try? await DictationPolisher.polish(transcript: trimmed, llm: llm)) ?? trimmed
+            } else {
+                finalText = trimmed
+            }
+
             var savedClipboardOpt: TextCaptureService.ClipboardSnapshot? = textCapture.saveClipboard()
             // Dictation always pastes the raw transcript — never shows in the overlay.
-            try await presentOutput(trimmed, savedClipboard: savedClipboardOpt, useDisplayMode: false)
+            try await presentOutput(finalText, savedClipboard: savedClipboardOpt, useDisplayMode: false)
 
             SoundPlayer.shared.playCompletion()
             modelManager.keepAlive()

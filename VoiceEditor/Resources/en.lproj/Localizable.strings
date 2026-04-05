@@ -142,6 +142,10 @@
 "model.auto_offload" = "Auto-offload:";
 "model.auto_offload_desc" = "Release model weights after 5 min of inactivity.";
 
+/* Polish dictation */
+"model.polish_dictation" = "Polish dictation:";
+"model.polish_dictation_desc" = "Remove filler words and add punctuation after dictation stops. Requires a loaded LLM.";
+
 /* Model UI labels */
 "model.streaming" = "streaming";
 "English only" = "English only";
