@@ -14,12 +14,16 @@ enum DictationPolisher {
 
     static let maxTokens = 400
 
+    /// Temperature for the polish pass. Near-zero suppresses creative rephrasings
+    /// while still allowing the model to infer punctuation placement.
+    static let temperature: Float = 0.1
+
     /// Returns the polished transcript, or throws if the LLM call fails.
     /// The caller falls back to the raw transcript on any error.
     static func polish(transcript: String, llm: any LLMService) async throws -> String {
         let langCode = UserDefaults.standard.string(forKey: "appLanguage") ?? "en"
         let prompt = buildPrompt(transcript: transcript, langCode: langCode)
-        let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
+        let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens, temperature: temperature)
         return cleaned(raw, fallback: transcript)
     }
 
@@ -36,15 +40,14 @@ enum DictationPolisher {
         }
 
         return """
-        You are a transcription editor. Your only job is to clean up spoken text:
-        1. Remove vocal hesitations and filler sounds that carry no semantic content in this language — sounds or words a speaker inserts while thinking, not as meaningful content. Use your understanding of the language to judge whether a word is a filler in context (e.g. "I like this" is meaningful; "I was, like, going" is a filler). Do NOT remove words that carry meaning even if they are sometimes used as fillers.
-        2. Add punctuation (periods, commas, question marks). Capitalize the first word of each sentence.
-        3. Do NOT rephrase, restructure, or change any actual words. Do NOT add or remove meaningful content.
-        4. If the text is already clean, return it unchanged.
-        5. Output ONLY the cleaned text — no explanations, no quotes, nothing else.
-        6. \(langInstruction)
+        You are a strict transcription editor. Rules:
+        1. PRESERVE every meaningful word exactly as spoken — do not rephrase, reorder, or substitute any word.
+        2. REMOVE only pure vocal hesitations that carry zero meaning: repeated sounds like "ummm", "uhh", "hmm". Do NOT remove a word that has meaning in context, even if it can sometimes be a hesitation.
+        3. ADD punctuation (periods, commas, question marks) and capitalize the start of each sentence.
+        4. Output ONLY the corrected text. No explanations, no quotes, nothing else.
+        5. \(langInstruction)
 
-        Text: \(transcript)
+        Transcript: \(transcript)
         """
     }
 

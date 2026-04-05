@@ -15,6 +15,10 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
     }
 
     func generate(prompt: String, maxTokens: Int) async throws -> String {
+        try await generate(prompt: prompt, maxTokens: maxTokens, temperature: family.temperature)
+    }
+
+    func generate(prompt: String, maxTokens: Int, temperature: Float) async throws -> String {
         let effectivePrompt = family.disableThinking ? prompt + " /no_think" : prompt
         let userInput = UserInput(chat: [
             .system(self.systemPrompt),
@@ -24,7 +28,7 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
 
         let parameters = GenerateParameters(
             maxTokens: maxTokens,
-            temperature: family.temperature,
+            temperature: temperature,
             topP: family.topP,
             repetitionPenalty: family.repetitionPenalty,
             repetitionContextSize: 64
