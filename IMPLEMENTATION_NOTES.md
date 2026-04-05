@@ -190,6 +190,30 @@ New file: `Models/ModelOption.swift`
 
 ---
 
+---
+
+## v1.4 Architecture Notes
+
+### Editability Detection (`EditabilityDetector.swift`, `AXEditabilityDetector.swift`)
+Protocol behind a value-type AX implementation. `focusedElementIsEditable()` checks role whitelist (`AXTextField`, `AXTextArea`, `AXComboBox`, `AXSearchField`) then `kAXInsertionPointLineNumberAttribute` as a fallback for web/contenteditable elements. Fails open (returns true) on any AX error. Electron apps (VS Code, Zed), JetBrains (Swing), and GPU-rendered editors will always return false — result goes to Display Mode overlay.
+
+### Display Mode (`ConversationCoordinator.displayModeResult`)
+`@Published` string. When non-empty, `DictationOverlayPanel` shows the result and stays open (ignores `.idle` state change). 20-second auto-clear via a cancellable `Task`. `useDisplayMode: false` on dictation ensures raw transcripts always paste.
+
+### Document Context (`ContextCaptureService.capture(mode:documentBudget:)`)
+Advanced mode only. Budget from `ModelOption.documentContextBudget` (0 for None / 600 for <2 GB models / 1500 for <5 GB / 2500 for ≥5 GB). PDF extraction via PDFKit — anchor page from `findString` (skipped for >50-page docs to avoid blocking). Pages/Word via `NSAppleScript` in `Task.detached`. Scanned PDFs return nil → falls back to OCR. OCR (`VNImageRequestHandler.perform`) also moved to `Task.detached` — it's a 50–500ms blocking call that was running on `@MainActor`.
+
+### Polish Dictation (`DictationPolisher.swift`)
+Runs in `stopDictation()` only (not voice edit). Calls `llm.generate(prompt:maxTokens:temperature:0.1)` — temperature override added to `LLMService` protocol with default extension so existing callers are unchanged. Prompt instructs model to preserve all meaningful words and remove only vocal hesitations. 85–120% length ratio safety net; falls back to raw transcript silently on any failure.
+
+### LaTeX Rendering (`MathView.swift`, `OverlayTextRenderer` in `DictationOverlayPanel.swift`)
+`MathView.renderToImage` returns `(image: NSImage, descent: CGFloat)`. Cache stores tuples. `descent = MTMathListDisplay.descent` applied as `.baselineOffset(-descent)` per inline math image — aligns math baseline with surrounding text. Parser handles `$`, `$$`, `\[...\]`, `\(...\)`.
+
+### Action Mode Extensions
+Notes via `NSAppleScript` to Apple Notes. Timer via `UNUserNotificationCenter` (permission requested at app startup in `setup()` for LSUIElement apps). Email via `mailto:` URL with no recipient — compose window only.
+
+---
+
 ## Build Status
 
 **First build:** `swift build` — 779 compilation steps, completed in ~30s
