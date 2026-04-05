@@ -461,15 +461,19 @@ private struct OverlayTextRenderer: View {
                 .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                 .lineLimit(1)
                 .truncationMode(.head)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            // 2–N line mode: vertical scroll pinned to bottom
+            // 2–N line mode: vertical scroll pinned to bottom.
+            // .textSelection(.enabled) allows click-drag / Cmd+C from the non-activating panel
+            // without stealing focus from the user's active app.
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     Text(text)
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.92))
                         .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                        .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id("bottom")
                 }
