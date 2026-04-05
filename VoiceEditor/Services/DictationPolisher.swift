@@ -69,10 +69,11 @@ enum DictationPolisher {
             result = String(result.dropFirst().dropLast())
         }
 
-        // Sanity check: result should be roughly the same length as the input
-        // (±60%). If not, fall back to the original to avoid content changes.
+        // Sanity check: filler removal should reduce length slightly, punctuation
+        // adds negligible characters. Allow 85%–120% of the original length.
+        // Outside that window the model likely rephrased — fall back silently.
         let ratio = Double(result.count) / Double(max(fallback.count, 1))
-        guard !result.isEmpty, ratio > 0.4, ratio < 1.6 else { return fallback }
+        guard !result.isEmpty, ratio > 0.85, ratio < 1.2 else { return fallback }
 
         return result
     }
