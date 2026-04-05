@@ -145,7 +145,7 @@ final class ActionCoordinator {
             try await TimerService.setTimer(durationSeconds: t.durationSeconds, label: t.label)
 
         case .email(let e):
-            try await EmailService.composeEmail(to: e.to, subject: e.subject, body: e.body)
+            try EmailService.composeEmail(subject: e.subject, body: e.body)
 
         case .unknown:
             break  // confirm() returns false for .unknown; should not reach here

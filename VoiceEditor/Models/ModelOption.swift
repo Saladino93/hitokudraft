@@ -32,7 +32,7 @@ struct ModelOption: Identifiable, Hashable, Codable {
         if lower.contains("qwen3") { return Qwen3ModelFamily() }
         if lower.contains("lfm") { return LFMModelFamily() }
         if lower.contains("granite") { return GraniteModelFamily() }
-        if lower.contains("gemma-4") { return Gemma4ModelFamily() }
+        // if lower.contains("gemma-4") { return Gemma4ModelFamily() }  // pending mlx-swift support
         return DefaultModelFamily()
     }
 
@@ -92,11 +92,8 @@ struct ModelOption: Identifiable, Hashable, Codable {
                 name: name, path: path,
                 useVoiceCleanPrompt: true
             )
-        } else if lower.contains("gemma-4") {
-            return ModelOption(
-                name: name, path: path,
-                extraEOSTokens: ["<end_of_turn>"]
-            )
+        // } else if lower.contains("gemma-4") {  // pending mlx-swift support
+        //     return ModelOption(name: name, path: path, extraEOSTokens: ["<end_of_turn>"])
         } else {
             return ModelOption(name: name, path: path)
         }
@@ -200,13 +197,14 @@ enum ModelRegistry {
             description: "Higher-fidelity instruction following",
             estimatedMemoryGB: 3.4
         ),
-        ModelOption(
-            name: "Gemma 4 E2B 5-bit",
-            path: "mlx-community/gemma-4-e2b-5bit",
-            extraEOSTokens: ["<end_of_turn>"],
-            description: "Multilingual + reasoning, 140 languages",
-            estimatedMemoryGB: 4.16
-        ),
+        // Gemma 4 E2B — pending mlx-swift architecture support
+        // ModelOption(
+        //     name: "Gemma 4 E2B 5-bit",
+        //     path: "mlx-community/gemma-4-e2b-5bit",
+        //     extraEOSTokens: ["<end_of_turn>"],
+        //     description: "Multilingual + reasoning, 140 languages",
+        //     estimatedMemoryGB: 4.16
+        // ),
         ModelOption(
             name: "Qwen3.5 9B 4-bit",
             path: "mlx-community/Qwen3.5-9B-4bit",
