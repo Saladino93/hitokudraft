@@ -2,18 +2,15 @@ import ApplicationServices
 
 /// Accessibility-API-based implementation of `EditabilityDetector`.
 ///
-/// Detection strategy (two-pass, fail-open):
+/// Detection strategy (fail-open):
 /// 1. Read `kAXRoleAttribute` from the system-wide focused element and check
 ///    against a whitelist of standard editable roles.
-/// 2. If role is absent or not in the whitelist, probe
-///    `kAXInsertionPointLineNumberAttribute` — macOS only returns `.success`
-///    for this attribute on elements that actually accept a text cursor
-///    (covers contenteditable web areas that have non-standard role strings).
-/// 3. If any AX call fails (permission revoked, element gone), return `true`
+/// 2. Check `kAXSelectedTextAttribute` — present on any element that holds a
+///    text cursor, including native text views that report a non-standard role.
+/// 3. Probe `kAXInsertionPointLineNumberAttribute` — native text views (Terminal).
+/// 4. Check `kAXSelectedTextRangeAttribute` settability — covers remaining cases.
+/// 5. If any AX call fails (permission revoked, element gone), return `true`
 ///    so the app falls back to the existing paste behavior.
-///
-/// Uses the same `AXUIElementCopyAttributeValue` + `unsafeBitCast` pattern
-/// as `ContextCaptureService` — consistent and tested in production.
 struct AXEditabilityDetector: EditabilityDetector {
 
     private static let editableRoles: Set<String> = [
@@ -21,6 +18,10 @@ struct AXEditabilityDetector: EditabilityDetector {
         "AXTextArea",
         "AXComboBox",
         "AXSearchField",
+        // WebKit-based editors (Apple Mail compose, contenteditable pages in browsers,
+        // Notion, etc.) report role AXWebArea. The compose body receives keyboard focus
+        // and expects Cmd+V paste; treating it as non-editable wrongly shows the overlay.
+        "AXWebArea",
     ]
 
     func focusedElementIsEditable() -> Bool {
@@ -44,10 +45,34 @@ struct AXEditabilityDetector: EditabilityDetector {
             return true
         }
 
-        // Step 3: Insertion-point probe — present only in elements that accept a cursor.
+        // Step 3: Selected-text attribute — present on any element that holds a text cursor,
+        //         including native text views with non-standard roles.
+        //         Returns .success with an empty string when no text is selected but a cursor exists.
+        var selRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            focused, kAXSelectedTextAttribute as CFString, &selRef
+        ) == .success {
+            return true
+        }
+
+        // Step 4: Insertion-point probe — fallback for native text views that expose
+        //         kAXInsertionPointLineNumberAttribute (e.g. Terminal input lines).
         var ipRef: CFTypeRef?
-        return AXUIElementCopyAttributeValue(
+        if AXUIElementCopyAttributeValue(
             focused, kAXInsertionPointLineNumberAttribute as CFString, &ipRef
-        ) == .success
+        ) == .success {
+            return true
+        }
+
+        // Step 5: Check if kAXSelectedTextRangeAttribute is settable — editable text
+        //         allows cursor repositioning; non-editable elements do not.
+        var settable: DarwinBoolean = false
+        if AXUIElementIsAttributeSettable(
+            focused, kAXSelectedTextRangeAttribute as CFString, &settable
+        ) == .success && settable.boolValue {
+            return true
+        }
+
+        return false
     }
 }

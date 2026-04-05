@@ -39,10 +39,20 @@ Hitoku Draft is a commercial macOS application built on open-source software and
 - **License:** Apache 2.0
 - **Used for:** HuggingFace Hub client for model downloads
 
+### SwiftMath
+- **Source:** [github.com/mgriebling/SwiftMath](https://github.com/mgriebling/SwiftMath)
+- **License:** MIT — Copyright © 2022 Mike Griebling (fork of iosMath by Kostub Deshmukh, MIT)
+- **Used for:** LaTeX math rendering in the overlay — CoreText/CoreGraphics, no WebKit dependency
+
 ### Sparkle — v2.9.0
 - **Source:** [github.com/sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle)
 - **License:** MIT — Copyright © 2006-2013 Andy Matuschak, 2015-2024 Sparkle Project
 - **Used for:** Auto-update framework (check for updates, download and install new versions)
+
+### CodeHighlighter (built-in)
+- **Source:** `VoiceEditor/Views/CodeHighlighter.swift` — original code, part of this project
+- **License:** N/A (proprietary, not a separate open-source component)
+- **Used for:** Syntax highlighting for code blocks in the overlay. Pure Swift, no external dependencies. Atom One Dark palette; supports Python, Swift, JavaScript/TypeScript, Go, Rust, C/C++, Bash, SQL, JSON, and more.
 
 ---
 
@@ -152,7 +162,7 @@ A simple in-app "Acknowledgments" window listing all libraries and their license
 
 ---
 
-*Last updated: March 2026*
+*Last updated: April 2026*
 
 ---
 

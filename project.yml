@@ -59,8 +59,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hitokudraft.app
         PRODUCT_NAME: Hitoku Draft
-        MARKETING_VERSION: "1.3.0"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "1.4.0"
+        CURRENT_PROJECT_VERSION: "18"
         INFOPLIST_FILE: VoiceEditor/Info.plist
         CODE_SIGN_ENTITLEMENTS: VoiceEditor/VoiceEditor.entitlements
         CODE_SIGN_STYLE: Automatic

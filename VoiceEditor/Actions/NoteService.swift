@@ -7,10 +7,12 @@ enum NoteService {
 
     enum NoteError: LocalizedError {
         case scriptFailed(String)
+        case timeout
 
         var errorDescription: String? {
             switch self {
             case .scriptFailed(let msg): return "Could not create note: \(msg)"
+            case .timeout: return "Notes did not respond in time — please grant automation permission if prompted, then try again."
             }
         }
     }
@@ -27,15 +29,29 @@ enum NoteService {
         end tell
         """
 
-        try await Task.detached(priority: .userInitiated) {
-            var error: NSDictionary?
-            let appleScript = NSAppleScript(source: script)
-            appleScript?.executeAndReturnError(&error)
-            if let error {
-                let msg = error[NSAppleScript.errorMessage] as? String ?? "Unknown error"
-                throw NoteError.scriptFailed(msg)
+        // Race the AppleScript execution against a 30-second timeout.
+        // On first use, macOS shows an automation permission dialog for Notes.
+        // Without a timeout the app would appear frozen until the user responds.
+        // Cancelling the group unblocks the caller; the AppleScript task may still
+        // finish in the background (C code is not Swift-cancellation-aware).
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await Task.detached(priority: .userInitiated) {
+                    var error: NSDictionary?
+                    NSAppleScript(source: script)?.executeAndReturnError(&error)
+                    if let error {
+                        let msg = error[NSAppleScript.errorMessage] as? String ?? "Unknown error"
+                        throw NoteError.scriptFailed(msg)
+                    }
+                }.value
             }
-        }.value
+            group.addTask {
+                try await Task.sleep(for: .seconds(30))
+                throw NoteError.timeout
+            }
+            try await group.next()!
+            group.cancelAll()
+        }
     }
 
     // MARK: - Private

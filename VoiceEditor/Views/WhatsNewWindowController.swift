@@ -42,8 +42,9 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
         // Always record current version so the window won't reappear.
         defaults.set(current, forKey: "whatsNewLastSeenVersion")
 
-        // Skip on fresh install (empty lastSeen) and when version is unchanged.
-        guard !lastSeen.isEmpty, current != lastSeen else { return }
+        // Show on upgrade (lastSeen differs) and on first run/fresh install.
+        // Suppressed only when relaunching the same version.
+        guard current != lastSeen else { return }
 
         // Delay slightly so the menu bar is fully set up before the window appears.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
@@ -62,24 +63,29 @@ private struct WhatsNewBullet {
 
 private let whatsNewBullets: [WhatsNewBullet] = [
     WhatsNewBullet(
-        symbol: "calendar.badge.plus",
-        title: "Action Mode",
-        detail: "Press the shortcut with no text selected, then dictate a command — create Calendar events and Reminders from natural language."
+        symbol: "note.text.badge.plus",
+        title: "Notes, Timer & Email Actions",
+        detail: "Action Mode now supports three new commands: create Apple Notes, set countdown timers with macOS notifications, and compose emails in your default mail client."
     ),
     WhatsNewBullet(
-        symbol: "waveform.badge.microphone",
-        title: "Whisper English Models",
-        detail: "Two new lightweight speech models (90 MB / 180 MB) running on Apple Neural Engine — ideal for 8 GB machines or English-only use."
+        symbol: "curlybraces",
+        title: "Code Syntax Highlighting",
+        detail: "LLM responses containing code blocks are rendered with Atom One Dark syntax coloring — Python, Swift, JavaScript, Go, Rust, and 10 more languages."
     ),
     WhatsNewBullet(
-        symbol: "nosign",
-        title: "No-LLM Mode",
-        detail: "Set the language model to \"None\" to paste raw transcriptions directly, freeing up 2–7 GB of RAM."
+        symbol: "function",
+        title: "LaTeX Math Rendering",
+        detail: "Inline and display math ($…$, $$…$$, \\[…\\]) is rendered natively using SwiftMath — no WebKit, no browser overhead."
     ),
     WhatsNewBullet(
-        symbol: "timer.square",
-        title: "Auto-Offload",
-        detail: "Model weights are automatically released after 5 minutes of inactivity and reload from cache on next use."
+        symbol: "rectangle.and.text.magnifyingglass",
+        title: "Overlay Display Mode",
+        detail: "When the focused element cannot accept text (PDF viewer, Finder, Terminal), the LLM result appears in the overlay for 20 seconds instead of pasting into the void."
+    ),
+    WhatsNewBullet(
+        symbol: "waveform.badge.checkmark",
+        title: "Polish Dictation",
+        detail: "An optional post-processing pass removes filler words (um, uh, euh, äh…) and adds punctuation after each dictation recording stops."
     ),
 ]
 

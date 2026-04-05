@@ -85,10 +85,12 @@ final class ModelManager: ObservableObject {
             llmReady = false
             Memory.clearCache()
         }
-        if asrModels != nil {
-            asrModels = nil
-            sttReady = false
-        }
+        // Release asrModels (FluidAudio) and mark STT as not ready for ALL backends.
+        // WhisperKit/mlxAudio don't use asrModels — their model lives in the coordinator's stt var.
+        // Setting sttReady = false triggers the Combine sink that nils the coordinator's stt,
+        // which deallocates the service and releases WhisperKit/mlxAudio weights from memory.
+        asrModels = nil
+        if sttReady { sttReady = false }
     }
 
     // MARK: - Model Loading

@@ -5,7 +5,7 @@ import Foundation
 /// for parsing errors (only for the underlying LLM call).
 struct ActionRouter {
 
-    static let maxTokens = 250
+    static let maxTokens = 500  // bumped from 250 — email body may be several sentences
 
     // MARK: - Entry Point
 
@@ -65,7 +65,7 @@ struct ActionRouter {
         - "remind me to", "don't forget" → reminder. "schedule", "book", "meeting", "appointment" → calendar_event.
         - "take a note", "note that", "jot down" → note. Body is the content; title is a short summary.
         - "set a timer", "timer for", "remind me in X minutes/seconds" (countdown) → timer.
-        - "email", "send a message to", "write to" → email. Subject is a short summary; body is the message text.
+        - "email", "send a message to", "write to" → email. Subject MUST be non-empty (derive from body if not stated, max 50 chars). Body is a complete, naturally-written email — write full sentences on the user's behalf, expanding their intent. Do NOT just copy the user's words verbatim; write as if composing the email for them.
         - Resolve relative dates ("tomorrow", "next Monday", "in 2 hours") using the current date above.
         - duration_minutes: use ONLY what the user explicitly stated (e.g. "2-hour meeting" → 120). Otherwise output 60.
         - duration_seconds: convert as needed (e.g. "10 minutes" → 600, "30 seconds" → 30).
@@ -163,10 +163,18 @@ struct ActionRouter {
     }
 
     private static func parseEmail(dict: [String: Any], raw: String) -> PendingAction {
-        guard let subject = dict["subject"] as? String,
-              let body = dict["body"] as? String
-        else {
+        guard let body = dict["body"] as? String else {
             return .unknown(transcript: raw)
+        }
+        var subject = (dict["subject"] as? String) ?? ""
+        // Fallback: derive subject from first few words of body
+        if subject.trimmingCharacters(in: .whitespaces).isEmpty {
+            let words = body.split(separator: " ").prefix(8).joined(separator: " ")
+            subject = String(words.prefix(50))
+        }
+        // Cap at 50 chars
+        if subject.count > 50 {
+            subject = String(subject.prefix(47)) + "..."
         }
         return .email(.init(subject: subject, body: body))
     }

@@ -91,6 +91,13 @@ struct AcknowledgmentsView: View {
                 )
 
                 LibraryCard(
+                    name: "SwiftMath",
+                    source: "github.com/mgriebling/SwiftMath",
+                    license: "MIT — Copyright © 2022 Mike Griebling (fork of iosMath by kostub Deshmukh)",
+                    usedFor: "LaTeX math rendering in the overlay (no WebKit — CoreText/CoreGraphics)"
+                )
+
+                LibraryCard(
                     name: "Sparkle — v2.9.0",
                     source: "github.com/sparkle-project/Sparkle",
                     license: "MIT — Copyright © 2006-2013 Andy Matuschak, 2015-2024 Sparkle Project",
