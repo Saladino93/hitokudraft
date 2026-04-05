@@ -30,7 +30,6 @@ enum PendingAction: Sendable {
     }
 
     struct EmailAction: Sendable {
-        let to: String           // name or raw email address
         let subject: String
         let body: String
     }
@@ -71,9 +70,7 @@ extension PendingAction {
             let duration = mins > 0 ? "\(mins) min\(secs > 0 ? " \(secs) sec" : "")" : "\(secs) sec"
             return "\(duration) — \(t.label)"
         case .email(let e):
-            // If "to" has no @, it's a spoken name — compose window opens with empty recipient.
-            let recipientLine = e.to.contains("@") ? "To: \(e.to)" : "Intended for: \(e.to) (you'll add the address)"
-            return "\(recipientLine)\nSubject: \(e.subject)\n\(e.body.prefix(120))"
+            return "Subject: \(e.subject)\n\(e.body.prefix(120))"
         case .unknown(let t):
             return "Could not understand: \"\(t)\""
         }

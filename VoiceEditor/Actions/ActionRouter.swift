@@ -55,8 +55,7 @@ struct ActionRouter {
         {"type":"timer","duration_seconds":<number>,"label":"..."}
 
         For email:
-        {"type":"email","to":"<email address or spoken name>","subject":"...","body":"..."}
-        Note: if the user said a name without an email address, put that name in "to" — the app opens a compose window without filling the recipient, and the user adds the address themselves.
+        {"type":"email","subject":"...","body":"..."}
 
 
         For unknown:
@@ -66,7 +65,7 @@ struct ActionRouter {
         - "remind me to", "don't forget" → reminder. "schedule", "book", "meeting", "appointment" → calendar_event.
         - "take a note", "note that", "jot down" → note. Body is the content; title is a short summary.
         - "set a timer", "timer for", "remind me in X minutes/seconds" (countdown) → timer.
-        - "email", "send a message to", "write to" → email. Put a raw email address in "to" if given; otherwise put the spoken name. If no recipient was mentioned at all, use "" for "to".
+        - "email", "send a message to", "write to" → email. Subject is a short summary; body is the message text.
         - Resolve relative dates ("tomorrow", "next Monday", "in 2 hours") using the current date above.
         - duration_minutes: use ONLY what the user explicitly stated (e.g. "2-hour meeting" → 120). Otherwise output 60.
         - duration_seconds: convert as needed (e.g. "10 minutes" → 600, "30 seconds" → 30).
@@ -164,15 +163,12 @@ struct ActionRouter {
     }
 
     private static func parseEmail(dict: [String: Any], raw: String) -> PendingAction {
-        // "to" may be null (NSNull) when no recipient was mentioned — treat as ""
-        // so the compose window opens with an empty To: field for the user to fill in.
-        let to = (dict["to"] as? String) ?? ""
         guard let subject = dict["subject"] as? String,
               let body = dict["body"] as? String
         else {
             return .unknown(transcript: raw)
         }
-        return .email(.init(to: to, subject: subject, body: body))
+        return .email(.init(subject: subject, body: body))
     }
 
     /// Parses an ISO-8601-style date string as **local time**.

@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import UserNotifications
 import FluidAudio
 import MLXAudioSTT
 import MLXLMCommon
@@ -191,6 +192,14 @@ final class ConversationCoordinator: ObservableObject {
         modelManager.statusMessage = ""
         state = .idle
         await drainPendingSwitches()
+
+        // Pre-request notification permission so the system dialog appears at a predictable
+        // time (app launch), not buried inside an action pipeline where LSUIElement apps
+        // may not reliably surface the prompt.
+        Task.detached(priority: .background) {
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])
+        }
 
         // License: silent re-verify + first-launch prompt
         await licenseManager.reVerifyIfNeeded()
