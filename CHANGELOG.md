@@ -2,6 +2,11 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [1.4.1] — 2026-04-05
+
+### Fixed
+- **Calendar action permission dialog never appeared** — the release signing step was extracting entitlements from the `.app` bundle rather than the main executable binary. `codesign -d --entitlements` on a bundle concatenates the entitlements of every nested artifact (Sparkle XPC helpers, Autoupdate binary, frameworks…) into one file; when that multi-plist file was then used to re-sign the main app, `codesign` only read the first block (a Sparkle helper, which carries no privacy entitlements). `com.apple.security.personal-information.calendars` was consequently absent from the signed binary. The fix targets the main executable directly, producing a single correct plist for signing.
+
 ## [1.4.0] — 2026-04-05
 
 ### Added

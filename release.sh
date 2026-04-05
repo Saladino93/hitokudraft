@@ -375,8 +375,15 @@ ok "Frameworks signed"
 #    unauthorized entitlements stripped). Using these instead of the raw .entitlements
 #    file avoids launch failures from iOS-only entitlements like increased-memory-limit.
 info "Extracting entitlements from archive..."
+# Target the main executable binary, not the .app bundle.
+# codesign -d on a bundle iterates every nested artifact and appends each
+# binary's entitlements to the output file — producing a concatenated
+# multi-plist file. codesign -f --entitlements then reads only the first
+# block, which belongs to a Sparkle helper and lacks app-specific
+# entitlements (e.g. calendars, contacts). Pointing at the binary directly
+# gives a single, correct plist for the main target.
 codesign -d --entitlements :"$BUILD_DIR/archive-entitlements.plist" \
-    "$ARCHIVE_PATH/Products/Applications/$DISPLAY_NAME.app"
+    "$ARCHIVE_PATH/Products/Applications/$DISPLAY_NAME.app/Contents/MacOS/$DISPLAY_NAME"
 ok "Archive entitlements extracted"
 
 info "Signing main app..."
