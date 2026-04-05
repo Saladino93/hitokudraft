@@ -138,6 +138,15 @@ final class ActionCoordinator {
             }
             try await eventKit.createReminder(r)
 
+        case .note(let n):
+            try await NoteService.createNote(title: n.title, body: n.body)
+
+        case .timer(let t):
+            try await TimerService.setTimer(durationSeconds: t.durationSeconds, label: t.label)
+
+        case .email(let e):
+            try await EmailService.composeEmail(to: e.to, subject: e.subject, body: e.body)
+
         case .unknown:
             break  // confirm() returns false for .unknown; should not reach here
         }

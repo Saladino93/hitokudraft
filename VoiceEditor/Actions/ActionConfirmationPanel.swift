@@ -25,13 +25,31 @@ struct ActionConfirmationPanel {
         case .calendarEvent:
             alert.messageText = "Add to Calendar?"
             alert.informativeText = action.confirmationSummary
-            alert.addButton(withTitle: action.actionVerb)  // primary = confirm
+            alert.addButton(withTitle: action.actionVerb)
             alert.addButton(withTitle: "Cancel")
 
         case .reminder:
             alert.messageText = "Add Reminder?"
             alert.informativeText = action.confirmationSummary
-            alert.addButton(withTitle: action.actionVerb)  // primary = confirm
+            alert.addButton(withTitle: action.actionVerb)
+            alert.addButton(withTitle: "Cancel")
+
+        case .note:
+            alert.messageText = "Create Note?"
+            alert.informativeText = action.confirmationSummary
+            alert.addButton(withTitle: action.actionVerb)
+            alert.addButton(withTitle: "Cancel")
+
+        case .timer:
+            alert.messageText = "Set Timer?"
+            alert.informativeText = action.confirmationSummary
+            alert.addButton(withTitle: action.actionVerb)
+            alert.addButton(withTitle: "Cancel")
+
+        case .email:
+            alert.messageText = "Compose Email?"
+            alert.informativeText = action.confirmationSummary
+            alert.addButton(withTitle: action.actionVerb)
             alert.addButton(withTitle: "Cancel")
         }
 

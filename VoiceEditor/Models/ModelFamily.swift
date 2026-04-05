@@ -189,6 +189,47 @@ struct LFMModelFamily: ModelFamily {
     let draftMaxTokens: Int = 1200
 }
 
+// MARK: - Gemma 4
+
+struct Gemma4ModelFamily: ModelFamily {
+    let familyName = "Gemma4"
+
+    func systemPrompt(screenAware: Bool) -> String {
+        screenAware ? Prompts.screenAwareConciseSystemPrompt : Prompts.conciseSystemPrompt
+    }
+
+    func editPrompt(text: String, instruction: String, context: ScreenContext?) -> String {
+        Prompts.edit(text: text, instruction: instruction, context: context)
+    }
+
+    func draftPrompt(instruction: String, context: ScreenContext?) -> String {
+        Prompts.conciseDraft(instruction: instruction, context: context)
+    }
+
+    /// Strip thinking blocks: <|channel>thought\n…<channel|>
+    func postProcess(_ rawOutput: String) -> String {
+        var result = rawOutput
+        // Gemma 4 thinking blocks use <|channel>thought\n…<channel|>
+        if let regex = try? NSRegularExpression(
+            pattern: #"<\|channel\>thought\n[\s\S]*?<channel\|>\n?"#,
+            options: []
+        ) {
+            result = regex.stringByReplacingMatches(
+                in: result, options: [],
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: ""
+            )
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    let temperature: Float = 0.6
+    let topP: Float = 0.9
+    let repetitionPenalty: Float = 1.2
+    let disableThinking = false
+    let draftMaxTokens: Int = 600
+}
+
 // MARK: - Granite
 
 struct GraniteModelFamily: ModelFamily {

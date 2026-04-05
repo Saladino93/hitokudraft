@@ -10,6 +10,11 @@ final class DictationOverlayPanel {
     private var panel: NSPanel?
     private let viewModel = OverlayViewModel()
     private var cancellables = Set<AnyCancellable>()
+    private weak var coordinator: ConversationCoordinator?
+    /// Non-nil means a monitor install was attempted (even if system returned nil due to permissions).
+    /// Using a separate Bool prevents repeated install attempts when Accessibility is denied.
+    private var escapeMonitorInstalled: Bool = false
+    private var escapeMonitor: Any?
 
     private var theme: DictationTheme { .current }
 
@@ -35,6 +40,13 @@ final class DictationOverlayPanel {
 
     func hide() {
         stopLevelPolling()
+        viewModel.isStreamingLLM = false
+        viewModel.displayModeMaxLines = 3
+        if let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
+        }
+        escapeMonitorInstalled = false
         panel?.orderOut(nil)
         panel = nil
     }
@@ -42,10 +54,15 @@ final class DictationOverlayPanel {
     /// Subscribe to coordinator published properties so the overlay reacts
     /// to state changes without being commanded directly.
     func observe(_ coordinator: ConversationCoordinator) {
-        // Show/hide and set text based on pipeline state
+        self.coordinator = coordinator
+
+        // Show/hide and set text based on pipeline state.
+        // Capture coordinator weakly so we can read displayModeResult directly —
+        // that value is already synchronously set before state transitions to .idle,
+        // so checking it here avoids any Combine sink ordering race.
         coordinator.$state
             .receive(on: RunLoop.main)
-            .sink { [weak self] state in
+            .sink { [weak self, weak coordinator] state in
                 guard let self else { return }
                 switch state {
                 case .listening:
@@ -62,7 +79,11 @@ final class DictationOverlayPanel {
                     self.show(text: text.isEmpty ? L("overlay.dictating") : text,
                               isStatus: text.isEmpty)
                 case .idle, .error, .downloading, .warmingUp:
-                    self.hide()
+                    // Don't close while showing a display-mode result.
+                    // Read displayModeResult directly — it's already set before state = .idle,
+                    // so this is never stale regardless of sink delivery order.
+                    let inDisplayMode = !(coordinator?.displayModeResult.isEmpty ?? true)
+                    if !inDisplayMode { self.hide() }
                 }
             }
             .store(in: &cancellables)
@@ -94,6 +115,38 @@ final class DictationOverlayPanel {
             }
             .store(in: &cancellables)
 
+        // Display-mode result — shown when the focused element is not editable.
+        // Resizes the panel to fit the text (up to displayModeMaxLines lines).
+        // Auto-hides when coordinator clears the result; Esc key also dismisses.
+        coordinator.$displayModeResult
+            .receive(on: RunLoop.main)
+            .sink { [weak self] text in
+                guard let self else { return }
+                if text.isEmpty {
+                    self.hide()
+                } else {
+                    let lines = self.calculateLinesNeeded(for: text)
+                    self.viewModel.displayModeMaxLines = lines
+                    self.viewModel.isStreamingLLM = true  // keeps 3-line+ mode
+                    self.show(text: text, isStatus: false)
+                    self.resizePanel(forLines: lines)
+                    // Global Esc monitor — dismisses overlay from any app.
+                    // Guard with escapeMonitorInstalled (not escapeMonitor == nil) so that a nil
+                    // return from addGlobalMonitorForEvents (Accessibility denied) doesn't cause
+                    // repeated install attempts on every displayModeResult update.
+                    if !self.escapeMonitorInstalled {
+                        self.escapeMonitorInstalled = true
+                        self.escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                            guard event.keyCode == 53 else { return }  // 53 = Esc
+                            Task { @MainActor [weak self] in
+                                self?.coordinator?.clearDisplayModeResult()
+                            }
+                        }
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
         // Waveform level polling — follows the active recording session
         coordinator.$activeRecordingSession
             .receive(on: RunLoop.main)
@@ -108,14 +161,73 @@ final class DictationOverlayPanel {
             .store(in: &cancellables)
     }
 
+    // MARK: - Display-mode helpers
+
+    /// Maximum line count the overlay will expand to in display mode.
+    private static let displayModeMaxLines = 10
+
+    /// Rounded medium 14pt — matches DictationOverlayContent's overlayFont.
+    private static let displayModeFont: NSFont = {
+        let base = NSFont.systemFont(ofSize: 14, weight: .medium)
+        return base.fontDescriptor.withDesign(.rounded)
+            .flatMap { NSFont(descriptor: $0, size: 14) } ?? base
+    }()
+
+    /// Returns the number of lines `text` needs at the current overlay width, capped at displayModeMaxLines.
+    /// Falls back to 3 on any measurement error.
+    private func calculateLinesNeeded(for text: String) -> Int {
+        let overlayWidth = CGFloat(
+            UserDefaults.standard.double(forKey: "overlayWidth")
+                .clamped(to: 150...400, default: 210)
+        )
+        let textAreaWidth = max(1, overlayWidth - 65)  // same deduction as DictationOverlayContent
+        let font = Self.displayModeFont
+        let lineHeight = font.ascender - font.descender + font.leading
+        guard lineHeight > 0 else { return 3 }
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        let rect = (text as NSString).boundingRect(
+            with: CGSize(width: textAreaWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attrs, context: nil
+        )
+        let needed = max(3, Int(ceil(rect.height / lineHeight)))
+        return min(needed, Self.displayModeMaxLines)
+    }
+
+    /// Resizes the overlay panel to accommodate `lineCount` lines, with animation.
+    /// No-op if the panel is already the correct size or doesn't exist.
+    private func resizePanel(forLines lineCount: Int) {
+        guard let panel, let screen = NSScreen.main else { return }
+        let overlayWidth = CGFloat(
+            UserDefaults.standard.double(forKey: "overlayWidth")
+                .clamped(to: 150...400, default: 210)
+        )
+        let panelWidth = overlayWidth + 16
+        let maxCapsuleHeight = 35 + CGFloat(lineCount - 1) * 18
+        let panelHeight = maxCapsuleHeight + 33
+        let screenFrame = screen.visibleFrame
+        let newFrame = NSRect(
+            x: screenFrame.midX - panelWidth / 2,
+            y: screenFrame.maxY - panelHeight,
+            width: panelWidth,
+            height: panelHeight
+        )
+        guard newFrame != panel.frame else { return }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(newFrame, display: true)
+        }
+    }
+
     private func createPanel() {
         // Read user-configurable overlay dimensions
         let capsuleWidth = CGFloat(UserDefaults.standard.double(forKey: "overlayWidth").clamped(to: 150...400, default: 210))
 
-        // Always size the panel for 3 lines so LLM streaming can expand to 3
-        // regardless of the user's dictation line-count setting. The transparent
-        // area above/below the capsule is invisible (panel has no background).
-        let maxCapsuleHeight: CGFloat = 35 + CGFloat(2) * 18  // 3-line capacity
+        // Size the panel to match the current displayModeMaxLines so that
+        // display-mode results create a panel at the right height immediately.
+        // For normal dictation (maxLines = 3) this produces the same 3-line panel as before.
+        let maxCapsuleHeight: CGFloat = 35 + CGFloat(max(0, viewModel.displayModeMaxLines - 1)) * 18
         let panelWidth: CGFloat = capsuleWidth + 16
         let panelHeight: CGFloat = maxCapsuleHeight + 33
 
@@ -168,6 +280,7 @@ private final class OverlayViewModel: ObservableObject {
     @Published var showText: Bool = (UserDefaults.standard.object(forKey: "showDictationText") as? Bool) ?? true
     @Published var isStatus: Bool = false
     @Published var isStreamingLLM: Bool = false
+    @Published var displayModeMaxLines: Int = 3  // increased when showing long display-mode results
     @Published var tick = Date()
 
     private var displayLink: CVDisplayLink?
@@ -219,10 +332,10 @@ private struct DictationOverlayContent: View {
         viewModel.showText && !viewModel.isStatus
     }
 
-    /// During LLM streaming: always 3 lines for maximum readability.
+    /// During LLM streaming / display mode: use displayModeMaxLines (3–10).
     /// During dictation/transcription: respect the user's setting.
     private var maxLines: Int {
-        viewModel.isStreamingLLM ? 3 : max(1, min(3, overlayLineCount))
+        viewModel.isStreamingLLM ? viewModel.displayModeMaxLines : max(1, min(3, overlayLineCount))
     }
 
     private var capsuleWidth: CGFloat {
@@ -283,45 +396,24 @@ private struct DictationOverlayContent: View {
                 .frame(width: 29, height: 16)
 
             if effectiveShowText {
-                if maxLines == 1 {
-                    // 1-line mode: SwiftUI handles tail-trimming natively
-                    Text(viewModel.text)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.92))
-                        .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    // 2–3 line mode: vertical scroll pinned to bottom
-                    ScrollViewReader { proxy in
-                        ScrollView(.vertical, showsIndicators: false) {
-                            Text(viewModel.text)
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.92))
-                                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id("bottom")
-                        }
-                        .frame(height: textAreaHeight)
-                        .clipped()
-                        .onChange(of: viewModel.text) {
-                            proxy.scrollTo("bottom", anchor: .bottom)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                OverlayTextRenderer(
+                    text: viewModel.text,
+                    maxLines: maxLines,
+                    textAreaHeight: textAreaHeight
+                )
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
         .frame(width: effectiveShowText ? capsuleWidth : 64, height: capsuleHeight)
         .background {
-            Capsule()
+            // Fixed 17.5 pt radius matches the pill shape at 35 pt height (normal mode)
+            // but doesn't distort into an oval for tall display-mode content.
+            RoundedRectangle(cornerRadius: 17.5, style: .continuous)
                 .fill(theme.panelBackground)
         }
         .overlay {
-            Capsule()
+            RoundedRectangle(cornerRadius: 17.5, style: .continuous)
                 .strokeBorder(theme.panelBorder, lineWidth: 1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -329,9 +421,164 @@ private struct DictationOverlayContent: View {
         .onChange(of: viewModel.text) { recompute() }
         .onChange(of: viewModel.isStatus) { recompute() }
         .onChange(of: viewModel.isStreamingLLM) { recompute() }
+        .onChange(of: viewModel.displayModeMaxLines) { recompute() }
         .animation(.easeInOut(duration: 0.2), value: effectiveShowText)
         .animation(.easeInOut(duration: 0.15), value: cachedLineCount)
         .animation(.spring(duration: 0.25), value: viewModel.isStreamingLLM)
+    }
+}
+
+
+// MARK: - Overlay Text Renderer
+//
+// Single extension point for LaTeX rendering (SwiftMath via MathView.swift).
+// To swap the LaTeX backend, update MathView.swift only — this struct and all
+// callers are untouched.
+
+
+private struct OverlayTextRenderer: View {
+    let text: String
+    let maxLines: Int
+    let textAreaHeight: CGFloat
+
+    // Parsed segments — (isMath: true if LaTeX expression, content: stripped string).
+    private var segments: [(isMath: Bool, content: String)] {
+        Self.parseLatexSegments(text)
+    }
+
+    private var hasLatex: Bool {
+        segments.contains { $0.isMath }
+    }
+
+    var body: some View {
+        if hasLatex {
+            latexScrollView
+        } else if maxLines == 1 {
+            // 1-line mode: SwiftUI handles tail-trimming natively
+            Text(text)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.92))
+                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            // 2–N line mode: vertical scroll pinned to bottom
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    Text(text)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id("bottom")
+                }
+                .frame(height: textAreaHeight)
+                .clipped()
+                .onChange(of: text) {
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - LaTeX rendering
+
+    /// Builds a single SwiftUI `Text` with inline math images.
+    /// Each `$...$` segment is rendered to an `NSImage` via `MathView.renderToImage` and
+    /// inserted as `Text(Image(...))` — this gives true inline wrapping with surrounding text.
+    private func buildInlineText() -> Text {
+        segments.reduce(Text("")) { result, seg in
+            if seg.isMath,
+               let image = MathView.renderToImage(
+                   latex: seg.content, fontSize: 14,
+                   color: NSColor.white.withAlphaComponent(0.92)
+               ) {
+                result + Text(Image(nsImage: image))
+            } else {
+                result + Text(seg.isMath ? seg.content : seg.content)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.92))
+            }
+        }
+    }
+
+    /// Scrollable view showing inline text + math with proper line wrapping.
+    @ViewBuilder
+    private var latexScrollView: some View {
+        let inlineText = buildInlineText()
+        if maxLines == 1 {
+            inlineText
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    inlineText
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id("latexBottom")
+                }
+                .frame(height: max(textAreaHeight, 44))
+                .clipped()
+                .onChange(of: text) {
+                    proxy.scrollTo("latexBottom", anchor: .bottom)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - LaTeX segment parser
+
+    /// Splits `text` into alternating text and math segments.
+    /// Recognises `$$...$$`, `$...$`, and `\[...\]` delimiters.
+    /// Returns `[(false, text)]` if no LaTeX markers are found.
+    static func parseLatexSegments(_ text: String) -> [(isMath: Bool, content: String)] {
+        var result: [(isMath: Bool, content: String)] = []
+        var currentText = ""
+        var i = text.startIndex
+
+        while i < text.endIndex {
+            let c = text[i]
+            let nextI = text.index(after: i)
+
+            // Display math: $$...$$  (must be checked before single-$ to avoid fallthrough)
+            if c == "$", nextI < text.endIndex, text[nextI] == "$",
+               let afterDollarDollar = text.index(nextI, offsetBy: 1, limitedBy: text.endIndex),
+               let closeRange = text.range(of: "$$", range: afterDollarDollar..<text.endIndex) {
+                if !currentText.isEmpty { result.append((false, currentText)); currentText = "" }
+                result.append((true, String(text[afterDollarDollar..<closeRange.lowerBound])))
+                i = closeRange.upperBound
+                continue
+            }
+
+            // Inline math: $...$  (else-if so the same $ is not re-examined after a failed $$ match)
+            else if c == "$",
+               let closeRange = text.range(of: "$", range: nextI..<text.endIndex) {
+                if !currentText.isEmpty { result.append((false, currentText)); currentText = "" }
+                result.append((true, String(text[nextI..<closeRange.lowerBound])))
+                i = closeRange.upperBound
+                continue
+            }
+
+            // Block math: \[...\]
+            if c == "\\", nextI < text.endIndex, text[nextI] == "[",
+               let afterBracket = text.index(nextI, offsetBy: 1, limitedBy: text.endIndex),
+               let closeRange = text.range(of: "\\]", range: afterBracket..<text.endIndex) {
+                if !currentText.isEmpty { result.append((false, currentText)); currentText = "" }
+                result.append((true, String(text[afterBracket..<closeRange.lowerBound])))
+                i = closeRange.upperBound
+                continue
+            }
+
+            currentText.append(c)
+            i = nextI
+        }
+
+        if !currentText.isEmpty { result.append((false, currentText)) }
+        return result.isEmpty ? [(false, text)] : result
     }
 }
 
