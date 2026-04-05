@@ -130,8 +130,7 @@ struct Qwen35ModelFamily: ModelFamily {
     let repetitionPenalty: Float = 1.2
     let disableThinking = false
 
-    /// Tighter token budget — Qwen3.5 is capable enough to say it in fewer tokens.
-    let draftMaxTokens: Int = 500
+    let draftMaxTokens: Int = 800
 
     /// Disable thinking at the Jinja template level — no <think> blocks produced.
     var templateContext: [String: any Sendable]? {

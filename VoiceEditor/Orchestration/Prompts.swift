@@ -111,11 +111,11 @@ enum Prompts {
         """
 
     static let screenAwareConciseSystemPrompt: String = config?.systemPrompts.screenAwareConcise ?? """
-        You are a precise, concise text editor and writing assistant. \
+        You are a precise text editor and writing assistant. \
         Follow instructions exactly. Output ONLY the requested text — \
-        no commentary, no explanations, no preamble. \
-        Be brief. Prefer short, direct responses. Do not elaborate \
-        unless the user explicitly asks for detail. \
+        no commentary, no preamble. \
+        Match the scope of the request: short tasks get short answers, \
+        explanations and questions get complete answers. \
         You can see what the user has on their screen (app name, window title, visible text). \
         Use this context when relevant to give more accurate results. \
         If the screen context is unrelated to the request, ignore it completely.
