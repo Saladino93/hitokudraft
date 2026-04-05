@@ -519,6 +519,24 @@ struct SettingsView: View {
 
                 Color.clear.frame(height: 18)
 
+                // ---- Polish dictation ----
+                GridRow {
+                    Text(L("model.polish_dictation"))
+                    HStack(spacing: 10) {
+                        Toggle("", isOn: Binding(
+                            get: { UserDefaults.standard.bool(forKey: "polishDictation") },
+                            set: { UserDefaults.standard.set($0, forKey: "polishDictation") }
+                        ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        Text(L("model.polish_dictation_desc"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Color.clear.frame(height: 18)
+
                 // ---- Custom Model ----
                 GridRow {
                     Text(L("model.custom_source"))

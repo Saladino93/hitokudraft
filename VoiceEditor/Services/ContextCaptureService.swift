@@ -220,8 +220,10 @@ final class ContextCaptureService {
 
         // Anchor to the page that contains the selected text (fast PDFKit search).
         // Falls back to page 0 when there is no selection or the text is not found.
+        // Skip anchor search for large PDFs (>50 pages): findString scans the entire
+        // document sequentially and can take seconds on a 500–1000 page textbook.
         var anchorIdx = 0
-        if let sel = selectedText, sel.count > 10 {
+        if let sel = selectedText, sel.count > 10, pageCount <= 50 {
             let query = String(sel.prefix(50))
             if let hit = doc.findString(query, withOptions: .caseInsensitive).first,
                let hitPage = hit.pages.first {

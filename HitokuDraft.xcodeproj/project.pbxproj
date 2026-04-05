@@ -62,6 +62,7 @@
 		BE06CC77E54985BE86662032 /* ThreadSafeAudioBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B8BDD26ED55CAD75C31DEA9 /* ThreadSafeAudioBuffer.swift */; };
 		BEAE1669FC23BF12C5B01272 /* PromptsConfig.json in Resources */ = {isa = PBXBuildFile; fileRef = D869A3C8473D994DDC67E8EC /* PromptsConfig.json */; };
 		C450E99A03D822C8343E2FA1 /* EditabilityDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 824A906280286B9F49739E2C /* EditabilityDetector.swift */; };
+		0FB383547A30BE7244CEA794 /* DictationPolisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DC1F65B0FBF670A97D22880 /* DictationPolisher.swift */; };
 		CA1D287B0F742144F7CDEACF /* MLXAudioSTTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FCC18A9DC690AE945FDB73E /* MLXAudioSTTService.swift */; };
 		D3F0FFE4FEC261606C31A1BA /* AppDomainConfig.json in Resources */ = {isa = PBXBuildFile; fileRef = 738806D6A072E9D7C923E4D8 /* AppDomainConfig.json */; };
 		D5EC541CBAD9C1C25779F577 /* STTModelOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C75712069C040E712DF1D3 /* STTModelOption.swift */; };
@@ -114,6 +115,7 @@
 		7631ED79F95EA0FF8F9FBC23 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		7D6E04299E9593E95514B481 /* LanguageDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageDetector.swift; sourceTree = "<group>"; };
 		824A906280286B9F49739E2C /* EditabilityDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditabilityDetector.swift; sourceTree = "<group>"; };
+		1DC1F65B0FBF670A97D22880 /* DictationPolisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationPolisher.swift; sourceTree = "<group>"; };
 		85DF8CE392556BF84513977A /* FluidAudioSTT.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FluidAudioSTT.swift; sourceTree = "<group>"; };
 		8752ADE44B1F7FBFAFF2F0A4 /* ACKNOWLEDGMENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ACKNOWLEDGMENTS.md; sourceTree = "<group>"; };
 		87D0A1DA4C61A022ADE84FE7 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
@@ -246,6 +248,7 @@
 			children = (
 				BFF1B826BC2523296B373BA2 /* AudioCaptureService.swift */,
 				2076F23BB6BA3EDD97C5BB3E /* AXEditabilityDetector.swift */,
+				1DC1F65B0FBF670A97D22880 /* DictationPolisher.swift */,
 				2D36668894D68F29E5CA2160 /* ContextCaptureService.swift */,
 				824A906280286B9F49739E2C /* EditabilityDetector.swift */,
 				85DF8CE392556BF84513977A /* FluidAudioSTT.swift */,
@@ -441,6 +444,7 @@
 				3663CFC1E4498A879FFBA8BC /* DownloadProgressView.swift in Sources */,
 				EC1860206D35BE57C8DFECAB /* DraftDetector.swift in Sources */,
 				C450E99A03D822C8343E2FA1 /* EditabilityDetector.swift in Sources */,
+				0FB383547A30BE7244CEA794 /* DictationPolisher.swift in Sources */,
 				928DD49C83D426FA7F6005FC /* EmailService.swift in Sources */,
 				AA39BDAAFDF851226EF53393 /* EventKitService.swift in Sources */,
 				AA597185C11D8A6AA7A47F70 /* FluidAudioSTT.swift in Sources */,

@@ -5,6 +5,7 @@ All notable changes to Hitoku Draft are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Polish dictation** — new toggle in Settings → Models. When on, raw dictation transcripts are passed through a quick LLM cleanup pass after recording stops: removes filler words (um, uh, like, you know, and language-native equivalents such as euh/beh/ähm/este), adds punctuation, and capitalizes sentences. Does not rephrase or change actual words. Falls back to the raw transcript silently on any LLM error. Requires a loaded LLM; no-ops when None is selected.
 - **Action Mode: Notes** — say "take a note" or "note that…" to create a note in Apple Notes via AppleScript. A confirmation modal shows the title and body before anything is created.
 - **Action Mode: Timer** — say "set a timer for 10 minutes" or "remind me in 30 seconds" to schedule a local macOS notification countdown. Uses `UNUserNotificationCenter`; prompts for notification permission on first use.
 - **Action Mode: Email** — say "email John that I'll be late" to open a pre-filled compose window in your default mail client (Mail, Thunderbird, or any app set as default). If you speak a name without an email address, the compose window opens with an empty recipient field for you to fill in. Raw email addresses work directly. Never sends automatically — the user must press Send.
@@ -24,6 +25,7 @@ All notable changes to Hitoku Draft are documented in this file.
 - **LaTeX inline math baseline misalignment** — inline math images now sit on the same text baseline as surrounding words. `MTMathListDisplay.descent` is the portion of rendered glyphs below the math baseline (fractions, subscripts); it is now applied as `.baselineOffset(-descent)` on each `Text(Image(...))` piece. Previously math floated above text by that amount.
 - **LaTeX parser: `\(...\)` inline math support** — the segment parser now recognises `\(` … `\)` as an inline math delimiter in addition to `$...$`. Many LLMs default to `\(` for inline math (e.g. ChatGPT-style output); previously these were emitted as plain text.
 - **OCR unblocks main thread** — `VNImageRequestHandler.perform` is a synchronous blocking call (50–500 ms). Although `runOCR` was marked `nonisolated`, calling it synchronously from `@MainActor` context still ran it on the main thread, freezing the UI before the "Generating…" state appeared. Both OCR call sites are now wrapped in `Task.detached(priority: .userInitiated)` so Vision runs off the main actor.
+- **PDF anchor search skipped for large documents** — `PDFDocument.findString` scans the entire document sequentially; on PDFs over 50 pages this could add seconds to the context capture step. Anchor search is now skipped for PDFs with more than 50 pages (extraction starts at page 0 instead).
 - **LaTeX parser double-consumes `$$` opener as `$`** — the inline-math parser now uses `else if` so the single-dollar branch cannot fire on the same character position when a `$$` match fails.
 
 ## [1.3.0] — 2026-04-04
