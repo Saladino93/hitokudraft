@@ -84,16 +84,22 @@ final class ContextCaptureService {
             return ctx
         }
 
-        // Advanced mode: always run OCR on focused app for broader page context
-        if let image = await captureWindow(pid: pid),
-           let ocrText = runOCR(on: image), !ocrText.isEmpty {
-            if ctx.focusedText == nil {
-                ctx.focusedText = String(ocrText.prefix(2000))
+        // Advanced mode: always run OCR on focused app for broader page context.
+        // Task.detached keeps VNImageRequestHandler.perform off the main actor — it is a
+        // synchronous blocking call (50–500 ms) and nonisolated alone does not prevent it
+        // from running on the main thread when called from @MainActor context.
+        if let image = await captureWindow(pid: pid) {
+            let ocrText = await Task.detached(priority: .userInitiated) {
+                self.runOCR(on: image)
+            }.value
+            if let ocrText, !ocrText.isEmpty {
+                if ctx.focusedText == nil {
+                    ctx.focusedText = String(ocrText.prefix(2000))
+                }
+                if ctx.source == .none { ctx.source = .ocr }
             }
-            if ctx.source == .none { ctx.source = .ocr }
-        } else if ctx.source == .none {
-            ctx.source = .titleOnly
         }
+        if ctx.source == .none { ctx.source = .titleOnly }
 
         // Advanced mode: also capture background app via OCR
         if recentExternalApps.count > 1 {
@@ -107,9 +113,13 @@ final class ContextCaptureService {
                 ctx.backgroundWindowTitle = axValue(bgWindow, kAXTitleAttribute) as? String
             }
 
-            if let bgImage = await captureWindow(pid: bgPid),
-               let bgOCR = runOCR(on: bgImage), !bgOCR.isEmpty {
-                ctx.backgroundText = String(bgOCR.prefix(2000))
+            if let bgImage = await captureWindow(pid: bgPid) {
+                let bgOCR = await Task.detached(priority: .userInitiated) {
+                    self.runOCR(on: bgImage)
+                }.value
+                if let bgOCR, !bgOCR.isEmpty {
+                    ctx.backgroundText = String(bgOCR.prefix(2000))
+                }
             }
         }
 
