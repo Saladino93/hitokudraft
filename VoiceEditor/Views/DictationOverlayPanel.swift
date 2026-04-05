@@ -552,7 +552,8 @@ private struct OverlayTextRenderer: View {
     // MARK: - LaTeX segment parser
 
     /// Splits `text` into alternating text and math segments.
-    /// Recognises `$$...$$`, `$...$`, and `\[...\]` delimiters.
+    /// Recognises `$$...$$`, `$...$`, `\[...\]`, and `\(...\)` delimiters.
+    /// Unclosed delimiters are treated as plain text (no fallthrough mis-parse).
     /// Returns `[(false, text)]` if no LaTeX markers are found.
     static func parseLatexSegments(_ text: String) -> [(isMath: Bool, content: String)] {
         var result: [(isMath: Bool, content: String)] = []
@@ -582,14 +583,18 @@ private struct OverlayTextRenderer: View {
                 continue
             }
 
-            // Block math: \[...\]
-            if c == "\\", nextI < text.endIndex, text[nextI] == "[",
-               let afterBracket = text.index(nextI, offsetBy: 1, limitedBy: text.endIndex),
-               let closeRange = text.range(of: "\\]", range: afterBracket..<text.endIndex) {
-                if !currentText.isEmpty { result.append((false, currentText)); currentText = "" }
-                result.append((true, String(text[afterBracket..<closeRange.lowerBound])))
-                i = closeRange.upperBound
-                continue
+            // Block math: \[...\]  or inline math: \(...\)
+            if c == "\\", nextI < text.endIndex {
+                let nc = text[nextI]
+                let (close, skip): (String, Int) = nc == "[" ? ("\\]", 1) : nc == "(" ? ("\\)", 1) : ("", 0)
+                if skip > 0,
+                   let afterOpen = text.index(nextI, offsetBy: skip, limitedBy: text.endIndex),
+                   let closeRange = text.range(of: close, range: afterOpen..<text.endIndex) {
+                    if !currentText.isEmpty { result.append((false, currentText)); currentText = "" }
+                    result.append((true, String(text[afterOpen..<closeRange.lowerBound])))
+                    i = closeRange.upperBound
+                    continue
+                }
             }
 
             currentText.append(c)
