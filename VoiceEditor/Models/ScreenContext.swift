@@ -24,6 +24,10 @@ struct ScreenContext {
     var backgroundWindowTitle: String?
     var backgroundText: String?
 
+    /// Broader document text from PDFKit or AppleScript (Advanced mode only).
+    /// Nil when the app is not supported or has no text layer (scanned PDFs fall back to OCR).
+    var documentContext: String?
+
     /// Formatted block for injection into an LLM prompt, or nil when empty.
     var promptBlock: String? {
         var lines: [String] = []
@@ -41,6 +45,9 @@ struct ScreenContext {
         if let focused = focusedText, !focused.isEmpty {
             let label = selectedText != nil ? "Surrounding page text" : "Visible text"
             lines.append("\(label):\n\(String(focused.prefix(2000)))")
+        }
+        if let doc = documentContext, !doc.isEmpty {
+            lines.append("Broader document text (adjacent pages/body):\n\(doc)")
         }
 
         // Background app context

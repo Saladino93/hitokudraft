@@ -449,7 +449,10 @@ final class ConversationCoordinator: ObservableObject {
         voiceEditTask = Task { [weak self] in
             guard let self else { return }
 
-            let screenContext = await contextCapture.capture(mode: contextAwareMode)
+            let screenContext = await contextCapture.capture(
+                mode: contextAwareMode,
+                documentBudget: modelManager.selectedModel.documentContextBudget
+            )
             var savedClipboard: TextCaptureService.ClipboardSnapshot?
 
             do {

@@ -18,6 +18,18 @@ struct ModelOption: Identifiable, Hashable, Codable {
     /// Used to warn users when the model exceeds 25% of physical RAM.
     var estimatedMemoryGB: Double = 0
 
+    /// Maximum character budget for document context (PDF pages, Pages/Word body) injected
+    /// into the LLM prompt. Scales with model size so small models are not overloaded.
+    /// 0 for the None sentinel (no LLM) — document extraction is skipped entirely.
+    var documentContextBudget: Int {
+        switch estimatedMemoryGB {
+        case 0:       return 0      // None sentinel — no LLM
+        case ..<2:    return 600    // LFM 1.2B, very tight context
+        case ..<5:    return 1500   // Qwen3.5 4B, Granite 4 Micro
+        default:      return 2500   // Qwen3.5 9B and above
+        }
+    }
+
     var id: String { path }
 
     var isLocal: Bool { path.hasPrefix("/") }

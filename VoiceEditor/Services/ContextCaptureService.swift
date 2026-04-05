@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import PDFKit
 import ScreenCaptureKit
 import Vision
 import os
@@ -49,7 +50,9 @@ final class ContextCaptureService {
     }
 
     /// Capture screen context using the specified mode.
-    func capture(mode: ContextAwareMode) async -> ScreenContext {
+    /// `documentBudget` > 0 enables PDF/Pages/Word document extraction in Advanced mode
+    /// (budget is in characters; scales with model capability via `ModelOption.documentContextBudget`).
+    func capture(mode: ContextAwareMode, documentBudget: Int = 0) async -> ScreenContext {
         guard mode != .off else { return ScreenContext() }
         guard let app = lastExternalApp else { return ScreenContext() }
 
@@ -110,7 +113,145 @@ final class ContextCaptureService {
             }
         }
 
+        // Advanced mode: broader document context (PDF pages, Pages/Word body).
+        // Runs only when caller provides a non-zero budget (i.e. an LLM is loaded).
+        // Scanned PDFs return nil here and fall back to the OCR already captured above.
+        if documentBudget > 0 {
+            ctx.documentContext = await captureDocumentContext(
+                app: app, pid: pid,
+                budget: documentBudget,
+                selectedText: ctx.selectedText
+            )
+        }
+
         return ctx
+    }
+
+    // MARK: - Document Context (PDFKit + AppleScript)
+
+    /// Dispatches to the appropriate document extractor based on the frontmost app.
+    /// PDF: AX window document path → PDFKit text layer (anchored to selected-text page).
+    /// Pages / Word: AppleScript body text.
+    /// Returns nil when unsupported, when the PDF has no text layer, or on any error.
+    private func captureDocumentContext(
+        app: NSRunningApplication,
+        pid: pid_t,
+        budget: Int,
+        selectedText: String?
+    ) async -> String? {
+        let bundleID = app.bundleIdentifier ?? ""
+
+        if bundleID == "com.apple.iWork.Pages" {
+            return await Task.detached(priority: .userInitiated) {
+                Self.runAppleScript(
+                    """
+                    tell application "Pages"
+                        if (count of documents) > 0 then
+                            return body text of front document
+                        end if
+                    end tell
+                    """,
+                    budget: budget
+                )
+            }.value
+        }
+
+        if bundleID == "com.microsoft.Word" {
+            return await Task.detached(priority: .userInitiated) {
+                Self.runAppleScript(
+                    """
+                    tell application "Microsoft Word"
+                        if (count of documents) > 0 then
+                            return content of text object of active document
+                        end if
+                    end tell
+                    """,
+                    budget: budget
+                )
+            }.value
+        }
+
+        // PDF: any app that exposes a .pdf via kAXDocumentAttribute (Preview, PDF Expert, Skim, …)
+        guard let docURL = axDocumentURL(pid: pid),
+              docURL.pathExtension.lowercased() == "pdf" else { return nil }
+        let sel = selectedText
+        return await Task.detached(priority: .userInitiated) {
+            Self.extractPDFText(at: docURL, selectedText: sel, budget: budget)
+        }.value
+    }
+
+    /// Reads `kAXDocumentAttribute` from the focused window and returns it as a file URL.
+    private func axDocumentURL(pid: pid_t) -> URL? {
+        let appElement = AXUIElementCreateApplication(pid)
+        var windowRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement, kAXFocusedWindowAttribute as CFString, &windowRef
+        ) == .success, let windowRef else { return nil }
+        let window = unsafeBitCast(windowRef, to: AXUIElement.self)
+        var docRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            window, kAXDocumentAttribute as CFString, &docRef
+        ) == .success, let docString = docRef as? String else { return nil }
+        // kAXDocumentAttribute returns a file:// URL string
+        return URL(string: docString) ?? URL(fileURLWithPath: docString)
+    }
+
+    /// Extracts text from a PDF using PDFKit, anchored to the page that contains `selectedText`.
+    /// Math symbols and code are preserved as Unicode characters from the text layer.
+    /// Returns nil for scanned image-only PDFs (no text layer) — OCR is the fallback for those.
+    nonisolated private static func extractPDFText(
+        at url: URL,
+        selectedText: String?,
+        budget: Int
+    ) -> String? {
+        guard let doc = PDFDocument(url: url) else { return nil }
+        let pageCount = doc.pageCount
+        guard pageCount > 0 else { return nil }
+
+        // Anchor to the page that contains the selected text (fast PDFKit search).
+        // Falls back to page 0 when there is no selection or the text is not found.
+        var anchorIdx = 0
+        if let sel = selectedText, sel.count > 10 {
+            let query = String(sel.prefix(50))
+            if let hit = doc.findString(query, withOptions: .caseInsensitive).first,
+               let hitPage = hit.pages.first {
+                anchorIdx = doc.index(for: hitPage)
+            }
+        }
+
+        // Expand outward from anchor: anchor, anchor−1, anchor+1, anchor−2, anchor+2, …
+        var result = ""
+        for pageIdx in Self.pageSequence(anchor: anchorIdx, total: pageCount) {
+            guard let page = doc.page(at: pageIdx),
+                  let text = page.string, !text.isEmpty else { continue }
+            let remaining = budget - result.count
+            guard remaining > 100 else { break }
+            if !result.isEmpty { result += "\n\n[p.\(pageIdx + 1)]\n" }
+            result += String(text.prefix(remaining))
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    /// Returns page indices starting at `anchor` and expanding outward, capped at 5 pages.
+    nonisolated private static func pageSequence(anchor: Int, total: Int) -> [Int] {
+        var pages = [anchor]
+        for delta in 1..<total {
+            if pages.count >= 5 { break }
+            let before = anchor - delta
+            let after  = anchor + delta
+            if before >= 0    { pages.append(before) }
+            if after < total  { pages.append(after) }
+        }
+        return pages
+    }
+
+    /// Executes a simple AppleScript and returns the string result trimmed to `budget` chars.
+    nonisolated private static func runAppleScript(_ source: String, budget: Int) -> String? {
+        var error: NSDictionary?
+        guard let script = NSAppleScript(source: source) else { return nil }
+        let result = script.executeAndReturnError(&error)
+        guard error == nil, let text = result.stringValue, !text.isEmpty else { return nil }
+        return String(text.prefix(budget))
     }
 
     // MARK: - Window Capture
