@@ -419,12 +419,12 @@ private struct DictationOverlayContent: View {
             RoundedRectangle(cornerRadius: 17.5, style: .continuous)
                 .strokeBorder(theme.panelBorder, lineWidth: 1)
         }
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .bottomTrailing) {
             // Copy button — only in display mode. Cmd+C doesn't reach a non-activating panel
             // (key events go to the active app), so this button is the reliable copy path.
             if viewModel.isDisplayMode {
                 CopyButton(text: viewModel.text)
-                    .padding(.top, 7)
+                    .padding(.bottom, 7)
                     .padding(.trailing, 10)
             }
         }
