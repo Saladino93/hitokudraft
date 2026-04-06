@@ -12,6 +12,15 @@ final class ConversationCoordinator: ObservableObject {
     private static let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pipeline")
     @Published private(set) var state: AppState = .idle
 
+    /// True while any pipeline is active (listening, transcribing, generating, pasting).
+    /// Used to show the Cancel button in the menu bar.
+    var isActive: Bool {
+        switch state {
+        case .idle, .error, .downloading, .warmingUp: return false
+        default: return true
+        }
+    }
+
     let permissions = PermissionsCoordinator()
     let modelManager = ModelManager()
     let licenseManager = LicenseManager()
@@ -31,6 +40,7 @@ final class ConversationCoordinator: ObservableObject {
     private var dictationSession: AudioCaptureService.ContinuousSession?
     private var streamingTask: Task<Void, Never>?
     private var voiceEditTask: Task<Void, Never>?
+    private var grammarFixTask: Task<Void, Never>?
     private let dictationOverlay = DictationOverlayPanel()
     /// Action Mode module. Setting this to nil (or deleting Actions/) fully disables the feature.
     private var actionCoordinator: ActionCoordinator?
@@ -644,61 +654,87 @@ final class ConversationCoordinator: ObservableObject {
         // None selected → silently no-op (no LLM, no grammar fix)
         guard let llm else { return }
 
-        var savedClipboard: TextCaptureService.ClipboardSnapshot?
-
+        // Snapshot clipboard and detect selection before spawning the task,
+        // so clipboard state is captured on the current call stack.
+        let savedClipboard = textCapture.saveClipboard()
+        let selectedText: String
         do {
-            savedClipboard = textCapture.saveClipboard()
-            let selectedText = try await textCapture.captureSelectedText()
-
-            // Bail if nothing selected or only whitespace → delegate to Action Mode
-            let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                if let saved = savedClipboard {
-                    textCapture.restoreClipboard(saved)
-                }
-                if let ac = actionCoordinator { await ac.handle() }
-                return
-            }
-
-            guard trimmed.count > 10 else {
-                // Too short — likely accidental capture, not real selected text
-                if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
-                return
-            }
-
-            // Audio cue: start
-            SoundPlayer.shared.playActivation()
-
-            state = .generating
-
-            let family = modelManager.selectedModel.family
-            let lang = LanguageDetector.detect(trimmed)
-            let instruction = Instructions.forLanguage(lang)
-            let prompt = family.editPrompt(text: selectedText, instruction: instruction, context: nil)
-            let maxTokens = family.editMaxTokens(for: selectedText)
-
-            let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
-            let cleaned = OutputCleaner.clean(family.postProcess(raw))
-
-            guard !cleaned.isEmpty else {
-                throw VoiceEditorError.emptyOutput
-            }
-
-            // Grammar fix always pastes — no overlay display mode for Ctrl+A.
-            try await presentOutput(cleaned, savedClipboard: savedClipboard, useDisplayMode: false)
-
-            // Audio cue: done
-            SoundPlayer.shared.playCompletion()
-            modelManager.keepAlive()
-
-            state = .idle
+            selectedText = try await textCapture.captureSelectedText()
         } catch {
-            if let saved = savedClipboard {
-                textCapture.restoreClipboard(saved)
-            }
+            textCapture.restoreClipboard(savedClipboard)
             state = .error(error.localizedDescription)
             resetErrorAfterDelay()
+            return
         }
+
+        let trimmed = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Nothing selected → Action Mode. Load STT first (not needed for grammar fix,
+        // but required for the voice recording that follows).
+        if trimmed.isEmpty {
+            textCapture.restoreClipboard(savedClipboard)
+            do { try await ensureSTTReady() } catch {
+                state = .error(error.localizedDescription)
+                resetErrorAfterDelay()
+                return
+            }
+            if let ac = actionCoordinator { await ac.handle() }
+            return
+        }
+
+        guard trimmed.count > 10 else {
+            // Too short — likely accidental capture, not real selected text
+            textCapture.restoreClipboard(savedClipboard)
+            return
+        }
+
+        // Wrap the generate + paste pipeline in a stored task so it can be
+        // cancelled mid-generation via cancelActiveOperation().
+        grammarFixTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                SoundPlayer.shared.playActivation()
+                state = .generating
+
+                let family = modelManager.selectedModel.family
+                let lang = LanguageDetector.detect(trimmed)
+                let instruction = Instructions.forLanguage(lang)
+                let prompt = family.editPrompt(text: selectedText, instruction: instruction, context: nil)
+                let maxTokens = family.editMaxTokens(for: selectedText)
+
+                let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
+                try Task.checkCancellation()
+                let cleaned = OutputCleaner.clean(family.postProcess(raw))
+
+                guard !cleaned.isEmpty else { throw VoiceEditorError.emptyOutput }
+
+                // Grammar fix always pastes — no overlay display mode for Ctrl+A.
+                try await presentOutput(cleaned, savedClipboard: savedClipboard, useDisplayMode: false)
+
+                SoundPlayer.shared.playCompletion()
+                modelManager.keepAlive()
+                state = .idle
+            } catch is CancellationError {
+                textCapture.restoreClipboard(savedClipboard)
+                state = .idle
+            } catch {
+                textCapture.restoreClipboard(savedClipboard)
+                state = .error(error.localizedDescription)
+                resetErrorAfterDelay()
+            }
+            grammarFixTask = nil
+        }
+    }
+
+    /// Cancels any active grammar-fix or voice-edit operation and returns to idle.
+    func cancelActiveOperation() {
+        grammarFixTask?.cancel()
+        grammarFixTask = nil
+        voiceEditTask?.cancel()
+        voiceEditTask = nil
+        streamingTask?.cancel()
+        streamingTask = nil
+        state = .idle
     }
 
     // MARK: - Dictation

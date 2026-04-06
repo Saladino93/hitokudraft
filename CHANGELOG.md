@@ -2,6 +2,15 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [1.4.2] — 2026-04-05
+
+### Fixed
+- **Calendar action always failed with "Calendar access denied"** — Three layered issues: (1) the calendar entitlement was missing from the signed binary (fixed in v1.4.1); (2) `requestWriteOnlyAccessToEvents()` was used, but write-only access does not allow reading `EKEventStore.defaultCalendarForNewEvents`, so event creation would fail regardless — switched to `requestFullAccessToEvents()`; (3) `NSCalendarsFullAccessUsageDescription` was missing from Info.plist, causing macOS 14+ to silently deny `requestFullAccessToEvents()` without showing any permission dialog.
+- **Reminders action always failed with "Reminders access denied"** — `requestAccess(to: .reminder)` is deprecated on macOS 14+ and was silently returning false. Switched to `requestFullAccessToReminders()` (macOS 14+). Added the required `NSRemindersFullAccessUsageDescription` key to Info.plist.
+- **Action Mode silently did nothing when STT was not loaded** — Ctrl+A with no text selected delegates to Action Mode, which requires the speech model to record a voice command. `handleGrammarFix()` was calling `ensureLLMReady()` but not `ensureSTTReady()`, so the STT guard in `ActionCoordinator.handle()` silently returned. STT is now loaded on-demand before entering Action Mode.
+- **Action timer duration treated as 0 when LLM output a float** — `duration_seconds` and `duration_minutes` were parsed with `as? Int`, which fails when the LLM outputs `600.0` instead of `600`. Both fields now coerce through `NSNumber.doubleValue` to tolerate float-formatted integers.
+- **No way to cancel an in-progress generation** — grammar-fix LLM generation ran without a stored task handle, making it uncancellable. The pipeline is now wrapped in a `grammarFixTask` (mirroring `voiceEditTask` for voice edit). A "Stop" button appears in the menu bar during any active operation (listening, transcribing, generating) and cancels immediately.
+
 ## [1.4.1] — 2026-04-05
 
 ### Fixed

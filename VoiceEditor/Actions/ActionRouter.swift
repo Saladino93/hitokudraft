@@ -122,8 +122,9 @@ struct ActionRouter {
         else {
             return .unknown(transcript: raw)
         }
-        // Use duration_minutes; clamp to 15min–8h; default 60 min
-        let rawMinutes = dict["duration_minutes"] as? Int ?? 60
+        // Use duration_minutes; clamp to 15min–8h; default 60 min.
+        // LLMs sometimes output floats (60.0); coerce NSNumber → Int via Double.
+        let rawMinutes = dict["duration_minutes"].flatMap { ($0 as? NSNumber).map { Int($0.doubleValue) } } ?? 60
         let clampedMinutes = max(15, min(rawMinutes, 480))
         let end = start.addingTimeInterval(Double(clampedMinutes) * 60)
         let location = dict["location"] as? String
@@ -155,7 +156,9 @@ struct ActionRouter {
     }
 
     private static func parseTimer(dict: [String: Any], raw: String) -> PendingAction {
-        guard let seconds = dict["duration_seconds"] as? Int, seconds > 0 else {
+        // LLMs sometimes output floats (600.0); coerce NSNumber → Int via Double.
+        guard let seconds = dict["duration_seconds"].flatMap({ ($0 as? NSNumber).map { Int($0.doubleValue) } }),
+              seconds > 0 else {
             return .unknown(transcript: raw)
         }
         let label = dict["label"] as? String ?? "Timer"
