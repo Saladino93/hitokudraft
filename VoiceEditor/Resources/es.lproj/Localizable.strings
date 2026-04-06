@@ -75,6 +75,7 @@
 "language.label" = "Idioma:";
 
 /* Menu Bar */
+"menu.cancel" = "";
 "menu.preferences" = "Preferencias...";
 "menu.about" = "Acerca de Hitoku Draft";
 "menu.acknowledgments" = "Agradecimientos…";

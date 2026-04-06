@@ -7,6 +7,12 @@ struct MenuBarMenu: View {
     var body: some View {
         Text(statusText)
 
+        if coordinator.isActive {
+            Button(L("menu.cancel")) {
+                coordinator.cancelActiveOperation()
+            }
+        }
+
         Divider()
 
         Button(L("menu.preferences")) {

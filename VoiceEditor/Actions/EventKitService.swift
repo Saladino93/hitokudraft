@@ -16,7 +16,10 @@ final class EventKitService {
         do {
             let granted: Bool
             if #available(macOS 14.0, *) {
-                granted = try await store.requestWriteOnlyAccessToEvents()
+                // requestFullAccessToEvents is required (not write-only) because
+                // createCalendarEvent reads store.defaultCalendarForNewEvents,
+                // which is a read operation that returns nil under write-only access.
+                granted = try await store.requestFullAccessToEvents()
             } else {
                 granted = try await store.requestAccess(to: .event)
             }
@@ -28,7 +31,12 @@ final class EventKitService {
 
     func requestRemindersAccess() async -> EKPermission {
         do {
-            let granted = try await store.requestAccess(to: .reminder)
+            let granted: Bool
+            if #available(macOS 14.0, *) {
+                granted = try await store.requestFullAccessToReminders()
+            } else {
+                granted = try await store.requestAccess(to: .reminder)
+            }
             return granted ? .granted : .denied
         } catch {
             return .denied
