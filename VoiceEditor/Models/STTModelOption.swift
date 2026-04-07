@@ -38,7 +38,6 @@ enum STTModelRegistry {
     )
 
     static let availableModels: [STTModelOption] = [
-        noSTT,
         STTModelOption(
             name: "Whisper Tiny",
             path: "tiny.en",
@@ -84,6 +83,7 @@ enum STTModelRegistry {
             supportsNativeStreaming: true,
             languageRestriction: nil
         ),
+        noSTT,
     ]
 
     /// RAM-based default, matching the same thresholds as LLM smartDefault.
