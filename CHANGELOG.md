@@ -8,13 +8,20 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Voice readback** — TTS in display/non-editable mode (e.g. reading a PDF with Ctrl+Z). Two engines: Kokoro (multi-voice, speed control) and PocketTTS (flow-matching). Streaming TTS with prefetch synthesis, adaptive chunking, and segment highlighting in the overlay.
 - **Browser context** — Full-page text extraction from Safari, Chrome, Arc, Brave, and Edge via AppleScript JavaScript. Data-driven browser registry for easy extensibility.
 - **Vision Language Model support** — Qwen3.5 models load via MLXVLM and can see window screenshots in Advanced context mode. The LLM describes images, charts, and UI on screen.
-- **Web search** — LLM can search the web during generation via DuckDuckGo (no API key). Toggle "Allow internet access" in Settings → General. Also includes URL fetching for reading articles.
+- **Web search** — LLM can search the web during generation via DuckDuckGo (no API key). Toggle "Allow internet access" in Settings → General. Also includes URL fetching for reading articles. Ctrl+A web search with LLM-summarized results and source citations.
+- **Calendar tools** — Query calendar via voice: "Am I free tomorrow?", "What's on my calendar today?". Lists events, finds free time, checks availability across all calendars. Works via both Ctrl+A and Ctrl+Z tool use.
+- **KV cache quantization** — 4-bit KV cache enabled for all generation paths (text + VLM). ~3x context window extension with near-zero quality impact.
+- **TTS number pronunciation** — Numbers automatically converted to words before TTS synthesis ("11" → "eleven", "3.14" → "three point one four").
+- **TTS auto language detection** — Kokoro automatically switches voice to match the output language (English, Italian, French, Spanish, Japanese, etc.) using NLLanguageRecognizer.
 - **Chat data models** — ChatMessage, Conversation, and ChatStore scaffolded for future persistent conversation history.
 
 ### Fixed
 - **Safari treated as editable** — AXWebArea role now has a refinement check (settable text range) to distinguish read-only articles from web editors like Gmail/Notion.
 - **Esc key system alert sound** — CGEventTap suppresses the Esc key globally when the display overlay is visible.
 - **PocketTTS voice compatibility** — Filtered to voices with 125-frame prompt length (the only format FluidAudio supports).
+- **Menu bar gap** — Removed extra spacing between status text and Preferences.
+- **Dictation overlay conflict** — Starting dictation now clears any existing display-mode overlay.
+- **About window** — Title is plain text, copyright line is the clickable link.
 
 ## [1.4.2] — 2026-04-05
 
