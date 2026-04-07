@@ -1080,13 +1080,8 @@ final class ConversationCoordinator: ObservableObject {
             SoundPlayer.shared.playCompletion()
             modelManager.keepAlive()
 
-            // Auto-offload STT after dictation when using LiteRT.
-            // STT was loaded on-demand for dictation; release it to save ~460MB.
-            if modelManager.selectedModel.backendType == .liteRT {
-                self.stt = nil
-                modelManager.sttReady = true  // Still "ready" — Gemma handles audio
-            }
-
+            // STT loaded on-demand for dictation stays in memory — the normal
+            // auto-offload timer (5 min) will release it along with the LLM.
             state = .idle
         } catch {
             state = .error(error.localizedDescription)

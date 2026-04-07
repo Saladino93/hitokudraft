@@ -133,7 +133,8 @@ final class ActionCoordinator {
         onStateChange?(.idle)
 
         // Phase 4: Confirm (always required — never fire-and-forget)
-        guard ActionConfirmationPanel.confirm(action) else { return }
+        // Must run on MainActor for NSAlert.runModal()
+        guard await ActionConfirmationPanel.confirm(action) else { return }
 
         // Phase 5: Execute
         do {
