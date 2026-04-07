@@ -162,6 +162,14 @@ final class DictationOverlayPanel {
                 }
             }
             .store(in: &cancellables)
+
+        // TTS speaking highlight — updates which segment is currently being spoken.
+        coordinator.$ttsSpeakingSegment
+            .receive(on: RunLoop.main)
+            .sink { [weak self] segment in
+                self?.viewModel.speakingSegment = segment
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Esc key tap
@@ -358,6 +366,8 @@ private final class OverlayViewModel: ObservableObject {
     @Published var isStreamingLLM: Bool = false
     @Published var isDisplayMode: Bool = false
     @Published var displayModeMaxLines: Int = 3  // increased when showing long display-mode results
+    /// The TTS segment currently being spoken — highlights that text in the overlay.
+    @Published var speakingSegment: String = ""
     @Published var tick = Date()
 
     private var displayLink: CVDisplayLink?
@@ -476,7 +486,8 @@ private struct DictationOverlayContent: View {
                 OverlayTextRenderer(
                     text: viewModel.text,
                     maxLines: maxLines,
-                    textAreaHeight: textAreaHeight
+                    textAreaHeight: textAreaHeight,
+                    speakingSegment: viewModel.speakingSegment
                 )
             }
         }
@@ -532,6 +543,7 @@ private struct OverlayTextRenderer: View {
     let text: String
     let maxLines: Int
     let textAreaHeight: CGFloat
+    var speakingSegment: String = ""
 
     private var segments: [TextSegment] { parseSegments(text) }
 
@@ -576,9 +588,8 @@ private struct OverlayTextRenderer: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    Text(text)
+                    highlightedTextView
                         .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.92))
                         .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -589,6 +600,25 @@ private struct OverlayTextRenderer: View {
                 .onChange(of: text) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Renders text with the currently-spoken TTS segment highlighted.
+    /// Non-spoken text is dimmed; the speaking segment is bright and bold.
+    /// Falls back to normal rendering when nothing is being spoken.
+    @ViewBuilder
+    private var highlightedTextView: some View {
+        if !speakingSegment.isEmpty,
+           let range = text.range(of: speakingSegment, options: .literal) {
+            let before = text[text.startIndex..<range.lowerBound]
+            let current = text[range]
+            let after = text[range.upperBound...]
+            (Text(before).foregroundColor(.white.opacity(0.4))
+             + Text(current).foregroundColor(.white).fontWeight(.semibold)
+             + Text(after).foregroundColor(.white.opacity(0.4)))
+        } else {
+            Text(text)
+                .foregroundStyle(.white.opacity(0.92))
         }
     }
 

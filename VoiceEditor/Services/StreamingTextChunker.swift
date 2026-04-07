@@ -3,9 +3,9 @@
 /// Uses a priority hierarchy of split points so TTS starts quickly while
 /// keeping chunks long enough for smooth, natural-sounding playback:
 ///
-/// 1. **Sentence end** (`.!?` + whitespace, ≥20 chars) — highest quality, fast first utterance
-/// 2. **Newline** (`\n` after ≥40 chars) — handles lists, bullet points
-/// 3. **Word boundary** (space after ≥120 chars) — fallback for wall-of-text
+/// 1. **Sentence end** (`.!?` + whitespace, ≥12 chars) — highest quality, fast first utterance
+/// 2. **Newline** (`\n` after ≥20 chars) — handles lists, bullet points
+/// 3. **Word boundary** (space after ≥120 chars, or after a long-buffer guard) — fallback for wall-of-text
 ///
 /// Clause breaks (commas, semicolons) are intentionally NOT used as split points
 /// because they produce fragments that are too short, causing audible gaps between
@@ -67,19 +67,34 @@ struct StreamingTextChunker {
             ?? wordBoundarySplit()
     }
 
+    /// Forces a first-segment split after a max-latency threshold.
+    /// Only applies before any segment has been emitted.
+    mutating func forceFirstSplit(minChars: Int) -> [String] {
+        guard !hasEmitted else { return [] }
+        guard let split = forceWordBoundarySplit(minChars: minChars) else { return [] }
+        let segment = String(buffer[buffer.startIndex..<split])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if segment.isEmpty { return [] }
+        let remaining = buffer[split...]
+            .drop(while: { $0.isWhitespace || $0.isNewline })
+        buffer = String(remaining)
+        hasEmitted = true
+        return [segment]
+    }
+
     // MARK: - Split strategies
 
     /// Strategy 1: Sentence-ending punctuation (`.!?`) followed by whitespace.
-    /// First segment: ≥15 chars (fast start). Subsequent: ≥30 chars (smoother).
+    /// First segment: ≥12 chars (fast start). Subsequent: ≥30 chars (smoother).
     private func sentenceEndSplit() -> String.Index? {
         let terminators: Set<Character> = [".", "!", "?"]
-        return findTerminator(in: terminators, minChars: hasEmitted ? 30 : 15)
+        return findTerminator(in: terminators, minChars: hasEmitted ? 30 : 12)
     }
 
     /// Strategy 2: Newline after threshold chars. Handles lists, bullet points, multi-line output.
-    /// First segment: ≥25 chars. Subsequent: ≥50 chars.
+    /// First segment: ≥20 chars. Subsequent: ≥50 chars.
     private func newlineSplit() -> String.Index? {
-        let minChars = hasEmitted ? 50 : 25
+        let minChars = hasEmitted ? 50 : 20
         guard buffer.count >= minChars else { return nil }
         let searchStart = buffer.index(buffer.startIndex, offsetBy: minChars - 1, limitedBy: buffer.endIndex)
             ?? buffer.endIndex
@@ -92,9 +107,12 @@ struct StreamingTextChunker {
 
     /// Strategy 3: Any word boundary (space) after threshold chars. Fallback for wall-of-text
     /// with no sentence-ending punctuation or newlines.
-    /// First segment: ≥60 chars. Subsequent: ≥120 chars.
+    /// First segment: ≥120 chars. Subsequent: ≥160 chars.
+    /// Long-buffer guard lowers the threshold if the buffer grows too large.
     private func wordBoundarySplit() -> String.Index? {
-        let minChars = hasEmitted ? 120 : 60
+        let baseMinChars = hasEmitted ? 160 : 120
+        let maxBuffer = hasEmitted ? 320 : 240
+        let minChars = buffer.count >= maxBuffer ? max(80, baseMinChars - 40) : baseMinChars
         guard buffer.count >= minChars else { return nil }
         let searchStart = buffer.index(buffer.startIndex, offsetBy: minChars - 1, limitedBy: buffer.endIndex)
             ?? buffer.endIndex
@@ -103,6 +121,15 @@ struct StreamingTextChunker {
             return spaceIdx
         }
         return nil
+    }
+
+    /// Force-split on a word boundary after `minChars` (first segment only).
+    private func forceWordBoundarySplit(minChars: Int) -> String.Index? {
+        guard buffer.count >= minChars else { return nil }
+        let searchStart = buffer.index(buffer.startIndex, offsetBy: minChars - 1, limitedBy: buffer.endIndex)
+            ?? buffer.endIndex
+        guard searchStart < buffer.endIndex else { return nil }
+        return buffer[searchStart...].firstIndex(of: " ")
     }
 
     // MARK: - Helpers

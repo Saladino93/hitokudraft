@@ -33,6 +33,8 @@ final class ConversationCoordinator: ObservableObject {
     /// Non-empty when the last result was displayed in the overlay instead of pasted
     /// (focused element was not editable). Auto-cleared after 20 seconds.
     @Published private(set) var displayModeResult: String = ""
+    /// The TTS segment currently being spoken — used by the overlay to highlight text.
+    @Published private(set) var ttsSpeakingSegment: String = ""
     private var stt: (any STTService)?
     private var llm: (any LLMService)?
     private var hotkeyManager: HotkeyManager?
@@ -598,12 +600,16 @@ final class ConversationCoordinator: ObservableObject {
                     let rawSpeed = UserDefaults.standard.double(forKey: "ttsSpeed")
                     let ttsSpeed = Float(rawSpeed > 0 ? rawSpeed : 1.0)
                     var ttsChunker = StreamingTextChunker()
-
+                    var firstTokenTime: ContinuousClock.Instant? = nil
+                    let maxFirstLatency: Duration = .milliseconds(600)
 
                     // Pre-warm TTS concurrently so the provider is initialized by the time
                     // the first segment is extracted — hides CoreML compilation latency.
                     if willStreamTTS {
                         Task { await TTSService.shared.preWarm(backend: ttsStreamBackend) }
+                        await TTSService.shared.setOnSegmentStart { [weak self] segment in
+                            self?.ttsSpeakingSegment = segment
+                        }
                     }
 
                     var raw = ""
@@ -618,7 +624,18 @@ final class ConversationCoordinator: ObservableObject {
                         // Stream text segments to TTS as the LLM generates (display mode only).
                         if willStreamTTS {
                             let cleaned = cleanChunkForTTS(chunk)
-                            let segments = ttsChunker.feed(cleaned)
+                            if firstTokenTime == nil,
+                               !cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                firstTokenTime = ContinuousClock.now
+                            }
+                            var segments = ttsChunker.feed(cleaned)
+                            if segments.isEmpty, let firstTokenTime {
+                                let elapsed = ContinuousClock.now - firstTokenTime
+                                if elapsed > maxFirstLatency {
+                                    let forced = ttsChunker.forceFirstSplit(minChars: 30)
+                                    if !forced.isEmpty { segments = forced }
+                                }
+                            }
                             if !segments.isEmpty {
                                 Self.log.info("TTS chunker emitted \(segments.count) segment(s)")
                             }

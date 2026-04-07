@@ -137,6 +137,48 @@ final class ContextCaptureService {
         return ctx
     }
 
+    // MARK: - Browser Text Extraction
+
+    /// Browser JavaScript extraction strategy.
+    private enum BrowserType {
+        /// Safari-style: `do JavaScript "..." in front document`
+        case safari
+        /// Chromium-based: `execute front window's active tab javascript "..."`
+        case chromium
+    }
+
+    /// Bundle IDs of browsers we can extract full-page text from.
+    /// Adding a new browser is a single dictionary entry.
+    private static let knownBrowsers: [String: BrowserType] = [
+        "com.apple.Safari": .safari,
+        "com.google.Chrome": .chromium,
+        "company.thebrowser.Browser": .chromium, // Arc
+        "com.brave.Browser": .chromium,           // Brave
+        "com.microsoft.edgemac": .chromium,       // Edge
+    ]
+
+    /// Builds the AppleScript source for extracting `document.body.innerText` from a browser.
+    nonisolated private static func browserScript(appName: String, type: BrowserType) -> String {
+        switch type {
+        case .safari:
+            return """
+            tell application "\(appName)"
+                if (count of documents) > 0 then
+                    return do JavaScript "document.body.innerText" in front document
+                end if
+            end tell
+            """
+        case .chromium:
+            return """
+            tell application "\(appName)"
+                if (count of windows) > 0 then
+                    return execute front window's active tab javascript "document.body.innerText"
+                end if
+            end tell
+            """
+        }
+    }
+
     // MARK: - Document Context (PDFKit + AppleScript)
 
     /// Dispatches to the appropriate document extractor based on the frontmost app.
@@ -176,6 +218,17 @@ final class ContextCaptureService {
                         end if
                     end tell
                     """,
+                    budget: budget
+                )
+            }.value
+        }
+
+        // Browsers: extract full-page text via JavaScript (innerText).
+        if let browserType = Self.knownBrowsers[bundleID] {
+            let appName = app.localizedName ?? ""
+            return await Task.detached(priority: .userInitiated) {
+                Self.runAppleScript(
+                    Self.browserScript(appName: appName, type: browserType),
                     budget: budget
                 )
             }.value

@@ -127,6 +127,9 @@ actor TTSService {
     private var initTask: Task<Void, any Error>?
     /// Retained to keep playback alive. Replaced on each new utterance.
     private var player: AVAudioPlayer?
+    /// Fires on @MainActor when a new segment starts playing. Set by the coordinator
+    /// to drive overlay text highlighting. Cleared automatically when playback stops.
+    private var onSegmentStart: (@Sendable @MainActor (String) -> Void)?
 
     // MARK: - Sentence Queue (streaming TTS)
     /// Sentences waiting to be synthesized and played, in arrival order.
@@ -166,6 +169,12 @@ actor TTSService {
         }
     }
 
+    /// Registers a callback that fires when each TTS segment begins playback.
+    /// Used by the overlay to highlight the currently-spoken text.
+    func setOnSegmentStart(_ callback: @escaping @Sendable @MainActor (String) -> Void) {
+        onSegmentStart = callback
+    }
+
     // MARK: - Streaming Playback
 
     /// Appends `text` to the sentence queue and starts the drain task if not already running.
@@ -187,7 +196,13 @@ actor TTSService {
     }
 
     private func processQueue(voice: String, speed: Float) async {
-        defer { queueTask = nil }
+        defer {
+            queueTask = nil
+            // Signal end of playback — clears overlay highlight.
+            if let callback = onSegmentStart {
+                Task { @MainActor in callback("") }
+            }
+        }
         guard let provider else { return }
         do {
             try await ensureInitialized(provider: provider)
@@ -201,6 +216,8 @@ actor TTSService {
         // concurrently. This eliminates the gap between segments when synthesis is
         // faster than playback (the common case for short text on Apple Silicon).
         var prefetchedAudio: Data? = nil
+        var prefetchedText: String = ""
+        var currentSegmentText: String = ""
 
         while !queuedSentences.isEmpty || prefetchedAudio != nil {
             guard !Task.isCancelled else { break }
@@ -210,8 +227,10 @@ actor TTSService {
             if let prefetched = prefetchedAudio {
                 audioData = prefetched
                 prefetchedAudio = nil
+                currentSegmentText = prefetchedText
             } else {
                 let sentence = queuedSentences.removeFirst()
+                currentSegmentText = sentence
                 Self.log.info("TTS synth [\(voice, privacy: .public)]: \(sentence.prefix(60), privacy: .public)")
                 do {
                     let start = ContinuousClock.now
@@ -225,12 +244,15 @@ actor TTSService {
                 }
             }
 
-            // Start playback.
+            // Start playback and notify overlay for text highlighting.
             player?.stop()
             player = try? AVAudioPlayer(data: audioData)
             player?.play()
             let playDuration = player?.duration ?? 0
             Self.log.debug("TTS playing \(playDuration, privacy: .public)s of audio")
+            if let callback = onSegmentStart {
+                Task { @MainActor in callback(currentSegmentText) }
+            }
 
             // While audio plays, prefetch the next segment's synthesis.
             // Task.sleep yields the actor executor → the prefetch Task runs concurrently
@@ -255,6 +277,7 @@ actor TTSService {
 
                 // Collect prefetched result — instant if synth finished during playback.
                 prefetchedAudio = await prefetchTask.value
+                prefetchedText = nextSentence
             } else {
                 // No next sentence yet — just await playback.
                 if playDuration > 0 {
