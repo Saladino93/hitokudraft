@@ -1,6 +1,7 @@
-import SwiftUI
+import FluidAudio
 import KeyboardShortcuts
 import Sparkle
+import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var coordinator: ConversationCoordinator
@@ -25,6 +26,10 @@ struct SettingsView: View {
     @AppStorage("dictationTheme")        private var dictationTheme: String = DictationTheme.default.rawValue
     @AppStorage("overlayLineCount")      private var overlayLineCount: Int = 2
     @AppStorage("overlayWidth")          private var overlayWidth: Double = 210
+    @AppStorage("ttsEnabled")            private var ttsEnabled: Bool = false
+    @AppStorage("ttsBackend")            private var ttsBackend: String = "kokoro"
+    @AppStorage("ttsVoice")              private var ttsVoice: String = TtsConstants.recommendedVoice
+    @AppStorage("ttsSpeed")              private var ttsSpeed: Double = 1.0
 
     // MARK: - Navigation State
     private enum Tab { case license, general, appearance, model, updates }
@@ -56,7 +61,7 @@ struct SettingsView: View {
         case .license: return 178
         case .general: return 518
         case .appearance: return 473
-        case .model: return 395
+        case .model: return ttsEnabled ? 545 : 445
         case .updates: return 122
         }
     }
@@ -86,6 +91,7 @@ struct SettingsView: View {
         }
         .frame(width: 620, height: currentHeight)
         .animation(.spring(response: 0.3, dampingFraction: 1.0), value: selectedTab)
+        .animation(.spring(response: 0.3, dampingFraction: 1.0), value: ttsEnabled)
         .background(WindowActivator())
     }
 
@@ -611,6 +617,70 @@ struct SettingsView: View {
                         .controlSize(.small)
                     }
                 }
+
+                Color.clear.frame(height: 18)
+
+                // ---- Voice Readback (TTS) ----
+                GridRow {
+                    Text(L("tts.label"))
+                    HStack(spacing: 10) {
+                        Toggle("", isOn: $ttsEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                        Text(L("tts.enable_desc"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if ttsEnabled {
+                    Color.clear.frame(height: 6)
+
+                    GridRow {
+                        Text(L("tts.backend"))
+                        Picker("", selection: $ttsBackend) {
+                            Text("Kokoro").tag("kokoro")
+                            Text("PocketTTS").tag("pocketTts")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(maxWidth: 200)
+                        .onChange(of: ttsBackend) {
+                            // Reset voice to the new backend's default female voice.
+                            ttsVoice = ttsBackend == "pocketTts"
+                                ? PocketTTSProvider.defaultVoice
+                                : KokoroTTSProvider.defaultVoice
+                        }
+                    }
+
+                    Color.clear.frame(height: 6)
+
+                    GridRow {
+                        Text(L("tts.voice"))
+                        Picker("", selection: $ttsVoice) {
+                            ForEach(ttsVoicesForBackend, id: \.self) { voice in
+                                Text(ttsVoiceDisplayName(voice)).tag(voice)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 220)
+                    }
+
+                    Color.clear.frame(height: 6)
+
+                    GridRow {
+                        Text(L("tts.speed"))
+                        HStack(spacing: 8) {
+                            Stepper(
+                                String(format: L("tts.speed_unit"), ttsSpeed),
+                                value: $ttsSpeed,
+                                in: 0.5...2.0,
+                                step: 0.25
+                            )
+                            .disabled(ttsBackend == "pocketTts")
+                        }
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -869,6 +939,40 @@ struct SettingsView: View {
             let mb = Double(totalBytes) / 1_048_576
             return String(format: "(%.0f MB)", mb)
         }
+    }
+
+    // MARK: - TTS Helpers
+
+    private var ttsVoicesForBackend: [String] {
+        if ttsBackend == "pocketTts" {
+            return PocketTTSProvider.femaleVoices
+        }
+        return KokoroTTSProvider.femaleVoices
+    }
+
+    private func ttsVoiceDisplayName(_ voice: String) -> String {
+        guard voice.count >= 3, voice[voice.index(voice.startIndex, offsetBy: 2)] == "_" else {
+            // PocketTTS voices: no language prefix, may have underscores (e.g. "caro_davy" → "Caro Davy").
+            let spaced = voice.replacingOccurrences(of: "_", with: " ")
+            return spaced.prefix(1).uppercased() + spaced.dropFirst()
+        }
+        let chars = Array(voice)
+        let langCode = String(chars[0])
+        let namePart = String(voice.dropFirst(3))
+        let displayName = namePart.prefix(1).uppercased() + namePart.dropFirst()
+        let tag: String = switch langCode {
+        case "a": "US"
+        case "b": "UK"
+        case "e": "ES"
+        case "f": "FR"
+        case "h": "HI"
+        case "i": "IT"
+        case "j": "JA"
+        case "p": "PT"
+        case "z": "ZH"
+        default:  langCode.uppercased()
+        }
+        return "\(displayName) (\(tag))"
     }
 
     private func browseForLocalModel() {

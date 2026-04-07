@@ -190,6 +190,13 @@ enum ModelRegistry {
             estimatedMemoryGB: 0.66
         ),
         ModelOption(
+            name: "Qwen3.5 0.8B 4-bit",
+            path: "mlx-community/Qwen3.5-0.8B-MLX-4bit",
+            extraEOSTokens: ["<|im_end|>"],
+            description: "Tiny multilingual model (fast, lower quality)",
+            estimatedMemoryGB: 0.5
+        ),
+        ModelOption(
             name: "LFM2.5 1.2B 8-bit",
             path: "mlx-community/LFM2.5-1.2B-Instruct-8bit",
             useVoiceCleanPrompt: true,

@@ -2,6 +2,13 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// Bridging context for the CGEventTap C callback → @MainActor coordinator.
+/// Lives at file scope because the tap callback is a C function pointer that
+/// cannot capture Swift closures.
+private final class EscapeTapContext: @unchecked Sendable {
+    weak var coordinator: ConversationCoordinator?
+    var tap: CFMachPort?
+}
 
 /// A floating, non-activating panel that shows live dictation text
 /// with an animated waveform visualization driven by real-time audio level.
@@ -11,10 +18,17 @@ final class DictationOverlayPanel {
     private let viewModel = OverlayViewModel()
     private var cancellables = Set<AnyCancellable>()
     private weak var coordinator: ConversationCoordinator?
-    /// Non-nil means a monitor install was attempted (even if system returned nil due to permissions).
-    /// Using a separate Bool prevents repeated install attempts when Accessibility is denied.
-    private var escapeMonitorInstalled: Bool = false
-    private var escapeMonitor: Any?
+
+    // MARK: - Esc key handling (CGEventTap)
+    /// CGEventTap suppresses the Esc key globally while the display-mode overlay is
+    /// visible, preventing the system "funk" alert sound. Falls back to a non-consuming
+    /// global monitor if the tap cannot be created (e.g. Accessibility denied).
+    private var escapeTapInstalled = false
+    private var escapeTapContext: EscapeTapContext?
+    private var escapeTap: CFMachPort?
+    private var escapeTapSource: CFRunLoopSource?
+    /// Fallback when CGEventTap is unavailable.
+    private var escapeMonitorFallback: Any?
 
     private var theme: DictationTheme { .current }
 
@@ -43,11 +57,7 @@ final class DictationOverlayPanel {
         viewModel.isStreamingLLM = false
         viewModel.isDisplayMode = false
         viewModel.displayModeMaxLines = 3
-        if let monitor = escapeMonitor {
-            NSEvent.removeMonitor(monitor)
-            escapeMonitor = nil
-        }
-        escapeMonitorInstalled = false
+        removeEscapeTap()
         panel?.orderOut(nil)
         panel = nil
     }
@@ -132,18 +142,9 @@ final class DictationOverlayPanel {
                     self.viewModel.isDisplayMode = true
                     self.show(text: text, isStatus: false)
                     self.resizePanel(forLines: lines)
-                    // Global Esc monitor — dismisses overlay from any app.
-                    // Guard with escapeMonitorInstalled (not escapeMonitor == nil) so that a nil
-                    // return from addGlobalMonitorForEvents (Accessibility denied) doesn't cause
-                    // repeated install attempts on every displayModeResult update.
-                    if !self.escapeMonitorInstalled {
-                        self.escapeMonitorInstalled = true
-                        self.escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                            guard event.keyCode == 53 else { return }  // 53 = Esc
-                            Task { @MainActor [weak self] in
-                                self?.coordinator?.clearDisplayModeResult()
-                            }
-                        }
+                    // Install Esc tap — suppresses Esc globally so no "funk" sound.
+                    if !self.escapeTapInstalled {
+                        self.installEscapeTap()
                     }
                 }
             }
@@ -161,6 +162,79 @@ final class DictationOverlayPanel {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    // MARK: - Esc key tap
+
+    /// Installs a CGEventTap that intercepts Esc globally, suppressing the system
+    /// alert sound. Falls back to a non-consuming global monitor if the tap fails.
+    private func installEscapeTap() {
+        escapeTapInstalled = true
+
+        let ctx = EscapeTapContext()
+        ctx.coordinator = coordinator
+        self.escapeTapContext = ctx
+
+        let ctxPtr = Unmanaged.passUnretained(ctx).toOpaque()
+
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+            callback: { _, type, event, userInfo -> Unmanaged<CGEvent>? in
+                // Re-enable if the system disabled the tap due to timeout.
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let userInfo {
+                        let c = Unmanaged<EscapeTapContext>.fromOpaque(userInfo).takeUnretainedValue()
+                        if let t = c.tap { CGEvent.tapEnable(tap: t, enable: true) }
+                    }
+                    return Unmanaged.passUnretained(event)
+                }
+                guard type == .keyDown,
+                      event.getIntegerValueField(.keyboardEventKeycode) == 53,
+                      let userInfo else {
+                    return Unmanaged.passUnretained(event)
+                }
+                let c = Unmanaged<EscapeTapContext>.fromOpaque(userInfo).takeUnretainedValue()
+                Task { @MainActor in c.coordinator?.clearDisplayModeResult() }
+                return nil   // suppress Esc — no "funk" sound
+            },
+            userInfo: ctxPtr
+        ) else {
+            // CGEventTap unavailable (Accessibility denied?) — fall back to global monitor.
+            escapeMonitorFallback = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53 else { return }
+                Task { @MainActor [weak self] in
+                    self?.coordinator?.clearDisplayModeResult()
+                }
+            }
+            return
+        }
+
+        ctx.tap = tap
+        self.escapeTap = tap
+        let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+        self.escapeTapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    private func removeEscapeTap() {
+        if let tap = escapeTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            if let source = escapeTapSource {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            }
+        }
+        escapeTap = nil
+        escapeTapSource = nil
+        escapeTapContext = nil
+        if let monitor = escapeMonitorFallback {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitorFallback = nil
+        }
+        escapeTapInstalled = false
     }
 
     // MARK: - Display-mode helpers

@@ -447,6 +447,8 @@ final class ConversationCoordinator: ObservableObject {
         guard state == .idle else { return }
 
         modelManager.cancelOffload()
+        await TTSService.shared.stop()
+        clearDisplayModeResult()
 
         // Reload STT and LLM from disk cache if they were offloaded
         do {
@@ -584,6 +586,26 @@ final class ConversationCoordinator: ObservableObject {
                         maxTokens = family.editMaxTokens(for: selectedText)
                     }
 
+                    // Capture TTS settings before the stream loop to avoid repeated UserDefaults reads.
+                    let ttsEnabled = UserDefaults.standard.bool(forKey: "ttsEnabled")
+                    // Always stream TTS when enabled — the editability check only matters at
+                    // presentOutput() time. Checking here was wrong because PDF viewers and
+                    // other selectable-but-not-editable views report as "editable" to AX.
+                    let willStreamTTS = ttsEnabled
+                    let ttsBackendStr = UserDefaults.standard.string(forKey: "ttsBackend") ?? "kokoro"
+                    let ttsStreamBackend: TtsBackend = ttsBackendStr == "pocketTts" ? .pocketTts : .kokoro
+                    let ttsVoice = UserDefaults.standard.string(forKey: "ttsVoice") ?? TtsConstants.recommendedVoice
+                    let rawSpeed = UserDefaults.standard.double(forKey: "ttsSpeed")
+                    let ttsSpeed = Float(rawSpeed > 0 ? rawSpeed : 1.0)
+                    var ttsChunker = StreamingTextChunker()
+
+
+                    // Pre-warm TTS concurrently so the provider is initialized by the time
+                    // the first segment is extracted — hides CoreML compilation latency.
+                    if willStreamTTS {
+                        Task { await TTSService.shared.preWarm(backend: ttsStreamBackend) }
+                    }
+
                     var raw = ""
                     raw.reserveCapacity(4096)
                     for try await chunk in llm.generateStream(prompt: prompt, maxTokens: maxTokens) {
@@ -592,6 +614,20 @@ final class ConversationCoordinator: ObservableObject {
                         // Running regex cleanup per-token was O(N²); models with enable_thinking=false
                         // produce no thinking blocks to strip mid-stream anyway.
                         streamingLLMText = raw
+
+                        // Stream text segments to TTS as the LLM generates (display mode only).
+                        if willStreamTTS {
+                            let cleaned = cleanChunkForTTS(chunk)
+                            let segments = ttsChunker.feed(cleaned)
+                            if !segments.isEmpty {
+                                Self.log.info("TTS chunker emitted \(segments.count) segment(s)")
+                            }
+                            for segment in segments {
+                                await TTSService.shared.enqueue(
+                                    text: segment, voice: ttsVoice, speed: ttsSpeed, backend: ttsStreamBackend
+                                )
+                            }
+                        }
                     }
                     streamingLLMText = ""
                     var cleaned = OutputCleaner.clean(family.postProcess(raw))
@@ -601,7 +637,14 @@ final class ConversationCoordinator: ObservableObject {
                         throw VoiceEditorError.emptyOutput
                     }
 
-                    try await presentOutput(cleaned, savedClipboard: savedClipboard)
+                    // Flush any remaining text that didn't reach a split point.
+                    if willStreamTTS, let remainder = ttsChunker.flush() {
+                        await TTSService.shared.enqueue(
+                            text: remainder, voice: ttsVoice, speed: ttsSpeed, backend: ttsStreamBackend
+                        )
+                    }
+
+                    try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS)
                     lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
                     SoundPlayer.shared.playCompletion()
                     modelManager.keepAlive()
@@ -617,6 +660,7 @@ final class ConversationCoordinator: ObservableObject {
                 activeRecordingSession = nil
                 liveTranscriptionText = ""
                 streamingLLMText = ""
+                await TTSService.shared.stop()
                 if let saved = savedClipboard {
                     textCapture.restoreClipboard(saved)
                 }
@@ -643,6 +687,8 @@ final class ConversationCoordinator: ObservableObject {
         guard state == .idle else { return }
 
         modelManager.cancelOffload()
+        await TTSService.shared.stop()
+        clearDisplayModeResult()
 
         // Reload LLM from cache if it was offloaded
         do { try await ensureLLMReady() } catch {
@@ -910,10 +956,14 @@ final class ConversationCoordinator: ObservableObject {
     private func presentOutput(
         _ text: String,
         savedClipboard: TextCaptureService.ClipboardSnapshot?,
-        useDisplayMode: Bool = true
+        useDisplayMode: Bool = true,
+        ttsStreamedAlready: Bool = false
     ) async throws {
         if !useDisplayMode || editabilityDetector.focusedElementIsEditable() {
             // Editable path (or dictation — always paste).
+            // If TTS was streamed (display mode detected at generation start) but focus
+            // changed to an editable field mid-generation, stop orphaned TTS playback.
+            if ttsStreamedAlready { await TTSService.shared.stop() }
             state = .pasting
             try await textCapture.pasteText(text)
             if let saved = savedClipboard {
@@ -925,20 +975,42 @@ final class ConversationCoordinator: ObservableObject {
             displayModeResult = text
             state = .idle
             if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
+            // Capture TTS settings synchronously before entering the Task closure.
+            let ttsEnabled = UserDefaults.standard.bool(forKey: "ttsEnabled")
+            let ttsBackendStr = UserDefaults.standard.string(forKey: "ttsBackend") ?? "kokoro"
+            let ttsBackend: TtsBackend = ttsBackendStr == "pocketTts" ? .pocketTts : .kokoro
+            let ttsVoice = UserDefaults.standard.string(forKey: "ttsVoice") ?? TtsConstants.recommendedVoice
+            let rawSpeed = UserDefaults.standard.double(forKey: "ttsSpeed")
+            let ttsSpeed = Float(rawSpeed > 0 ? rawSpeed : 1.0)
             displayModeClearTask?.cancel()
             displayModeClearTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(20))
+                // TTS: if sentences were already streamed into the queue, wait for the
+                // queue to drain. Otherwise synthesize the full text as a single utterance.
+                // The 30s timer only starts after audio finishes (or immediately if TTS off).
+                if ttsEnabled {
+                    if ttsStreamedAlready {
+                        await TTSService.shared.waitForQueue()
+                    } else {
+                        await TTSService.shared.speak(
+                            text: text, voice: ttsVoice, speed: ttsSpeed, backend: ttsBackend
+                        )
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
                 self?.displayModeResult = ""
                 self?.displayModeClearTask = nil
             }
         }
     }
 
-    /// Dismisses the display-mode overlay immediately (called by Esc key handler).
+    /// Dismisses the display-mode overlay and stops TTS playback (called by Esc key handler).
     func clearDisplayModeResult() {
         displayModeClearTask?.cancel()
         displayModeClearTask = nil
         displayModeResult = ""
+        Task { await TTSService.shared.stop() }
     }
 
     // MARK: - Helpers
@@ -958,10 +1030,7 @@ final class ConversationCoordinator: ObservableObject {
         }
     }
 
-    private var modelCacheDirectory: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("models")
-    }
+    private var modelCacheDirectory: URL { ModelManager.modelsCacheRoot }
 
     /// Rebuilds the LLM service wrapper when context mode toggles (updates system prompt).
     /// Cheap operation — no model reload, just creates a new MLXLLMService with the right prompt.
@@ -989,5 +1058,21 @@ final class ConversationCoordinator: ObservableObject {
                 await self.drainPendingSwitches()
             }
         }
+    }
+
+    /// Strips TTS-unfriendly artifacts from a raw LLM token stream chunk.
+    /// Lightweight — runs per-chunk during streaming. The full OutputCleaner
+    /// still runs on the final assembled text.
+    private func cleanChunkForTTS(_ chunk: String) -> String {
+        var t = chunk
+        t = t.replacingOccurrences(of: "<think>", with: "")
+        t = t.replacingOccurrences(of: "</think>", with: "")
+        t = t.replacingOccurrences(of: "<|think|>", with: "")
+        t = t.replacingOccurrences(of: "```", with: "")
+        t = t.replacingOccurrences(of: "<|assistant|>", with: "")
+        t = t.replacingOccurrences(of: "<|end|>", with: "")
+        t = t.replacingOccurrences(of: "<|im_end|>", with: "")
+        t = t.replacingOccurrences(of: "<|im_start|>", with: "")
+        return t
     }
 }

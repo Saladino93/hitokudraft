@@ -23,6 +23,20 @@ final class ModelManager: ObservableObject {
     private var idleOffloadTask: Task<Void, Never>?
     private static let offloadDelay: TimeInterval = 5 * 60  // 5 minutes, fixed
 
+    /// Unified model cache root: ~/Library/Caches/models/
+    /// All model types (LLM, ASR, TTS) download here so there is a single cache to manage.
+    nonisolated static var modelsCacheRoot: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("models")
+    }
+
+    /// Destination for FluidAudio ASR models inside the unified cache.
+    /// Mirrors the folder-name convention used by AsrModels.defaultCacheDirectory(for:).
+    private var asrCacheDirectory: URL {
+        Self.modelsCacheRoot
+            .appendingPathComponent(AsrModels.defaultCacheDirectory(for: .v3).lastPathComponent)
+    }
+
     /// True when the None sentinel is selected (no LLM desired).
     var llmDisabled: Bool { selectedModel.isNone }
 
@@ -158,7 +172,7 @@ final class ModelManager: ObservableObject {
         switch selectedSTTModel.backend {
         case .fluidAudio:
             statusMessage = "Loading STT models..."
-            let models = try await AsrModels.downloadAndLoad(version: .v3)
+            let models = try await AsrModels.downloadAndLoad(to: asrCacheDirectory, version: .v3)
             self.asrModels = models
             self.sttReady = true
         case .mlxAudio:

@@ -2,6 +2,11 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Voice readback** — TTS in display/non-editable mode (e.g. reading a PDF with Ctrl+Z). Two engines available: Kokoro (multi-voice, speed control) and PocketTTS (single voice, flow-matching). Selectable in Settings → Models. Female voices only; voice picker doubles as language picker.
+
 ## [1.4.2] — 2026-04-05
 
 ### Fixed
