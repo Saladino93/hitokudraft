@@ -16,7 +16,12 @@ struct ActionRouter {
         let now = Date()
         let prompt = buildPrompt(transcript: transcript, now: now)
         let raw = try await llm.generate(prompt: prompt, maxTokens: maxTokens)
-        return parse(raw: raw, relativeTo: now)
+        let result = parse(raw: raw, relativeTo: now)
+        // If parsing failed, use the user's original transcript (not the empty LLM output)
+        if case .unknown = result {
+            return .unknown(transcript: transcript)
+        }
+        return result
     }
 
     // MARK: - Prompt Construction
@@ -38,7 +43,8 @@ struct ActionRouter {
         3. note — create a note in Apple Notes
         4. timer — set a countdown timer (not a calendar event)
         5. email — compose an email (opens compose window for review; never auto-sends)
-        6. unknown — cannot be classified
+        6. web_search — search the web for information
+        7. unknown — cannot be classified
 
         Respond with ONLY a JSON object on a single line. No markdown, no commentary.
 
@@ -58,10 +64,15 @@ struct ActionRouter {
         {"type":"email","subject":"...","body":"..."}
 
 
+        For web_search:
+        {"type":"web_search","query":"..."}
+
         For unknown:
         {"type":"unknown"}
 
         Rules:
+        - "search for", "look up", "what is", "find out", "Google" → web_search. Extract the search query.
+        - Questions about current events, sports, news, prices, weather, or any factual question the user wants an up-to-date answer for → web_search. The query should be a concise search-engine-friendly rephrasing.
         - "remind me to", "don't forget" → reminder. "schedule", "book", "meeting", "appointment" → calendar_event.
         - "take a note", "note that", "jot down" → note. Body is the content; title is a short summary.
         - "set a timer", "timer for", "remind me in X minutes/seconds" (countdown) → timer.
@@ -83,11 +94,12 @@ struct ActionRouter {
     // MARK: - JSON Parsing
 
     static func parse(raw: String, relativeTo now: Date) -> PendingAction {
-        // Strip any accidental markdown fences or surrounding whitespace
+        // Strip markdown fences, fix single-quoted JSON (common LLM mistake)
         let cleaned = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "```json", with: "")
             .replacingOccurrences(of: "```", with: "")
+            .replacingOccurrences(of: "'", with: "\"")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let data = cleaned.data(using: .utf8),
@@ -108,6 +120,11 @@ struct ActionRouter {
             return parseTimer(dict: dict, raw: raw)
         case "email":
             return parseEmail(dict: dict, raw: raw)
+        case "web_search":
+            guard let query = dict["query"] as? String, !query.isEmpty else {
+                return .unknown(transcript: raw)
+            }
+            return .webSearch(.init(query: query))
         default:
             return .unknown(transcript: raw)
         }

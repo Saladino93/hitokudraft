@@ -34,11 +34,16 @@ enum PendingAction: Sendable {
         let body: String
     }
 
+    struct WebSearch: Sendable {
+        let query: String
+    }
+
     case calendarEvent(CalendarEvent)
     case reminder(Reminder)
     case note(Note)
     case timer(TimerAction)
     case email(EmailAction)
+    case webSearch(WebSearch)
     case unknown(transcript: String)  // LLM could not classify
 }
 
@@ -71,6 +76,8 @@ extension PendingAction {
             return "\(duration) — \(t.label)"
         case .email(let e):
             return "Subject: \(e.subject)\n\(e.body.prefix(120))"
+        case .webSearch(let s):
+            return "Search: \"\(s.query)\""
         case .unknown(let t):
             return "Could not understand: \"\(t)\""
         }
@@ -84,6 +91,7 @@ extension PendingAction {
         case .note:          return "Create Note"
         case .timer:         return "Set Timer"
         case .email:         return "Open Compose"
+        case .webSearch:     return "Search"
         case .unknown:       return "OK"
         }
     }

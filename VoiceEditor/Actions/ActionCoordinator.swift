@@ -36,6 +36,9 @@ final class ActionCoordinator {
     /// Pass "" to clear. Wired in ConversationCoordinator.setup().
     var setLiveTranscript: ((String) -> Void)?
 
+    /// Called to show a result in the display-mode overlay (e.g. web search results).
+    var onDisplayResult: ((String) -> Void)?
+
     // MARK: - Init
 
     init(
@@ -95,7 +98,7 @@ final class ActionCoordinator {
         setLiveTranscript?(trimmed)
 
         // Phase 3: Route via LLM
-        let action: PendingAction
+        var action: PendingAction
         do {
             action = try await ActionRouter.route(transcript: trimmed, llm: llm)
         } catch {
@@ -146,6 +149,46 @@ final class ActionCoordinator {
 
         case .email(let e):
             try EmailService.composeEmail(subject: e.subject, body: e.body)
+
+        case .webSearch(let s):
+            let internetEnabled = UserDefaults.standard.bool(forKey: "internetAccessEnabled")
+            guard internetEnabled else {
+                throw NSError(domain: "ActionCoordinator", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "Internet access is disabled in Settings."])
+            }
+            guard let llm = getLLM() else {
+                throw NSError(domain: "ActionCoordinator", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "No LLM loaded for summarizing results."])
+            }
+            onStateChange?(.generating)
+            defer { onStateChange?(.idle) }
+            let searchService = DuckDuckGoSearchService()
+            let results = try await searchService.search(query: s.query, maxResults: 4)
+            guard !results.isEmpty else {
+                onDisplayResult?("No results found for \"\(s.query)\".")
+                return
+            }
+            // Feed results to LLM for a natural summary with sources.
+            let context = results.enumerated().map { i, r in
+                "[\(i + 1)] \(r.title)\n\(r.snippet)\nURL: \(r.url?.absoluteString ?? "N/A")"
+            }.joined(separator: "\n\n")
+            let summarizePrompt = """
+            Based on these web search results for "\(s.query)", write a concise, natural answer. \
+            Cite sources as [1], [2], etc. Keep it brief (3-5 sentences max). \
+            Do not invent information beyond what the sources provide.
+
+            Search results:
+            \(context)
+
+            Answer:
+            """
+            let answer = try await llm.generate(prompt: summarizePrompt, maxTokens: 300)
+            let cleaned = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Append source list so [1], [2] references are meaningful.
+            let sources = results.enumerated().map { i, r in
+                "[\(i + 1)] \(r.url?.host ?? r.title)"
+            }.joined(separator: "\n")
+            onDisplayResult?(cleaned + "\n\n" + sources)
 
         case .unknown:
             break  // confirm() returns false for .unknown; should not reach here

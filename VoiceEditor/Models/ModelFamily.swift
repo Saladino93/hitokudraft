@@ -31,6 +31,10 @@ protocol ModelFamily {
     /// Qwen3.5 uses this to pass `enable_thinking: false`.
     var templateContext: [String: any Sendable]? { get }
 
+    /// Whether the model family supports structured tool use (tool_call tags).
+    /// Only families with reliable instruction following should return true.
+    var supportsToolUse: Bool { get }
+
     /// Maximum tokens for draft generation.
     var draftMaxTokens: Int { get }
 
@@ -42,6 +46,7 @@ protocol ModelFamily {
 
 extension ModelFamily {
     var templateContext: [String: any Sendable]? { nil }
+    var supportsToolUse: Bool { false }
     var draftMaxTokens: Int { Prompts.draftMaxTokens }
     func editMaxTokens(for text: String) -> Int { Prompts.editMaxTokens(for: text) }
 }
@@ -131,6 +136,9 @@ struct Qwen35ModelFamily: ModelFamily {
     let disableThinking = false
 
     let draftMaxTokens: Int = 800
+
+    /// Qwen3.5 reliably follows structured tool-call instructions.
+    let supportsToolUse = true
 
     /// Disable thinking at the Jinja template level — no <think> blocks produced.
     var templateContext: [String: any Sendable]? {

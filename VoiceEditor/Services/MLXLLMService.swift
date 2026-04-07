@@ -1,4 +1,6 @@
 import Foundation
+import CoreGraphics
+import CoreImage
 import MLX
 import MLXLLM
 import MLXLMCommon
@@ -72,6 +74,50 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
                     let userInput = UserInput(chat: [
                         .system(systemPrompt),
                         .user(effectivePrompt)
+                    ], additionalContext: family.templateContext)
+                    let lmInput = try await modelContainer.prepare(input: userInput)
+                    let parameters = GenerateParameters(
+                        maxTokens: maxTokens,
+                        temperature: family.temperature,
+                        topP: family.topP,
+                        repetitionPenalty: family.repetitionPenalty,
+                        repetitionContextSize: 64
+                    )
+                    let stream = try await modelContainer.generate(
+                        input: lmInput,
+                        parameters: parameters
+                    )
+                    var recentChunks: [String] = []
+                    recentChunks.reserveCapacity(21)
+                    for await generation in stream {
+                        if let chunk = generation.chunk {
+                            recentChunks.append(chunk)
+                            if recentChunks.count > 20 { recentChunks.removeFirst() }
+                            if recentChunks.count == 20, Set(recentChunks).count <= 3 { break }
+                            continuation.yield(chunk)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    func generateStream(prompt: String, images: [CGImage], maxTokens: Int) -> AsyncThrowingStream<String, Error> {
+        // If no images, fall back to text-only path.
+        guard !images.isEmpty else {
+            return generateStream(prompt: prompt, maxTokens: maxTokens)
+        }
+        return AsyncThrowingStream { continuation in
+            Task { [self] in
+                do {
+                    let effectivePrompt = family.disableThinking ? prompt + " /no_think" : prompt
+                    let vlmImages = images.map { UserInput.Image.ciImage(CIImage(cgImage: $0)) }
+                    let userInput = UserInput(chat: [
+                        .system(systemPrompt),
+                        .user(effectivePrompt, images: vlmImages)
                     ], additionalContext: family.templateContext)
                     let lmInput = try await modelContainer.prepare(input: userInput)
                     let parameters = GenerateParameters(

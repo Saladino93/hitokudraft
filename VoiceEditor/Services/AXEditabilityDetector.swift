@@ -42,7 +42,20 @@ struct AXEditabilityDetector: EditabilityDetector {
         ) == .success,
            let role = roleRef as? String,
            Self.editableRoles.contains(role) {
-            return true
+            if role == "AXWebArea" {
+                // AXWebArea matches both read-only articles and web editors (Gmail, Notion).
+                // Refine: only treat as editable if the text range is settable — true for
+                // contentEditable/input elements, false for static article pages.
+                var webSettable: DarwinBoolean = false
+                if AXUIElementIsAttributeSettable(
+                    focused, kAXSelectedTextRangeAttribute as CFString, &webSettable
+                ) == .success && webSettable.boolValue {
+                    return true  // Actual web editor
+                }
+                // Fall through to other checks for read-only web content
+            } else {
+                return true
+            }
         }
 
         // Step 3: Selected-text attribute — present on any element that holds a text cursor,

@@ -5,7 +5,16 @@ All notable changes to Hitoku Draft are documented in this file.
 ## [Unreleased]
 
 ### Added
-- **Voice readback** — TTS in display/non-editable mode (e.g. reading a PDF with Ctrl+Z). Two engines available: Kokoro (multi-voice, speed control) and PocketTTS (single voice, flow-matching). Selectable in Settings → Models. Female voices only; voice picker doubles as language picker.
+- **Voice readback** — TTS in display/non-editable mode (e.g. reading a PDF with Ctrl+Z). Two engines: Kokoro (multi-voice, speed control) and PocketTTS (flow-matching). Streaming TTS with prefetch synthesis, adaptive chunking, and segment highlighting in the overlay.
+- **Browser context** — Full-page text extraction from Safari, Chrome, Arc, Brave, and Edge via AppleScript JavaScript. Data-driven browser registry for easy extensibility.
+- **Vision Language Model support** — Qwen3.5 models load via MLXVLM and can see window screenshots in Advanced context mode. The LLM describes images, charts, and UI on screen.
+- **Web search** — LLM can search the web during generation via DuckDuckGo (no API key). Toggle "Allow internet access" in Settings → General. Also includes URL fetching for reading articles.
+- **Chat data models** — ChatMessage, Conversation, and ChatStore scaffolded for future persistent conversation history.
+
+### Fixed
+- **Safari treated as editable** — AXWebArea role now has a refinement check (settable text range) to distinguish read-only articles from web editors like Gmail/Notion.
+- **Esc key system alert sound** — CGEventTap suppresses the Esc key globally when the display overlay is visible.
+- **PocketTTS voice compatibility** — Filtered to voices with 125-frame prompt length (the only format FluidAudio supports).
 
 ## [1.4.2] — 2026-04-05
 

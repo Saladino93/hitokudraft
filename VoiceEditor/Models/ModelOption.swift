@@ -37,6 +37,16 @@ struct ModelOption: Identifiable, Hashable, Codable {
     /// Returns true when this is the "None — STT only" sentinel (no LLM loaded).
     var isNone: Bool { path == "__none__" }
 
+    /// True when the model should be loaded via VLMModelFactory (vision path).
+    /// Qwen3.5 is natively multimodal — all sizes are VLMs. Other families use
+    /// explicit "-VL" or "-vlm" suffix convention.
+    var isVLM: Bool {
+        let lower = path.lowercased()
+        if lower.contains("qwen3.5") { return true }
+        return lower.contains("-vl-") || lower.contains("-vlm")
+            || lower.hasSuffix("-vl")
+    }
+
     /// Resolves the model family strategy by inspecting the model path.
     var family: any ModelFamily {
         let lower = path.lowercased()
@@ -228,7 +238,7 @@ enum ModelRegistry {
             name: "Qwen3.5 9B 4-bit",
             path: "mlx-community/Qwen3.5-9B-4bit",
             extraEOSTokens: ["<|im_end|>"],
-            description: "Best overall quality (top multilingual and reasoning)",
+            description: "Best quality — text + vision (sees images in Advanced mode)",
             estimatedMemoryGB: 6.5
         ),
     ]

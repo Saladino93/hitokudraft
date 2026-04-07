@@ -51,6 +51,11 @@ struct ActionConfirmationPanel {
             alert.informativeText = action.confirmationSummary
             alert.addButton(withTitle: action.actionVerb)
             alert.addButton(withTitle: "Cancel")
+
+        case .webSearch:
+            // No confirmation needed — search is read-only and non-destructive.
+            // Skip the alert and return true immediately.
+            return true
         }
 
         return alert.runModal() == .alertFirstButtonReturn

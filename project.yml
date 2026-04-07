@@ -86,6 +86,8 @@ targets:
       - package: mlx-swift-lm
         product: MLXLLM
       - package: mlx-swift-lm
+        product: MLXVLM
+      - package: mlx-swift-lm
         product: MLXLMCommon
       - package: mlx-swift
         product: MLX

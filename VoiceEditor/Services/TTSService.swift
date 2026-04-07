@@ -308,6 +308,8 @@ actor TTSService {
             player?.stop()
             player = try? AVAudioPlayer(data: data)
             player?.play()
+            // No segment highlight for full-text speak — highlighting only works
+            // with streaming segments where there's dim/bright contrast.
             if let duration = player?.duration, duration > 0 {
                 try? await Task.sleep(for: .seconds(duration + 0.1))
             }

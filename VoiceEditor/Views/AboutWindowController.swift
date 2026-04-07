@@ -53,16 +53,15 @@ private struct AboutView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Link("Hitoku Draft", destination: URL(string: "https://hitoku.me/draft/")!)
+                Text("Hitoku Draft")
                     .font(.system(size: 22, weight: .bold))
 
                 Text(appVersion)
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
-                Text(copyright)
+                Link(copyright, destination: URL(string: "https://hitoku.me/draft/")!)
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
 
                 Spacer().frame(height: 8)
 

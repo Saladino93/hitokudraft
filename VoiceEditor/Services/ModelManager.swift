@@ -3,6 +3,7 @@ import Dispatch
 import FluidAudio
 import MLX
 import MLXLLM
+import MLXVLM
 import MLXLMCommon
 
 @MainActor
@@ -41,7 +42,8 @@ final class ModelManager: ObservableObject {
     var llmDisabled: Bool { selectedModel.isNone }
 
     /// Path of the last successfully-loaded LLM — prevents redundant reloads.
-    private(set) var loadedModelPath: String?
+    /// Path of the last loaded model. Set to nil to force a reload on next `loadModel()`.
+    var loadedModelPath: String?
 
     /// Path of the model that was loaded before the current one.
     /// Used to restore the previous model when the user deletes the active custom model.
@@ -137,7 +139,12 @@ final class ModelManager: ObservableObject {
         loadedModelPath = nil
         statusMessage = "Loading \(model.name)..."
 
-        let container = try await LLMModelFactory.shared.loadContainer(
+        let visionEnabled = UserDefaults.standard.bool(forKey: "visionEnabled")
+        let useVLM = model.isVLM && visionEnabled
+        let factory: any ModelFactory = useVLM
+            ? VLMModelFactory.shared
+            : LLMModelFactory.shared
+        let container = try await factory.loadContainer(
             configuration: model.configuration
         ) { [weak self] progress in
             Task { @MainActor in

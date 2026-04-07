@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import NaturalLanguage
 import UserNotifications
 import FluidAudio
 import MLXAudioSTT
@@ -46,6 +47,8 @@ final class ConversationCoordinator: ObservableObject {
     private let dictationOverlay = DictationOverlayPanel()
     /// Action Mode module. Setting this to nil (or deleting Actions/) fully disables the feature.
     private var actionCoordinator: ActionCoordinator?
+    /// Tool executor for web search/fetch during LLM generation. Created lazily when internet access is enabled.
+    private var toolExecutor: ToolExecutor?
 
     /// Live transcription text for the overlay (updated during streaming; empty = show status label).
     @Published private(set) var liveTranscriptionText: String = ""
@@ -65,6 +68,10 @@ final class ConversationCoordinator: ObservableObject {
     /// Only takes effect when an LLM is loaded (not the None sentinel).
     @Published private(set) var polishDictation: Bool =
         UserDefaults.standard.bool(forKey: "polishDictation")
+
+    /// Tracks the current internet access setting to detect changes and rebuild LLM service.
+    private var internetAccessEnabled: Bool =
+        UserDefaults.standard.bool(forKey: "internetAccessEnabled")
     /// Last finalized text from a native streaming session (Qwen3-ASR).
     /// Set by `runStreamingTranscription` for `stopDictation()` to use.
     private var lastStreamingTranscription: String?
@@ -134,6 +141,11 @@ final class ConversationCoordinator: ObservableObject {
                 }
                 let polish = UserDefaults.standard.bool(forKey: "polishDictation")
                 if polish != self.polishDictation { self.polishDictation = polish }
+                let internet = UserDefaults.standard.bool(forKey: "internetAccessEnabled")
+                if internet != self.internetAccessEnabled {
+                    self.internetAccessEnabled = internet
+                    self.rebuildLLMServiceIfNeeded()
+                }
             }
             .store(in: &cancellables)
 
@@ -208,6 +220,7 @@ final class ConversationCoordinator: ObservableObject {
             if case .error = newState { self?.resetErrorAfterDelay() }
         }
         actionCoordinator?.setLiveTranscript = { [weak self] text in self?.liveTranscriptionText = text }
+        actionCoordinator?.onDisplayResult = { [weak self] text in self?.displayModeResult = text }
 
         modelManager.statusMessage = ""
         state = .idle
@@ -596,7 +609,7 @@ final class ConversationCoordinator: ObservableObject {
                     let willStreamTTS = ttsEnabled
                     let ttsBackendStr = UserDefaults.standard.string(forKey: "ttsBackend") ?? "kokoro"
                     let ttsStreamBackend: TtsBackend = ttsBackendStr == "pocketTts" ? .pocketTts : .kokoro
-                    let ttsVoice = UserDefaults.standard.string(forKey: "ttsVoice") ?? TtsConstants.recommendedVoice
+                    var ttsVoice = UserDefaults.standard.string(forKey: "ttsVoice") ?? TtsConstants.recommendedVoice
                     let rawSpeed = UserDefaults.standard.double(forKey: "ttsSpeed")
                     let ttsSpeed = Float(rawSpeed > 0 ? rawSpeed : 1.0)
                     var ttsChunker = StreamingTextChunker()
@@ -612,9 +625,17 @@ final class ConversationCoordinator: ObservableObject {
                         }
                     }
 
+                    // Pass screenshot to VLM models — they see the image directly.
+                    // Text-only models ignore the images parameter (protocol default).
+                    let vlmImages: [CGImage] = {
+                        guard modelManager.selectedModel.isVLM,
+                              let screenshot = screenContext.screenshot else { return [] }
+                        return [screenshot]
+                    }()
+
                     var raw = ""
                     raw.reserveCapacity(4096)
-                    for try await chunk in llm.generateStream(prompt: prompt, maxTokens: maxTokens) {
+                    for try await chunk in llm.generateStream(prompt: prompt, images: vlmImages, maxTokens: maxTokens) {
                         raw += chunk
                         // Show raw tokens in overlay — postProcess() runs once on the final string.
                         // Running regex cleanup per-token was O(N²); models with enable_thinking=false
@@ -638,6 +659,12 @@ final class ConversationCoordinator: ObservableObject {
                             }
                             if !segments.isEmpty {
                                 Self.log.info("TTS chunker emitted \(segments.count) segment(s)")
+                                // Auto-detect language from first segment (Kokoro only).
+                                if ttsStreamBackend == .kokoro,
+                                   let detected = autoDetectKokoroVoice(for: segments[0], currentVoice: ttsVoice) {
+                                    ttsVoice = detected
+                                    Self.log.info("TTS auto-detected voice: \(detected)")
+                                }
                             }
                             for segment in segments {
                                 await TTSService.shared.enqueue(
@@ -649,6 +676,30 @@ final class ConversationCoordinator: ObservableObject {
                     streamingLLMText = ""
                     var cleaned = OutputCleaner.clean(family.postProcess(raw))
                     cleaned = OutputCleaner.stripEcho(cleaned, instruction: trimmedCommand)
+
+                    // Tool-use loop: if the LLM emitted a tool call, execute it and re-generate
+                    if let toolExecutor = self.toolExecutor {
+                        for _ in 0..<ToolExecutor.maxIterations {
+                            try Task.checkCancellation()
+                            guard let toolCall = await toolExecutor.detectToolCall(in: raw) else { break }
+
+                            Self.log.info("Tool call detected: \(toolCall.name) — executing")
+                            let toolResult = try await toolExecutor.execute(toolCall)
+
+                            // Re-generate with tool result appended to the original prompt
+                            let augmentedPrompt = prompt + "\n\nTool result for \(toolCall.name):\n\(toolResult)\n\nNow answer the user's question using this information. Output ONLY the final answer — no tool calls."
+                            raw = ""
+                            for try await chunk in llm.generateStream(prompt: augmentedPrompt, images: vlmImages, maxTokens: maxTokens) {
+                                raw += chunk
+                                streamingLLMText = raw
+                            }
+                            streamingLLMText = ""
+                            cleaned = OutputCleaner.clean(family.postProcess(raw))
+                            cleaned = OutputCleaner.stripEcho(cleaned, instruction: trimmedCommand)
+                        }
+                        // Strip any residual tool call tags that slipped through
+                        cleaned = await toolExecutor.stripToolCallTags(from: cleaned)
+                    }
 
                     guard !cleaned.isEmpty else {
                         throw VoiceEditorError.emptyOutput
@@ -818,6 +869,8 @@ final class ConversationCoordinator: ObservableObject {
         guard state == .idle else { return }
 
         modelManager.cancelOffload()
+        await TTSService.shared.stop()
+        clearDisplayModeResult()
 
         do { try await ensureSTTReady() } catch {
             state = .error(error.localizedDescription)
@@ -1005,6 +1058,10 @@ final class ConversationCoordinator: ObservableObject {
                 // queue to drain. Otherwise synthesize the full text as a single utterance.
                 // The 30s timer only starts after audio finishes (or immediately if TTS off).
                 if ttsEnabled {
+                    // Ensure highlight callback is set for both paths.
+                    await TTSService.shared.setOnSegmentStart { [weak self] segment in
+                        self?.ttsSpeakingSegment = segment
+                    }
                     if ttsStreamedAlready {
                         await TTSService.shared.waitForQueue()
                     } else {
@@ -1059,11 +1116,77 @@ final class ConversationCoordinator: ObservableObject {
     private func makeLLMService(container: ModelContainer) -> MLXLLMService {
         let family = modelManager.selectedModel.family
         let isScreenAware = contextAwareMode != .off
+        var systemPrompt = family.systemPrompt(screenAware: isScreenAware)
+
+        // Inject tool definitions when internet access is enabled and the model supports it
+        let internetEnabled = UserDefaults.standard.bool(forKey: "internetAccessEnabled")
+        if internetEnabled && family.supportsToolUse {
+            let executor = makeToolExecutor()
+            toolExecutor = executor
+            // Synchronously build the prompt addition — toolDefinitionsPrompt is a computed property
+            // but we need to call it from outside the actor. Build it inline instead.
+            let toolPrompt = buildToolDefinitionsPrompt()
+            systemPrompt += "\n\n" + toolPrompt
+        } else {
+            toolExecutor = nil
+        }
+
         return MLXLLMService(
             container: container,
             family: family,
-            systemPrompt: family.systemPrompt(screenAware: isScreenAware)
+            systemPrompt: systemPrompt
         )
+    }
+
+    /// Creates a ToolExecutor with web search and URL fetch tools.
+    private func makeToolExecutor() -> ToolExecutor {
+        let searchService = DuckDuckGoSearchService()
+        let fetchService = ReadabilityWebFetcher()
+        let tools: [any Tool] = [
+            WebSearchTool(searchService: searchService),
+            FetchURLTool(fetchService: fetchService),
+        ]
+        return ToolExecutor(tools: tools)
+    }
+
+    /// Builds the tool definitions prompt string synchronously (avoids actor hop).
+    /// Mirrors ToolExecutor.toolDefinitionsPrompt but without requiring an actor hop.
+    private func buildToolDefinitionsPrompt() -> String {
+        let isoFmt = ISO8601DateFormatter()
+        isoFmt.formatOptions = [.withInternetDateTime]
+        let nowISO = isoFmt.string(from: Date())
+        let weekday = Calendar.current.weekdaySymbols[
+            Calendar.current.component(.weekday, from: Date()) - 1
+        ]
+        return """
+        Current date and time: \(nowISO) (\(weekday))
+
+        You have access to the following tools to help answer questions:
+
+        - **web_search**: Search the web for current information. Use for factual questions, current events, or when you need up-to-date data.
+          Parameters: {"query": "your search query"}
+        - **fetch_url**: Fetch and read a web page. Use when you need to read the content of a specific URL.
+          Parameters: {"url": "https://example.com/page"}
+
+        When you need to use a tool, output EXACTLY this format (no other text around it):
+        <tool_call>
+        {"name": "TOOL_NAME", "arguments": {"param": "value"}}
+        </tool_call>
+
+        Use tools when:
+        - The user asks about current events, recent news, or time-sensitive information
+        - The user asks a factual question you are unsure about
+        - The user mentions or asks about a specific URL
+        - The user explicitly asks you to search or look something up
+
+        Do NOT use tools for:
+        - Text editing, rewriting, or grammar fixes
+        - Creative writing or drafting
+        - Questions you can confidently answer from your training data
+
+        After receiving tool results, incorporate the information naturally into your response. \
+        Output ONLY the final answer text -- no tool call tags in the final response.
+        """
     }
 
     private func resetErrorAfterDelay() {
@@ -1091,5 +1214,47 @@ final class ConversationCoordinator: ObservableObject {
         t = t.replacingOccurrences(of: "<|im_end|>", with: "")
         t = t.replacingOccurrences(of: "<|im_start|>", with: "")
         return t
+    }
+
+    // MARK: - TTS Language Detection
+
+    /// Kokoro voice prefix → NLLanguage mapping.
+    /// Each prefix is a two-letter code: first letter = language, second = gender (f/m).
+    private static let kokoroLanguageMap: [NLLanguage: String] = [
+        .english: "af",      // American English female (default)
+        .spanish: "ef",      // Spanish (LATAM) female
+        .french: "ff",       // French female
+        .hindi: "hf",        // Hindi female
+        .italian: "if",      // Italian female
+        .japanese: "jf",     // Japanese female
+        .portuguese: "pf",   // Brazilian Portuguese female
+        .simplifiedChinese: "zf",  // Mandarin Chinese female
+        .traditionalChinese: "zf",
+    ]
+
+    /// Detects the dominant language of `text` and returns the best Kokoro female voice
+    /// for that language. Returns nil if the language matches the user's current voice
+    /// or if detection is ambiguous (< 80% confidence).
+    private func autoDetectKokoroVoice(for text: String, currentVoice: String) -> String? {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+
+        guard let detected = recognizer.dominantLanguage,
+              let confidence = recognizer.languageHypotheses(withMaximum: 1)[detected],
+              confidence >= 0.8 else {
+            return nil  // Ambiguous — keep user's selection
+        }
+
+        // Find the prefix for the detected language.
+        guard let targetPrefix = Self.kokoroLanguageMap[detected] else {
+            return nil  // Unsupported language — keep user's selection
+        }
+
+        // If user's voice already matches the detected language, no change needed.
+        if currentVoice.hasPrefix(targetPrefix) { return nil }
+
+        // Find the first available female voice with the target prefix.
+        let match = KokoroTTSProvider.femaleVoices.first { $0.hasPrefix(targetPrefix) }
+        return match
     }
 }

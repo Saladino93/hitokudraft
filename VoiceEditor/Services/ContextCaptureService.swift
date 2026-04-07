@@ -89,6 +89,8 @@ final class ContextCaptureService {
         // synchronous blocking call (50–500 ms) and nonisolated alone does not prevent it
         // from running on the main thread when called from @MainActor context.
         if let image = await captureWindow(pid: pid) {
+            // Store screenshot for VLM models (they see the image directly instead of OCR text).
+            ctx.screenshot = image
             let ocrText = await Task.detached(priority: .userInitiated) {
                 self.runOCR(on: image)
             }.value

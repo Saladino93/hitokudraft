@@ -21,6 +21,7 @@ struct SettingsView: View {
     @AppStorage("completionSound")      private var completionSound: String = "Glass"
     @AppStorage("appLanguage")           private var appLanguage: String = AppLocalization.detectInitialLanguage()
     @AppStorage("contextAwareMode")      private var contextAwareMode: String = "off"
+    @AppStorage("visionEnabled")          private var visionEnabled: Bool = false
     @AppStorage("showDictationText")          private var showDictationText: Bool = true
     @AppStorage("showLLMStreamingInOverlay")  private var showLLMStreamingInOverlay: Bool = true
     @AppStorage("dictationTheme")        private var dictationTheme: String = DictationTheme.default.rawValue
@@ -30,6 +31,7 @@ struct SettingsView: View {
     @AppStorage("ttsBackend")            private var ttsBackend: String = "kokoro"
     @AppStorage("ttsVoice")              private var ttsVoice: String = TtsConstants.recommendedVoice
     @AppStorage("ttsSpeed")              private var ttsSpeed: Double = 1.0
+    @AppStorage("internetAccessEnabled") private var internetAccessEnabled: Bool = false
 
     // MARK: - Navigation State
     private enum Tab { case license, general, appearance, model, updates }
@@ -59,9 +61,9 @@ struct SettingsView: View {
     private var currentHeight: CGFloat {
         switch selectedTab {
         case .license: return 178
-        case .general: return 518
+        case .general: return 568
         case .appearance: return 473
-        case .model: return ttsEnabled ? 545 : 445
+        case .model: return ttsEnabled ? 518 : 423
         case .updates: return 122
         }
     }
@@ -259,6 +261,24 @@ struct SettingsView: View {
             GridRow {
                 Text(L("sound.completion"))
                 soundPicker(selection: $completionSound)
+            }
+
+            Color.clear.frame(height: 18)
+
+            // --- Internet Access ---
+            GridRow {
+                Text("Internet access")
+                    .gridColumnAlignment(.trailing)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Toggle("", isOn: $internetAccessEnabled)
+                            .labelsHidden()
+                        Text("Allow web search during generation")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .gridColumnAlignment(.leading)
             }
         }
         .padding(30)
@@ -483,7 +503,22 @@ struct SettingsView: View {
                     }
                 }
 
-                Color.clear.frame(height: 6)
+                if coordinator.modelManager.selectedModel.isVLM {
+                    Color.clear.frame(height: 4)
+                    GridRow {
+                        Text("")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Toggle("Allow vision (sees screenshots, slower)", isOn: $visionEnabled)
+                                .toggleStyle(.checkbox)
+                                .onChange(of: visionEnabled) {
+                                    coordinator.modelManager.loadedModelPath = nil
+                                    Task { try? await coordinator.modelManager.reloadLLM() }
+                                }
+                        }
+                    }
+                }
+
+                Color.clear.frame(height: 8)
 
                 GridRow {
                     Text(L("model.active_stt"))
@@ -587,39 +622,6 @@ struct SettingsView: View {
 
                 Color.clear.frame(height: 18)
 
-                // ---- System Status ----
-                GridRow {
-                    Text(L("model.system_status"))
-                    HStack(spacing: 16) {
-                        statusIndicator(label: "LLM", ready: modelManager.llmReady, loading: isLLMLoading, disabled: modelManager.llmDisabled)
-                        statusIndicator(label: "STT", ready: modelManager.sttReady)
-                    }
-                }
-
-                Color.clear.frame(height: 6)
-
-                GridRow {
-                    Text(L("model.cache_directory"))
-                    HStack {
-                        Text(cacheDirectory)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(.secondary)
-                            .help(cacheDirectory)
-                        if let cacheSizeText {
-                            Text(cacheSizeText)
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                        Button(L("model.show_in_finder")) {
-                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: cacheDirectory)
-                        }
-                        .controlSize(.small)
-                    }
-                }
-
-                Color.clear.frame(height: 18)
-
                 // ---- Voice Readback (TTS) ----
                 GridRow {
                     Text(L("tts.label"))
@@ -679,6 +681,40 @@ struct SettingsView: View {
                             )
                             .disabled(ttsBackend == "pocketTts")
                         }
+                    }
+                }
+
+                Color.clear.frame(height: 18)
+
+                // ---- System Status ----
+                GridRow {
+                    Text(L("model.system_status"))
+                    HStack(spacing: 16) {
+                        statusIndicator(label: "LLM", ready: modelManager.llmReady, loading: isLLMLoading, disabled: modelManager.llmDisabled)
+                        statusIndicator(label: "STT", ready: modelManager.sttReady)
+                        statusIndicator(label: "TTS", ready: ttsEnabled, disabled: !ttsEnabled)
+                    }
+                }
+
+                Color.clear.frame(height: 6)
+
+                GridRow {
+                    Text(L("model.cache_directory"))
+                    HStack {
+                        Text(cacheDirectory)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                            .help(cacheDirectory)
+                        if let cacheSizeText {
+                            Text(cacheSizeText)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Button(L("model.show_in_finder")) {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: cacheDirectory)
+                        }
+                        .controlSize(.small)
                     }
                 }
             }

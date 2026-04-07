@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// How much screen context to capture before an LLM call.
 enum ContextAwareMode: String, CaseIterable {
@@ -27,6 +28,10 @@ struct ScreenContext {
     /// Broader document text from PDFKit or AppleScript (Advanced mode only).
     /// Nil when the app is not supported or has no text layer (scanned PDFs fall back to OCR).
     var documentContext: String?
+
+    /// Window screenshot captured in Advanced mode. Passed directly to VLM models
+    /// instead of running OCR. Nil in Standard mode or when capture fails.
+    var screenshot: CGImage?
 
     /// Formatted block for injection into an LLM prompt, or nil when empty.
     var promptBlock: String? {
