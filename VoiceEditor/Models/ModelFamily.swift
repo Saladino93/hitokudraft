@@ -231,10 +231,19 @@ struct Gemma4ModelFamily: ModelFamily {
     }
 
     let temperature: Float = 0.6
-    let topP: Float = 0.9
+    let topP: Float = 0.95
     let repetitionPenalty: Float = 1.2
     let disableThinking = false
-    let draftMaxTokens: Int = 600
+
+    // Gemma 4 E2B tends to loop — cap tokens aggressively
+    let draftMaxTokens: Int = 400
+
+    func editMaxTokens(for text: String) -> Int {
+        min(Prompts.editMaxTokens(for: text), 500)
+    }
+
+    // Gemma 4 E2B should NOT use tool-use prompts — causes infinite tool-call loops
+    let supportsToolUse = false
 }
 
 // MARK: - Granite
