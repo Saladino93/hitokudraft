@@ -215,20 +215,6 @@ enum ModelRegistry {
             estimatedMemoryGB: 0.5
         ),
         ModelOption(
-            name: "LFM2.5 1.2B 4-bit",
-            path: "mlx-community/LFM2.5-1.2B-Instruct-4bit",
-            useVoiceCleanPrompt: true,
-            description: "Fast, very lightweight (lower output quality)",
-            estimatedMemoryGB: 0.66
-        ),
-        ModelOption(
-            name: "LFM2.5 1.2B 8-bit",
-            path: "mlx-community/LFM2.5-1.2B-Instruct-8bit",
-            useVoiceCleanPrompt: true,
-            description: "Fast, lightweight (moderate output quality)",
-            estimatedMemoryGB: 1.24
-        ),
-        ModelOption(
             name: "Qwen3.5 4B 4-bit",
             path: "mlx-community/Qwen3.5-4B-4bit",
             extraEOSTokens: ["<|im_end|>"],
@@ -244,10 +230,12 @@ enum ModelRegistry {
             estimatedMemoryGB: 2.6
         ),
         ModelOption(
-            name: "Granite 4 Micro 8-bit",
-            path: "mlx-community/granite-4.0-h-micro-8bit",
-            description: "Higher-fidelity instruction following",
-            estimatedMemoryGB: 3.4
+            name: "Gemma 4 E4B (LiteRT)",
+            path: "litert-community/gemma-4-E4B-it-litert-lm",
+            backendType: .liteRT,
+            liteRTFilename: "gemma-4-E4B-it.litertlm",
+            description: "Larger multimodal model, higher quality (needs 4+ GB RAM)",
+            estimatedMemoryGB: 3.7
         ),
         ModelOption(
             name: "Qwen3.5 9B 4-bit",
@@ -259,7 +247,7 @@ enum ModelRegistry {
     ]
 
     /// Selects the best default model for the current device's RAM.
-    /// ≥16 GB → Qwen3.5 9B | ≥8 GB → Qwen3.5 4B | <8 GB → LFM2.5 1.2B 8-bit
+    /// ≥16 GB → Qwen3.5 9B | ≥8 GB → Gemma 4 E2B | <8 GB → Qwen3.5 0.8B
     static var smartDefault: ModelOption {
         let ramGB = ProcessInfo.processInfo.physicalMemory / 1_073_741_824  // UInt64
 
@@ -268,9 +256,9 @@ enum ModelRegistry {
         case 16...:
             preferred = "Qwen3.5-9B"
         case 8...:
-            preferred = "Qwen3.5-4B"
+            preferred = "gemma-4-E2B"
         default:
-            preferred = "LFM2.5-1.2B-Instruct-8bit"   // 1.24 GB — fits comfortably on <8 GB
+            preferred = "Qwen3.5-0.8B"
         }
         return availableModels.first { $0.path.contains(preferred) }
             ?? availableModels.first { !$0.isNone }
