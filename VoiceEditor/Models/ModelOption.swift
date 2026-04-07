@@ -208,18 +208,18 @@ enum ModelRegistry {
 
     private static let bundledDefaults: [ModelOption] = [
         ModelOption(
-            name: "LFM2.5 1.2B 4-bit",
-            path: "mlx-community/LFM2.5-1.2B-Instruct-4bit",
-            useVoiceCleanPrompt: true,
-            description: "Fast, very lightweight (lower output quality)",
-            estimatedMemoryGB: 0.66
-        ),
-        ModelOption(
             name: "Qwen3.5 0.8B 4-bit",
             path: "mlx-community/Qwen3.5-0.8B-MLX-4bit",
             extraEOSTokens: ["<|im_end|>"],
             description: "Tiny multilingual model (fast, lower quality)",
             estimatedMemoryGB: 0.5
+        ),
+        ModelOption(
+            name: "LFM2.5 1.2B 4-bit",
+            path: "mlx-community/LFM2.5-1.2B-Instruct-4bit",
+            useVoiceCleanPrompt: true,
+            description: "Fast, very lightweight (lower output quality)",
+            estimatedMemoryGB: 0.66
         ),
         ModelOption(
             name: "LFM2.5 1.2B 8-bit",
@@ -236,24 +236,24 @@ enum ModelRegistry {
             estimatedMemoryGB: 2.5
         ),
         ModelOption(
+            name: "Gemma 4 E2B (LiteRT)",
+            path: "litert-community/gemma-4-E2B-it-litert-lm",
+            backendType: .liteRT,
+            liteRTFilename: "gemma-4-E2B-it.litertlm",
+            description: "Native audio + vision, skips STT (fastest end-to-end)",
+            estimatedMemoryGB: 2.6
+        ),
+        ModelOption(
             name: "Granite 4 Micro 8-bit",
             path: "mlx-community/granite-4.0-h-micro-8bit",
             description: "Higher-fidelity instruction following",
             estimatedMemoryGB: 3.4
         ),
         ModelOption(
-            name: "Gemma 4 E2B (LiteRT)",
-            path: "litert-community/gemma-4-E2B-it-litert-lm",
-            backendType: .liteRT,
-            liteRTFilename: "gemma-4-E2B-it.litertlm",
-            description: "Native audio + vision — skips STT (fastest end-to-end)",
-            estimatedMemoryGB: 2.6
-        ),
-        ModelOption(
             name: "Qwen3.5 9B 4-bit",
             path: "mlx-community/Qwen3.5-9B-4bit",
             extraEOSTokens: ["<|im_end|>"],
-            description: "Best quality — text + vision (sees images in Advanced mode)",
+            description: "Best overall quality (top multilingual and reasoning)",
             estimatedMemoryGB: 6.5
         ),
     ]
