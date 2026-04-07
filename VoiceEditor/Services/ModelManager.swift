@@ -255,7 +255,11 @@ final class ModelManager: ObservableObject {
 
         inferenceRouter.register(backend, as: "litert")
         inferenceRouter.preferred = "litert"
-        print("[ModelManager] LiteRT registered as preferred backend")
+
+        // Unload STT models — Gemma handles audio natively, saves ~460MB
+        asrModels = nil
+        sttReady = true  // Show green — Gemma IS the STT
+        print("[ModelManager] LiteRT registered, STT unloaded (Gemma handles audio)")
     }
 
     /// Downloads a single file from a HuggingFace repo to the given directory.

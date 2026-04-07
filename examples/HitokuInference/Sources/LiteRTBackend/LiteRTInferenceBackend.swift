@@ -119,10 +119,13 @@ extension LiteRTInferenceBackend: InferenceBackend {
                     let sessionConfig = funcs.sessionConfigCreate()
                     if let sessionConfig {
                         funcs.sessionConfigSetMaxOutputTokens(sessionConfig, Int32(request.maxTokens))
+                        // Gemma needs slightly higher temperature to avoid repetition loops.
+                        // LiteRT sampler has no repetition_penalty — we detect loops in the callback.
+                        let effectiveTemp = max(request.temperature, 0.5)
                         var samplerParams = LiteRtLmSamplerParams(
                             type: kTopP, top_k: 40,
-                            top_p: request.topP ?? 0.9,
-                            temperature: request.temperature, seed: 0
+                            top_p: request.topP ?? 0.95,
+                            temperature: effectiveTemp, seed: 0
                         )
                         funcs.sessionConfigSetSamplerParams(sessionConfig, &samplerParams)
                     }
@@ -191,9 +194,16 @@ extension LiteRTInferenceBackend: InferenceBackend {
                         }
 
                         if let chunk {
-                            // LiteRT streams JSON: {"role":"assistant","content":[{"type":"text","text":"Hello"}]}
                             let raw = String(cString: chunk)
                             if let text = extractLiteRTText(raw) {
+                                // Repetition detection — bail if stuck in a loop
+                                if streamCtx.checkRepetition(text) {
+                                    print("[LiteRT] repetition detected, stopping")
+                                    streamCtx.continuation.finish()
+                                    streamCtx.cleanup()
+                                    Unmanaged<StreamContext>.fromOpaque(callbackData).release()
+                                    return
+                                }
                                 streamCtx.continuation.yield(text)
                             }
                         }
@@ -295,10 +305,26 @@ private final class StreamContext: @unchecked Sendable {
     let continuation: AsyncThrowingStream<String, Error>.Continuation
     let messageCStr: UnsafeMutablePointer<CChar>?
 
+    // Repetition detection — same sliding window as MLXInferenceBackend
+    var recentChunks: [String] = []
+    var isDegenerate = false
+
     init(continuation: AsyncThrowingStream<String, Error>.Continuation,
          messageCStr: UnsafeMutablePointer<CChar>?) {
         self.continuation = continuation
         self.messageCStr = messageCStr
+        self.recentChunks.reserveCapacity(21)
+    }
+
+    /// Returns true if the last 20 chunks are degenerate (3 or fewer unique).
+    func checkRepetition(_ chunk: String) -> Bool {
+        recentChunks.append(chunk)
+        if recentChunks.count > 20 { recentChunks.removeFirst() }
+        if recentChunks.count == 20, Set(recentChunks).count <= 3 {
+            isDegenerate = true
+            return true
+        }
+        return false
     }
 
     func cleanup() {
