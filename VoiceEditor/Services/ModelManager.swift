@@ -313,6 +313,13 @@ final class ModelManager: ObservableObject {
         sttReady = false
         asrModels = nil
 
+        // None sentinel — no STT to load
+        guard !selectedSTTModel.isNone else {
+            sttReady = true
+            statusMessage = ""
+            return
+        }
+
         switch selectedSTTModel.backend {
         case .fluidAudio:
             statusMessage = "Loading STT models..."

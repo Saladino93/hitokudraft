@@ -19,8 +19,26 @@ struct STTModelOption: Identifiable, Hashable {
     var id: String { path.isEmpty ? name : path }
 }
 
+extension STTModelOption {
+    /// True when this is the "None" sentinel (no STT loaded — use LLM audio).
+    var isNone: Bool { path == "__none_stt__" }
+}
+
 enum STTModelRegistry {
+    /// Sentinel: no STT loaded. Only works with audio-capable LLMs (Gemma 4).
+    /// Dictation loads Parakeet on-demand when needed.
+    static let noSTT = STTModelOption(
+        name: "None",
+        path: "__none_stt__",
+        backend: .fluidAudio,
+        description: "No STT loaded (requires audio-capable LLM like Gemma 4)",
+        estimatedMemoryGB: 0,
+        supportsNativeStreaming: false,
+        languageRestriction: nil
+    )
+
     static let availableModels: [STTModelOption] = [
+        noSTT,
         STTModelOption(
             name: "Whisper Tiny",
             path: "tiny.en",
