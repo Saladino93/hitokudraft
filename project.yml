@@ -10,6 +10,8 @@ options:
 packages:
   FluidAudio:
     path: examples/FluidAudio
+  HitokuInference:
+    path: examples/HitokuInference
   mlx-swift-lm:
     path: examples/mlx-swift-lm
   mlx-swift:
@@ -83,6 +85,12 @@ targets:
           GCC_OPTIMIZATION_LEVEL: s
     dependencies:
       - package: FluidAudio
+      - package: HitokuInference
+        product: HitokuInference
+      - package: HitokuInference
+        product: MLXBackend
+      - package: HitokuInference
+        product: LiteRTBackend
       - package: mlx-swift-lm
         product: MLXLLM
       - package: mlx-swift-lm
@@ -102,3 +110,28 @@ targets:
         product: Sparkle
       - package: SwiftMath
         product: SwiftMath
+    postBuildScripts:
+      - script: |
+          # Embed LiteRT dylibs into the app bundle for runtime dlopen loading.
+          LITERT_LIBS="${SRCROOT}/examples/HitokuInference/Libraries/macos_arm64"
+          LITERT_PREBUILT="${SRCROOT}/../litert-lm/prebuilt/macos_arm64"
+          FRAMEWORKS_DIR="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          MACOS_DIR="${BUILT_PRODUCTS_DIR}/${EXECUTABLE_FOLDER_PATH}"
+          mkdir -p "${FRAMEWORKS_DIR}"
+          # Copy engine + runtime dylibs to Frameworks/
+          for lib in liblitert_lm_engine.dylib libLiteRt.dylib libGemmaModelConstraintProvider.dylib; do
+            if [ -f "${LITERT_LIBS}/${lib}" ]; then
+              cp -f "${LITERT_LIBS}/${lib}" "${FRAMEWORKS_DIR}/"
+              codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" "${FRAMEWORKS_DIR}/${lib}" 2>/dev/null || true
+            fi
+          done
+          # GPU accelerator dylibs must be next to the executable (LiteRT dlopen uses bare filename)
+          for lib in libLiteRtMetalAccelerator.dylib libLiteRtWebGpuAccelerator.dylib libLiteRtTopKWebGpuSampler.dylib; do
+            SRC="${LITERT_LIBS}/${lib}"
+            [ ! -f "${SRC}" ] && SRC="${LITERT_PREBUILT}/${lib}"
+            if [ -f "${SRC}" ]; then
+              cp -f "${SRC}" "${MACOS_DIR}/"
+              codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" "${MACOS_DIR}/${lib}" 2>/dev/null || true
+            fi
+          done
+        name: Embed LiteRT Dylibs

@@ -5,6 +5,15 @@ All notable changes to Hitoku Draft are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **HitokuInference framework** — Independent Swift Package (`examples/HitokuInference/`) with `InferenceBackend` protocol, `InferenceRouter` for multi-backend dispatch, and `InferenceRequest` multimodal value type. Backends conform to the protocol; callers depend only on abstractions.
+- **MLXBackend** — Wraps existing MLXLLM/MLXVLM `ModelContainer` behind `InferenceBackend`. Drop-in replacement for direct `MLXLLMService` usage.
+- **LiteRTBackend** — Google LiteRT-LM integration via dlopen/dlsym C bridge. Supports Gemma 4 E2B with native audio + vision + text in a single model. GPU (Metal/WebGPU) for text generation, CPU for audio encoder.
+- **Gemma 4 E2B model** — Selectable in model picker as "Gemma 4 E2B (LiteRT)". 2.6 GB model, ~100 tok/s GPU decode. Understands voice commands natively — skips STT entirely.
+- **Audio-direct voice edit** — When LiteRT backend is active, voice instructions are sent as raw WAV audio directly to the model. No STT transcription step needed.
+- **RoutedLLMService adapter** — Bridges app-level `LLMService` protocol to `InferenceRouter`. All existing callers (ConversationCoordinator, ActionCoordinator, DictationPolisher) work unchanged.
+- **AudioEncoder utility** — Converts Float32 PCM samples to WAV format for LiteRT audio input.
+
+### Changed
 - **Voice readback** — TTS in display/non-editable mode (e.g. reading a PDF with Ctrl+Z). Two engines: Kokoro (multi-voice, speed control) and PocketTTS (flow-matching). Streaming TTS with prefetch synthesis, adaptive chunking, and segment highlighting in the overlay.
 - **Browser context** — Full-page text extraction from Safari, Chrome, Arc, Brave, and Edge via AppleScript JavaScript. Data-driven browser registry for easy extensibility.
 - **Vision Language Model support** — Qwen3.5 models load via MLXVLM and can see window screenshots in Advanced context mode. The LLM describes images, charts, and UI on screen.

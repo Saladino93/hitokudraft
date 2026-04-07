@@ -7,6 +7,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(path: "examples/FluidAudio"),
+        .package(path: "examples/HitokuInference"),
         .package(path: "examples/mlx-swift-lm"),
         .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMinor(from: "0.30.6")),
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0"),
@@ -19,6 +20,9 @@ let package = Package(
             name: "VoiceEditor",
             dependencies: [
                 "FluidAudio",
+                .product(name: "HitokuInference", package: "HitokuInference"),
+                .product(name: "MLXBackend", package: "HitokuInference"),
+                .product(name: "LiteRTBackend", package: "HitokuInference"),
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
                 .product(name: "MLX", package: "mlx-swift"),

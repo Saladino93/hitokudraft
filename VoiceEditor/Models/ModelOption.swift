@@ -1,9 +1,18 @@
 import Foundation
 import MLXLMCommon
 
+/// Which inference framework loads and runs this model.
+enum InferenceBackendType: String, Codable, Hashable {
+    case mlx       // MLX via ModelContainer (existing)
+    case liteRT    // LiteRT-LM via C API + dylibs
+}
+
 struct ModelOption: Identifiable, Hashable, Codable {
     let name: String       // display name in UI
     let path: String       // HuggingFace repo ID or absolute local path
+    var backendType: InferenceBackendType = .mlx
+    /// HuggingFace filename to download for LiteRT models (e.g. "gemma-4-E2B-it.litertlm").
+    var liteRTFilename: String?
     var extraEOSTokens: Set<String> = []
     /// Qwen3-style models default to "thinking" mode, consuming most of the token
     /// budget on a <think> block. Set true to append `/no_think` to prompts.
@@ -54,7 +63,7 @@ struct ModelOption: Identifiable, Hashable, Codable {
         if lower.contains("qwen3") { return Qwen3ModelFamily() }
         if lower.contains("lfm") { return LFMModelFamily() }
         if lower.contains("granite") { return GraniteModelFamily() }
-        // if lower.contains("gemma-4") { return Gemma4ModelFamily() }  // pending mlx-swift support
+        if lower.contains("gemma-4") || lower.contains("gemma4") { return Gemma4ModelFamily() }
         return DefaultModelFamily()
     }
 
@@ -73,12 +82,14 @@ struct ModelOption: Identifiable, Hashable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, path, extraEOSTokens, disableThinking, useVoiceCleanPrompt, description, estimatedMemoryGB
+        case name, path, backendType, liteRTFilename, extraEOSTokens, disableThinking, useVoiceCleanPrompt, description, estimatedMemoryGB
     }
 
     init(
         name: String,
         path: String,
+        backendType: InferenceBackendType = .mlx,
+        liteRTFilename: String? = nil,
         extraEOSTokens: Set<String> = [],
         disableThinking: Bool = false,
         useVoiceCleanPrompt: Bool = false,
@@ -87,6 +98,8 @@ struct ModelOption: Identifiable, Hashable, Codable {
     ) {
         self.name = name
         self.path = path
+        self.backendType = backendType
+        self.liteRTFilename = liteRTFilename
         self.extraEOSTokens = extraEOSTokens
         self.disableThinking = disableThinking
         self.useVoiceCleanPrompt = useVoiceCleanPrompt
@@ -125,6 +138,8 @@ struct ModelOption: Identifiable, Hashable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decode(String.self, forKey: .name)
         path = try container.decode(String.self, forKey: .path)
+        backendType = try container.decodeIfPresent(InferenceBackendType.self, forKey: .backendType) ?? .mlx
+        liteRTFilename = try container.decodeIfPresent(String.self, forKey: .liteRTFilename)
         extraEOSTokens = try container.decodeIfPresent(Set<String>.self, forKey: .extraEOSTokens) ?? []
         disableThinking = try container.decodeIfPresent(Bool.self, forKey: .disableThinking) ?? false
         useVoiceCleanPrompt = try container.decodeIfPresent(Bool.self, forKey: .useVoiceCleanPrompt) ?? false
@@ -226,14 +241,14 @@ enum ModelRegistry {
             description: "Higher-fidelity instruction following",
             estimatedMemoryGB: 3.4
         ),
-        // Gemma 4 E2B — pending mlx-swift architecture support
-        // ModelOption(
-        //     name: "Gemma 4 E2B 5-bit",
-        //     path: "mlx-community/gemma-4-e2b-5bit",
-        //     extraEOSTokens: ["<end_of_turn>"],
-        //     description: "Multilingual + reasoning, 140 languages",
-        //     estimatedMemoryGB: 4.16
-        // ),
+        ModelOption(
+            name: "Gemma 4 E2B (LiteRT)",
+            path: "litert-community/gemma-4-E2B-it-litert-lm",
+            backendType: .liteRT,
+            liteRTFilename: "gemma-4-E2B-it.litertlm",
+            description: "Native audio + vision — skips STT (fastest end-to-end)",
+            estimatedMemoryGB: 2.6
+        ),
         ModelOption(
             name: "Qwen3.5 9B 4-bit",
             path: "mlx-community/Qwen3.5-9B-4bit",

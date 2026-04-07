@@ -3,6 +3,7 @@ import Combine
 import NaturalLanguage
 import UserNotifications
 import FluidAudio
+import HitokuInference
 import MLXAudioSTT
 import MLXLMCommon
 import os
@@ -274,8 +275,8 @@ final class ConversationCoordinator: ObservableObject {
             try await modelManager.loadModel(model)
             try Task.checkCancellation()
             await afterLoad?()
-            if let container = modelManager.modelContainer {
-                llm = makeLLMService(container: container)
+            if modelManager.inferenceRouter.isLoaded {
+                llm = makeLLMService()
             }
             state = .warmingUp
             try await llm?.warmup()
@@ -434,8 +435,8 @@ final class ConversationCoordinator: ObservableObject {
         state = .warmingUp
         let model = modelManager.selectedModel
         try await modelManager.loadModel(model)
-        if let container = modelManager.modelContainer {
-            llm = makeLLMService(container: container)
+        if modelManager.inferenceRouter.isLoaded {
+            llm = makeLLMService()
         }
         try await llm?.warmup()
         modelManager.keepAlive()
@@ -542,10 +543,18 @@ final class ConversationCoordinator: ObservableObject {
                     throw VoiceEditorError.emptyTranscription
                 }
 
+                // Audio-direct path: when the active backend supports native audio input
+                // (e.g. LiteRT + Gemma 4 E2B), skip STT entirely and send raw audio to the LLM.
+                let audioDirectMode = (llm as? RoutedLLMService)?.supportsAudioInput == true
+
                 // For native streaming, the session already finalized the text.
                 // For legacy polling, do a final transcription on the complete buffer.
                 let command: String
-                if modelManager.selectedSTTModel.supportsNativeStreaming && !lastTranscription.isEmpty {
+                if audioDirectMode {
+                    // No STT needed — the model will hear the voice instruction directly.
+                    // Use a placeholder; the actual instruction is in the audio data.
+                    command = "[voice instruction]"
+                } else if modelManager.selectedSTTModel.supportsNativeStreaming && !lastTranscription.isEmpty {
                     command = lastTranscription
                 } else {
                     state = .transcribing
@@ -635,7 +644,19 @@ final class ConversationCoordinator: ObservableObject {
 
                     var raw = ""
                     raw.reserveCapacity(4096)
-                    for try await chunk in llm.generateStream(prompt: prompt, images: vlmImages, maxTokens: maxTokens) {
+
+                    // Choose stream: audio-direct (LiteRT) or text-based (MLX).
+                    let generationStream: AsyncThrowingStream<String, Error>
+                    if audioDirectMode, let routedLLM = llm as? RoutedLLMService {
+                        // Gemma 4: send audio (voice instruction) + images (screen) together
+                        let audioData = AudioEncoder.wavData(from: samples)
+                        generationStream = routedLLM.generateStream(
+                            prompt: prompt, audio: audioData, images: vlmImages, maxTokens: maxTokens)
+                    } else {
+                        generationStream = llm.generateStream(prompt: prompt, images: vlmImages, maxTokens: maxTokens)
+                    }
+
+                    for try await chunk in generationStream {
                         raw += chunk
                         // Show raw tokens in overlay — postProcess() runs once on the final string.
                         // Running regex cleanup per-token was O(N²); models with enable_thinking=false
@@ -1107,13 +1128,13 @@ final class ConversationCoordinator: ObservableObject {
     private var modelCacheDirectory: URL { ModelManager.modelsCacheRoot }
 
     /// Rebuilds the LLM service wrapper when context mode toggles (updates system prompt).
-    /// Cheap operation — no model reload, just creates a new MLXLLMService with the right prompt.
+    /// Cheap operation — no model reload, just creates a new RoutedLLMService with the right prompt.
     private func rebuildLLMServiceIfNeeded() {
-        guard state == .idle, let container = modelManager.modelContainer else { return }
-        llm = makeLLMService(container: container)
+        guard state == .idle, modelManager.inferenceRouter.isLoaded else { return }
+        llm = makeLLMService()
     }
 
-    private func makeLLMService(container: ModelContainer) -> MLXLLMService {
+    private func makeLLMService() -> RoutedLLMService {
         let family = modelManager.selectedModel.family
         let isScreenAware = contextAwareMode != .off
         var systemPrompt = family.systemPrompt(screenAware: isScreenAware)
@@ -1123,16 +1144,14 @@ final class ConversationCoordinator: ObservableObject {
         if internetEnabled && family.supportsToolUse {
             let executor = makeToolExecutor()
             toolExecutor = executor
-            // Synchronously build the prompt addition — toolDefinitionsPrompt is a computed property
-            // but we need to call it from outside the actor. Build it inline instead.
             let toolPrompt = buildToolDefinitionsPrompt()
             systemPrompt += "\n\n" + toolPrompt
         } else {
             toolExecutor = nil
         }
 
-        return MLXLLMService(
-            container: container,
+        return RoutedLLMService(
+            router: modelManager.inferenceRouter,
             family: family,
             systemPrompt: systemPrompt
         )

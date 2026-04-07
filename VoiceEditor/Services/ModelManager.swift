@@ -5,6 +5,9 @@ import MLX
 import MLXLLM
 import MLXVLM
 import MLXLMCommon
+import HitokuInference
+import LiteRTBackend
+import MLXBackend
 
 @MainActor
 final class ModelManager: ObservableObject {
@@ -20,6 +23,9 @@ final class ModelManager: ObservableObject {
     private(set) var modelContainer: ModelContainer?
     private(set) var asrModels: AsrModels?
     internal var vadDetector: VoiceActivityDetector?
+
+    /// Unified inference router — callers use this instead of ModelContainer directly.
+    let inferenceRouter = InferenceRouter()
 
     private var idleOffloadTask: Task<Void, Never>?
     private static let offloadDelay: TimeInterval = 5 * 60  // 5 minutes, fixed
@@ -97,6 +103,7 @@ final class ModelManager: ObservableObject {
     /// The coordinator clears its `stt` and `llm` vars via `$sttReady`/`$llmReady` Combine sinks.
     func offloadAllModels() {
         if modelContainer != nil {
+            inferenceRouter.unload()
             modelContainer = nil
             llmReady = false
             Memory.clearCache()
@@ -116,6 +123,7 @@ final class ModelManager: ObservableObject {
     func loadModel(_ model: ModelOption) async throws {
         // None sentinel: clear LLM state; nothing to load
         guard !model.isNone else {
+            inferenceRouter.unload()
             modelContainer = nil
             llmReady = false
             Memory.clearCache()
@@ -126,7 +134,7 @@ final class ModelManager: ObservableObject {
 
         cancelOffload()
 
-        if loadedModelPath == model.path, modelContainer != nil {
+        if loadedModelPath == model.path, inferenceRouter.isLoaded {
             return
         }
 
@@ -139,6 +147,39 @@ final class ModelManager: ObservableObject {
         loadedModelPath = nil
         statusMessage = "Loading \(model.name)..."
 
+        switch model.backendType {
+        case .mlx:
+            try await loadMLXModel(model)
+        case .liteRT:
+            do {
+                try await loadLiteRTModel(model)
+            } catch {
+                print("[ModelManager] LiteRT loading FAILED: \(error)")
+                // Graceful fallback: if LiteRT fails (missing dylibs, bad model, etc.),
+                // fall back to the smart MLX default so the app remains functional.
+                statusMessage = "LiteRT unavailable, falling back to MLX..."
+                let fallback = ModelRegistry.smartDefault
+                if !fallback.isNone {
+                    try await loadMLXModel(fallback)
+                    // Update loadedModelPath to the fallback, not the failed LiteRT model
+                    self.llmReady = true
+                    self.loadedModelPath = fallback.path
+                    statusMessage = ""
+                    return
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        self.llmReady = true
+        self.loadedModelPath = model.path
+        statusMessage = ""
+    }
+
+    // MARK: - MLX Loading (existing path)
+
+    private func loadMLXModel(_ model: ModelOption) async throws {
         let visionEnabled = UserDefaults.standard.bool(forKey: "visionEnabled")
         let useVLM = model.isVLM && visionEnabled
         let factory: any ModelFactory = useVLM
@@ -159,9 +200,90 @@ final class ModelManager: ObservableObject {
             }
         }
         self.modelContainer = container
-        self.llmReady = true
-        self.loadedModelPath = model.path
-        statusMessage = ""
+
+        let backendConfig = BackendConfig(
+            disableThinking: model.disableThinking,
+            extra: model.family.templateContext.map { ["templateContext": $0] } ?? [:]
+        )
+        let mlxBackend = MLXInferenceBackend(container: container, config: backendConfig)
+        inferenceRouter.register(mlxBackend, as: "mlx")
+        inferenceRouter.preferred = "mlx"
+    }
+
+    // MARK: - LiteRT Loading
+
+    private func loadLiteRTModel(_ model: ModelOption) async throws {
+        guard let filename = model.liteRTFilename else {
+            throw LiteRTLoadError.missingFilename
+        }
+
+        // Download .litertlm from HuggingFace if not cached
+        let cacheDir = Self.modelsCacheRoot.appendingPathComponent(model.path)
+        let modelFile = cacheDir.appendingPathComponent(filename)
+
+        if !FileManager.default.fileExists(atPath: modelFile.path) {
+            statusMessage = "Downloading \(model.name)..."
+            try await downloadLiteRTModel(repo: model.path, filename: filename, to: cacheDir)
+        }
+
+        statusMessage = "Loading \(model.name)..."
+
+        // Configure cache dir for LiteRT (speeds up subsequent loads)
+        let liteRTCacheDir = cacheDir.appendingPathComponent("cache").path
+        try? FileManager.default.createDirectory(atPath: liteRTCacheDir, withIntermediateDirectories: true)
+
+        let config = BackendConfig(extra: [
+            "backend": "gpu",
+            "cacheDir": liteRTCacheDir,
+        ])
+
+        let backend = LiteRTInferenceBackend()
+        print("[ModelManager] LiteRT runtime available: \(backend.isRuntimeAvailable)")
+        guard backend.isRuntimeAvailable else {
+            print("[ModelManager] LiteRT runtime NOT available — dylibs missing")
+            throw LiteRTLoadError.runtimeNotAvailable
+        }
+
+        // LiteRT engine creation is a heavy synchronous C call (~1-2s).
+        // Run it off the MainActor to avoid watchdog termination.
+        let modelPath = modelFile.path
+        print("[ModelManager] Loading LiteRT engine at: \(modelPath)")
+        try await Task.detached {
+            try await backend.loadModel(at: modelPath, config: config)
+        }.value
+        print("[ModelManager] LiteRT engine loaded: \(backend.isLoaded)")
+
+        inferenceRouter.register(backend, as: "litert")
+        inferenceRouter.preferred = "litert"
+        print("[ModelManager] LiteRT registered as preferred backend")
+    }
+
+    /// Downloads a single file from a HuggingFace repo to the given directory.
+    private func downloadLiteRTModel(repo: String, filename: String, to directory: URL) async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(filename)
+
+        let urlString = "https://huggingface.co/\(repo)/resolve/main/\(filename)"
+        guard let url = URL(string: urlString) else {
+            throw LiteRTLoadError.invalidURL
+        }
+
+        // Stream download with progress reporting
+        let delegate = DownloadProgressDelegate { [weak self] fraction in
+            Task { @MainActor in
+                self?.llmProgress = fraction
+            }
+        }
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+
+        let (tempURL, response) = try await session.download(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw LiteRTLoadError.downloadFailed
+        }
+
+        try FileManager.default.moveItem(at: tempURL, to: destination)
     }
 
     /// Reload only the LLM with the currently selected model.
@@ -211,5 +333,53 @@ final class ModelManager: ObservableObject {
 
     deinit {
         memoryPressureSource?.cancel()
+    }
+}
+
+// MARK: - LiteRT Errors
+
+enum LiteRTLoadError: LocalizedError {
+    case missingFilename
+    case runtimeNotAvailable
+    case invalidURL
+    case downloadFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .missingFilename: return "LiteRT model has no filename configured."
+        case .runtimeNotAvailable: return "LiteRT runtime not available. Ensure dylibs are in app Frameworks/."
+        case .invalidURL: return "Invalid HuggingFace download URL."
+        case .downloadFailed: return "Failed to download LiteRT model."
+        }
+    }
+}
+
+// MARK: - Download Progress
+
+/// URLSession delegate that reports download progress via a closure.
+private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
+    private let onProgress: (Double) -> Void
+
+    init(onProgress: @escaping (Double) -> Void) {
+        self.onProgress = onProgress
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        // Handled by the async download(from:) return value
     }
 }
