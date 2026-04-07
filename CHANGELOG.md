@@ -5,6 +5,8 @@ All notable changes to Hitoku Draft are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **TTS thinking block filter** — Gemma 4 thinking blocks (`<|channel>thought...<channel|>`) no longer read aloud. `ThinkingBlockFilter` stateful filter strips thinking content from the TTS streaming path while preserving it in the overlay.
+- **Separate STT auto-offload timer** — Independent 2-minute timer for STT models. When Gemma loads STT on-demand for dictation, STT (~460 MB) frees independently from the 5-minute LLM timer.
 - **HitokuInference framework** — Independent Swift Package (`examples/HitokuInference/`) with `InferenceBackend` protocol, `InferenceRouter` for multi-backend dispatch, and `InferenceRequest` multimodal value type. Backends conform to the protocol; callers depend only on abstractions.
 - **MLXBackend** — Wraps existing MLXLLM/MLXVLM `ModelContainer` behind `InferenceBackend`. Drop-in replacement for direct `MLXLLMService` usage.
 - **LiteRTBackend** — Google LiteRT-LM integration via dlopen/dlsym C bridge. Supports Gemma 4 E2B with native audio + vision + text in a single model. GPU (Metal/WebGPU) for text generation, CPU for audio encoder.
@@ -16,10 +18,13 @@ All notable changes to Hitoku Draft are documented in this file.
 - **AudioEncoder utility** — Converts Float32 PCM samples to WAV format for LiteRT audio input.
 - **Smart STT management** — STT skipped on launch when Gemma is active. Loaded on-demand for dictation (stays in memory until auto-offload). Settings shows "Built into the LLM model" for Active STT.
 - **"None" STT option** — Users who only use Gemma can select "None" in the STT picker to avoid loading any speech model.
-- **Gemma repetition protection** — Temperature floor (0.5), higher top_p (0.95), capped max tokens (400 draft/500 edit), 20-chunk loop detection, tool-use disabled.
+- **Gemma repetition protection** — Temperature floor (0.5), higher top_p (0.95), 20-chunk loop detection, tool-use disabled.
 - **Background LLM loading** — Voice edit loads LLM without changing app state, so recording isn't interrupted.
 
 ### Fixed
+- **LiteRT crash on repeated Ctrl+Z** — Five bugs in `LiteRTInferenceBackend`: (1) messageCStr freed inside callback while C library still referenced it, (2) StreamContext double-released on repetition detection, (3) cancelGeneration() leaked C conversation object, (4) no thread synchronization on mutable state, (5) no onTermination handler for stream cancellation.
+- **Voice edit empty/short output** — Qwen 3.5 and Gemma 4 switched from `conciseDraft` to standard `draft` template (with `Request:` label) and standard system prompt (no more "Be brief"). Removed post-hoc stripEcho (caused false positives). Disabled TTS during voice edit — PocketTTS GPU contention caused 0-token LLM output.
+- **Gemma 4 output too short** — Bumped token limits from 400→800 (draft) and 500→1000 (edit) to account for thinking block overhead.
 - **ActionConfirmationPanel crash** — NSAlert.runModal() now dispatched to MainActor (was crashing from background thread).
 - **"No speech detected" with Gemma** — Audio-direct path now polls for VAD silence detection instead of falling through immediately.
 - **Model memory leak** — Old backends properly freed on background thread when switching models.

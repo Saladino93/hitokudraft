@@ -28,7 +28,9 @@ final class ModelManager: ObservableObject {
     let inferenceRouter = InferenceRouter()
 
     private var idleOffloadTask: Task<Void, Never>?
-    private static let offloadDelay: TimeInterval = 5 * 60  // 5 minutes, fixed
+    private var sttIdleOffloadTask: Task<Void, Never>?
+    private static let offloadDelay: TimeInterval = 5 * 60  // 5 minutes for LLM
+    private static let sttOffloadDelay: TimeInterval = 2 * 60  // 2 minutes for STT
 
     /// Unified model cache root: ~/Library/Caches/models/
     /// All model types (LLM, ASR, TTS) download here so there is a single cache to manage.
@@ -93,27 +95,50 @@ final class ModelManager: ObservableObject {
         }
     }
 
-    /// Cancel any pending offload. Call at the start of any pipeline.
+    /// Cancel any pending LLM offload. Call at the start of any pipeline.
     func cancelOffload() {
         idleOffloadTask?.cancel()
         idleOffloadTask = nil
     }
 
+    /// Cancel any pending STT offload. Call before dictation or voice edit that needs STT.
+    func cancelSTTOffload() {
+        sttIdleOffloadTask?.cancel()
+        sttIdleOffloadTask = nil
+    }
+
+    /// Reset the independent 2-minute STT inactivity timer.
+    /// Call after any pipeline that used STT (dictation, voice edit with separate STT).
+    /// When Gemma 4 loads STT on-demand for dictation, this lets STT (~460 MB)
+    /// free independently from the LLM, which has its own 5-minute timer.
+    func keepSTTAlive() {
+        guard autoOffloadEnabled else { return }
+        sttIdleOffloadTask?.cancel()
+        sttIdleOffloadTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.sttOffloadDelay))
+            guard !Task.isCancelled else { return }
+            self?.offloadSTT()
+        }
+    }
+
+    /// Release only STT weights from RAM, leaving LLM loaded.
+    func offloadSTT() {
+        asrModels = nil
+        if sttReady { sttReady = false }
+    }
+
     /// Release LLM and STT weights from RAM.
     /// The coordinator clears its `stt` and `llm` vars via `$sttReady`/`$llmReady` Combine sinks.
     func offloadAllModels() {
-        if modelContainer != nil {
+        if modelContainer != nil || inferenceRouter.isLoaded {
             inferenceRouter.unload()
             modelContainer = nil
             llmReady = false
             Memory.clearCache()
         }
-        // Release asrModels (FluidAudio) and mark STT as not ready for ALL backends.
-        // WhisperKit/mlxAudio don't use asrModels — their model lives in the coordinator's stt var.
-        // Setting sttReady = false triggers the Combine sink that nils the coordinator's stt,
-        // which deallocates the service and releases WhisperKit/mlxAudio weights from memory.
-        asrModels = nil
-        if sttReady { sttReady = false }
+        offloadSTT()
+        sttIdleOffloadTask?.cancel()
+        sttIdleOffloadTask = nil
     }
 
     // MARK: - Model Loading

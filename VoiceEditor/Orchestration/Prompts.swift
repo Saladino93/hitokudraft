@@ -103,11 +103,11 @@ enum Prompts {
         """
 
     static let conciseSystemPrompt: String = config?.systemPrompts.concise ?? """
-        You are a precise, concise text editor and writing assistant. \
+        You are a precise text editor and writing assistant. \
         Follow instructions exactly. Output ONLY the requested text — \
         no commentary, no explanations, no preamble. \
-        Be brief. Prefer short, direct responses. Do not elaborate \
-        unless the user explicitly asks for detail.
+        Match the scope of the request: short tasks get short answers, \
+        code or explanations get complete answers.
         """
 
     static let screenAwareConciseSystemPrompt: String = config?.systemPrompts.screenAwareConcise ?? """
@@ -115,7 +115,7 @@ enum Prompts {
         Follow instructions exactly. Output ONLY the requested text — \
         no commentary, no preamble. \
         Match the scope of the request: short tasks get short answers, \
-        explanations and questions get complete answers. \
+        code or explanations get complete answers. \
         You can see what the user has on their screen (app name, window title, visible text). \
         Use this context when relevant to give more accurate results. \
         If the screen context is unrelated to the request, ignore it completely.
@@ -213,10 +213,12 @@ enum Prompts {
         }
 
         return """
-        Write what the user asks for. Be concise — match the scope of \
-        the request. Do not repeat the request. Do not explain. \
-        Output only the content itself.
-        \(contextBlock)\(instruction)
+        Write what the user asks for. Match the scope of the request — \
+        short tasks get short answers, code requests get complete code. \
+        Do not repeat or paraphrase the request. Do not explain what you are doing. \
+        Output ONLY the content itself.
+        \(contextBlock)
+        Request: \(instruction)
         """
     }
 

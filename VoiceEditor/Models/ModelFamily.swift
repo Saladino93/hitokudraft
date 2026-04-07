@@ -110,16 +110,15 @@ struct Qwen35ModelFamily: ModelFamily {
     let familyName = "Qwen3.5"
 
     func systemPrompt(screenAware: Bool) -> String {
-        screenAware ? Prompts.screenAwareConciseSystemPrompt : Prompts.conciseSystemPrompt
+        screenAware ? Prompts.screenAwareSystemPrompt : Prompts.systemPrompt
     }
 
     func editPrompt(text: String, instruction: String, context: ScreenContext?) -> String {
         Prompts.edit(text: text, instruction: instruction, context: context)
     }
 
-    /// Concise draft prompt — no encouragement to write at length.
     func draftPrompt(instruction: String, context: ScreenContext?) -> String {
-        Prompts.conciseDraft(instruction: instruction, context: context)
+        Prompts.draft(instruction: instruction, context: context)
     }
 
     /// Safety net: strip any thinking blocks that slip through despite
@@ -202,7 +201,7 @@ struct Gemma4ModelFamily: ModelFamily {
     let familyName = "Gemma4"
 
     func systemPrompt(screenAware: Bool) -> String {
-        screenAware ? Prompts.screenAwareConciseSystemPrompt : Prompts.conciseSystemPrompt
+        screenAware ? Prompts.screenAwareSystemPrompt : Prompts.systemPrompt
     }
 
     func editPrompt(text: String, instruction: String, context: ScreenContext?) -> String {
@@ -210,7 +209,7 @@ struct Gemma4ModelFamily: ModelFamily {
     }
 
     func draftPrompt(instruction: String, context: ScreenContext?) -> String {
-        Prompts.conciseDraft(instruction: instruction, context: context)
+        Prompts.draft(instruction: instruction, context: context)
     }
 
     /// Strip thinking blocks: <|channel>thought\n…<channel|>
@@ -235,11 +234,13 @@ struct Gemma4ModelFamily: ModelFamily {
     let repetitionPenalty: Float = 1.2
     let disableThinking = false
 
-    // Gemma 4 E2B tends to loop — cap tokens aggressively
-    let draftMaxTokens: Int = 400
+    // Gemma 4 thinking blocks consume ~100-200 tokens before the real response.
+    // Budget must account for this overhead. Repetition detection (20-chunk window
+    // in LiteRTInferenceBackend) prevents runaway loops independently.
+    let draftMaxTokens: Int = 800
 
     func editMaxTokens(for text: String) -> Int {
-        min(Prompts.editMaxTokens(for: text), 500)
+        min(Prompts.editMaxTokens(for: text), 1000)
     }
 
     // Gemma 4 E2B should NOT use tool-use prompts — causes infinite tool-call loops

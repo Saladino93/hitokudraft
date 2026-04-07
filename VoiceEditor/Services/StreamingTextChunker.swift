@@ -1,3 +1,71 @@
+/// Filters out model thinking blocks from an LLM token stream before TTS processing.
+///
+/// Gemma 4 uses `<|channel>thought\n...<channel|>` blocks for chain-of-thought reasoning.
+/// These arrive as individual streaming tokens and must be suppressed from TTS output.
+/// The filter uses a small rolling buffer to handle partial tag matches across chunk boundaries.
+///
+/// Create a fresh instance per voice edit (stateful across chunks, stateless between requests).
+struct ThinkingBlockFilter {
+    private var isInside = false
+    private var buffer = ""
+
+    private static let openTag = "<|channel>thought"
+    private static let closeTag = "<channel|>"
+
+    /// Feed a streaming chunk. Returns only the text that should be spoken
+    /// (empty string when inside a thinking block).
+    mutating func feed(_ chunk: String) -> String {
+        buffer += chunk
+        var output = ""
+
+        while true {
+            if isInside {
+                if let range = buffer.range(of: Self.closeTag) {
+                    // Found close tag — discard everything up to and including it
+                    buffer = String(buffer[range.upperBound...])
+                    isInside = false
+                    continue
+                } else {
+                    // Still inside thinking — keep only enough for partial close tag match
+                    let keep = Self.closeTag.count - 1
+                    if buffer.count > keep {
+                        buffer = String(buffer.suffix(keep))
+                    }
+                    break
+                }
+            } else {
+                if let range = buffer.range(of: Self.openTag) {
+                    // Found open tag — output everything before it
+                    output += buffer[buffer.startIndex..<range.lowerBound]
+                    buffer = String(buffer[range.upperBound...])
+                    isInside = true
+                    continue
+                } else {
+                    // No open tag — output everything except last N chars (partial tag buffer)
+                    let keep = Self.openTag.count - 1
+                    let safeCount = max(0, buffer.count - keep)
+                    if safeCount > 0 {
+                        output += buffer.prefix(safeCount)
+                        buffer = String(buffer.suffix(buffer.count - safeCount))
+                    }
+                    break
+                }
+            }
+        }
+
+        return output
+    }
+
+    /// Flush any remaining buffered text at end of generation.
+    /// Discards buffer if still inside a thinking block (unclosed tag).
+    mutating func flush() -> String {
+        let remaining = isInside ? "" : buffer
+        buffer = ""
+        isInside = false
+        return remaining
+    }
+}
+
 /// Extracts speakable text segments from an LLM token stream for TTS enqueuing.
 ///
 /// Uses a priority hierarchy of split points so TTS starts quickly while

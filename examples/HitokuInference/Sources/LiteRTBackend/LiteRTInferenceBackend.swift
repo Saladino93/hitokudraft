@@ -22,6 +22,11 @@ public final class LiteRTInferenceBackend: @unchecked Sendable {
     private var funcs: LiteRTFunctions?
     private var config: BackendConfig = .init()
 
+    /// Protects all mutable state from concurrent access.
+    /// The C callback runs on LiteRT's serial queue (Thread 150); generate/cancel/unload
+    /// may run on any Swift thread. This lock prevents races on conversation pointers.
+    private let lock = NSLock()
+
     // MARK: - Init
 
     public init() {
@@ -44,13 +49,19 @@ extension LiteRTInferenceBackend: InferenceBackend {
 
     public var supportedModalities: Set<InputModality> { [.text, .audio, .image] }
 
-    public var isLoaded: Bool { engine != nil }
+    public var isLoaded: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return engine != nil
+    }
 
     public func loadModel(at path: String, config: BackendConfig) async throws {
         guard let funcs else { throw LiteRTError.runtimeNotAvailable }
 
         unload()
+        lock.lock()
         self.config = config
+        lock.unlock()
 
         // Suppress verbose logging (2 = ERROR only)
         funcs.setMinLogLevel(2)
@@ -71,11 +82,19 @@ extension LiteRTInferenceBackend: InferenceBackend {
         guard let eng = funcs.engineCreate(settings) else {
             throw LiteRTError.failedToCreateEngine
         }
+        lock.lock()
         self.engine = eng
+        lock.unlock()
     }
 
     public func unload() {
-        cancelGeneration()
+        lock.lock()
+        // Cancel in-flight generation (does not nil the conversation)
+        if let conversation = activeConversation, let funcs {
+            funcs.conversationCancelProcess(conversation)
+        }
+        // Now delete the conversation — safe because conversationSendMessageStream
+        // returns after cancel, and we hold the lock so no new generate() can start.
         if let conv = activeConversation, let funcs {
             funcs.conversationDelete(conv)
         }
@@ -88,39 +107,67 @@ extension LiteRTInferenceBackend: InferenceBackend {
             funcs.engineDelete(engine)
         }
         engine = nil
+        lock.unlock()
     }
 
     /// Cancel any in-flight generation. Safe to call even if nothing is running.
+    /// Does NOT destroy the conversation — it is reused for subsequent generate() calls.
+    /// Only `unload()` deletes the conversation.
     public func cancelGeneration() {
+        lock.lock()
         if let conversation = activeConversation, let funcs {
             funcs.conversationCancelProcess(conversation)
         }
-        activeConversation = nil
+        // DO NOT nil activeConversation here. The conversation is reused across calls.
+        // Nil-ing it would leak the C object (no conversationDelete) and force
+        // a new conversation on the next generate(), violating LiteRT's single-session rule.
+        lock.unlock()
     }
 
     public func generate(request: InferenceRequest) -> AsyncThrowingStream<String, Error> {
+        lock.lock()
+        let engine = self.engine
+        let funcs = self.funcs
+        lock.unlock()
+
         guard let engine, let funcs else {
             return AsyncThrowingStream {
-                $0.finish(throwing: self.funcs == nil
+                $0.finish(throwing: funcs == nil
                     ? LiteRTError.runtimeNotAvailable
                     : LiteRTError.engineNotLoaded)
             }
         }
 
         return AsyncThrowingStream { [weak self] continuation in
-            Task.detached {
+
+            // When the Swift consumer cancels (e.g., voiceEditTask.cancel()),
+            // cancel the C-level generation so it stops producing tokens.
+            continuation.onTermination = { @Sendable _ in
+                self?.cancelGeneration()
+            }
+
+            Task.detached { [weak self] in
                 print("[LiteRT] generate() called")
                 print("[LiteRT] audio: \(request.audio != nil ? "\(request.audio!.count) bytes" : "nil"), images: \(request.images?.count ?? 0)")
 
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+
+                // Cancel any in-flight generation before starting a new one.
+                // This ensures only one conversationSendMessageStream runs at a time.
+                self.cancelGeneration()
+
+                self.lock.lock()
+
                 // Reuse existing conversation (LiteRT only supports one session at a time).
                 // Create on first call, reuse for subsequent calls.
-                if self?.activeConversation == nil {
+                if self.activeConversation == nil {
                     print("[LiteRT] creating new conversation")
                     let sessionConfig = funcs.sessionConfigCreate()
                     if let sessionConfig {
                         funcs.sessionConfigSetMaxOutputTokens(sessionConfig, Int32(request.maxTokens))
-                        // Gemma needs slightly higher temperature to avoid repetition loops.
-                        // LiteRT sampler has no repetition_penalty — we detect loops in the callback.
                         let effectiveTemp = max(request.temperature, 0.5)
                         var samplerParams = LiteRtLmSamplerParams(
                             type: kTopP, top_k: 40,
@@ -142,30 +189,36 @@ extension LiteRTInferenceBackend: InferenceBackend {
                         if let convConfig { funcs.conversationConfigDelete(convConfig) }
                         if let sessionConfig { funcs.sessionConfigDelete(sessionConfig) }
                         if let systemCStr { free(systemCStr) }
+                        self.lock.unlock()
                         continuation.finish(throwing: LiteRTError.failedToCreateConversation)
                         return
                     }
 
-                    self?.activeConversation = conversation
-                    self?.activeConvConfig = convConfig
-                    self?.activeSessionConfig = sessionConfig
+                    self.activeConversation = conversation
+                    self.activeConvConfig = convConfig
+                    self.activeSessionConfig = sessionConfig
                     if let systemCStr { free(systemCStr) }
                 } else {
                     print("[LiteRT] reusing existing conversation")
                 }
 
-                guard let conversation = self?.activeConversation else {
+                guard let conversation = self.activeConversation else {
+                    self.lock.unlock()
                     continuation.finish(throwing: LiteRTError.failedToCreateConversation)
                     return
                 }
+
+                self.lock.unlock()
+
+                // Build the message JSON and strdup it. Ownership stays HERE —
+                // we free it after conversationSendMessageStream returns, because the
+                // C library may still reference the pointer after callbacks fire.
                 let messageCStr = strdup(Self.buildMessageJSON(request: request))
 
                 print("[LiteRT] sending: \(String(cString: messageCStr!))")
 
-                // StreamContext owns only the message string. Conversation is reused.
                 let ctx = Unmanaged.passRetained(StreamContext(
-                    continuation: continuation,
-                    messageCStr: messageCStr
+                    continuation: continuation
                 )).toOpaque()
 
                 let result = funcs.conversationSendMessageStream(
@@ -175,33 +228,43 @@ extension LiteRTInferenceBackend: InferenceBackend {
                         let streamCtx = Unmanaged<StreamContext>.fromOpaque(callbackData)
                             .takeUnretainedValue()
 
+                        // Skip late chunks after early completion (repetition, cancellation).
+                        // Still process final/error to ensure the Unmanaged reference is released.
+                        if streamCtx.isCompleted && !isFinal && errorMsg == nil {
+                            return
+                        }
+
                         if let errorMsg {
                             print("[LiteRT] stream error: \(String(cString: errorMsg))")
-                            streamCtx.continuation.finish(
-                                throwing: LiteRTError.generationError(String(cString: errorMsg))
-                            )
-                            streamCtx.cleanup()
-                            Unmanaged<StreamContext>.fromOpaque(callbackData).release()
+                            if !streamCtx.isCompleted {
+                                streamCtx.continuation.finish(
+                                    throwing: LiteRTError.generationError(String(cString: errorMsg))
+                                )
+                                streamCtx.isCompleted = true
+                            }
+                            streamCtx.releaseOnce(callbackData)
                             return
                         }
 
                         if isFinal {
                             print("[LiteRT] stream finished")
-                            streamCtx.continuation.finish()
-                            streamCtx.cleanup()
-                            Unmanaged<StreamContext>.fromOpaque(callbackData).release()
+                            if !streamCtx.isCompleted {
+                                streamCtx.continuation.finish()
+                                streamCtx.isCompleted = true
+                            }
+                            streamCtx.releaseOnce(callbackData)
                             return
                         }
 
                         if let chunk {
                             let raw = String(cString: chunk)
                             if let text = extractLiteRTText(raw) {
-                                // Repetition detection — bail if stuck in a loop
+                                // Repetition detection — mark completed but do NOT release.
+                                // The final callback will release the context safely.
                                 if streamCtx.checkRepetition(text) {
                                     print("[LiteRT] repetition detected, stopping")
+                                    streamCtx.isCompleted = true
                                     streamCtx.continuation.finish()
-                                    streamCtx.cleanup()
-                                    Unmanaged<StreamContext>.fromOpaque(callbackData).release()
                                     return
                                 }
                                 streamCtx.continuation.yield(text)
@@ -212,14 +275,19 @@ extension LiteRTInferenceBackend: InferenceBackend {
                 )
 
                 print("[LiteRT] conversationSendMessageStream returned: \(result)")
+
+                // Free the message string AFTER the blocking call returns.
+                // The C library may reference it during/after callbacks for conversation history.
+                if let messageCStr { free(messageCStr) }
+
                 if result != 0 {
                     print("[LiteRT] ERROR: stream failed with code \(result)")
-                    // Stream didn't start — clean up here
+                    // Non-zero return = stream never started, callback was not invoked.
+                    // Release the StreamContext ourselves.
                     let streamCtx = Unmanaged<StreamContext>.fromOpaque(ctx).takeRetainedValue()
-                    streamCtx.cleanup()
+                    streamCtx.isCompleted = true
                     continuation.finish(throwing: LiteRTError.streamStartFailed)
                 }
-                // Do NOT clean up here — the callback handles it when the stream ends.
             }
         }
     }
@@ -301,18 +369,29 @@ private func extractLiteRTText(_ json: String) -> String? {
 
 // MARK: - Stream Context
 
+/// Holds per-generation state for the C callback.
+///
+/// Lifetime: created with `Unmanaged.passRetained()` before `conversationSendMessageStream`,
+/// released exactly once by `releaseOnce()` in the final/error callback. The `messageCStr`
+/// is NOT owned here — it is freed by the caller after the blocking C call returns.
 private final class StreamContext: @unchecked Sendable {
     let continuation: AsyncThrowingStream<String, Error>.Continuation
-    let messageCStr: UnsafeMutablePointer<CChar>?
+
+    /// True after `continuation.finish()` was called (normal end, error, or early stop).
+    /// Subsequent chunk callbacks are skipped; the final callback still runs to release.
+    var isCompleted = false
 
     // Repetition detection — same sliding window as MLXInferenceBackend
     var recentChunks: [String] = []
     var isDegenerate = false
 
-    init(continuation: AsyncThrowingStream<String, Error>.Continuation,
-         messageCStr: UnsafeMutablePointer<CChar>?) {
+    /// Guards against double-release of the Unmanaged reference.
+    /// The C library may fire multiple terminal callbacks (error + final, or cancel + final).
+    private let releaseLock = NSLock()
+    private var released = false
+
+    init(continuation: AsyncThrowingStream<String, Error>.Continuation) {
         self.continuation = continuation
-        self.messageCStr = messageCStr
         self.recentChunks.reserveCapacity(21)
     }
 
@@ -327,8 +406,16 @@ private final class StreamContext: @unchecked Sendable {
         return false
     }
 
-    func cleanup() {
-        if let messageCStr { free(messageCStr) }
+    /// Release the Unmanaged reference exactly once. Safe to call from multiple callbacks.
+    func releaseOnce(_ callbackData: UnsafeMutableRawPointer) {
+        releaseLock.lock()
+        guard !released else {
+            releaseLock.unlock()
+            return
+        }
+        released = true
+        releaseLock.unlock()
+        Unmanaged<StreamContext>.fromOpaque(callbackData).release()
     }
 }
 

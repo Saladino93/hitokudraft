@@ -472,6 +472,7 @@ final class ConversationCoordinator: ObservableObject {
         guard state == .idle else { return }
 
         modelManager.cancelOffload()
+        modelManager.cancelSTTOffload()
         await TTSService.shared.stop()
         clearDisplayModeResult()
 
@@ -645,18 +646,17 @@ final class ConversationCoordinator: ObservableObject {
                         maxTokens = family.editMaxTokens(for: selectedText)
                     }
 
-                    // Capture TTS settings before the stream loop to avoid repeated UserDefaults reads.
-                    let ttsEnabled = UserDefaults.standard.bool(forKey: "ttsEnabled")
-                    // Always stream TTS when enabled — the editability check only matters at
-                    // presentOutput() time. Checking here was wrong because PDF viewers and
-                    // other selectable-but-not-editable views report as "editable" to AX.
-                    let willStreamTTS = ttsEnabled
+                    // TTS is disabled during voice edit — the result is pasted or shown
+                    // in the overlay. TTS during generation also causes GPU memory contention
+                    // with the LLM (PocketTTS uses MLX too), which can produce 0-token output.
+                    let willStreamTTS = false
                     let ttsBackendStr = UserDefaults.standard.string(forKey: "ttsBackend") ?? "kokoro"
                     let ttsStreamBackend: TtsBackend = ttsBackendStr == "pocketTts" ? .pocketTts : .kokoro
                     var ttsVoice = UserDefaults.standard.string(forKey: "ttsVoice") ?? TtsConstants.recommendedVoice
                     let rawSpeed = UserDefaults.standard.double(forKey: "ttsSpeed")
                     let ttsSpeed = Float(rawSpeed > 0 ? rawSpeed : 1.0)
                     var ttsChunker = StreamingTextChunker()
+                    var thinkingFilter = ThinkingBlockFilter()
                     var firstTokenTime: ContinuousClock.Instant? = nil
                     let maxFirstLatency: Duration = .milliseconds(600)
 
@@ -700,7 +700,10 @@ final class ConversationCoordinator: ObservableObject {
 
                         // Stream text segments to TTS as the LLM generates (display mode only).
                         if willStreamTTS {
-                            let cleaned = cleanChunkForTTS(chunk)
+                            // Filter out thinking blocks before TTS — Gemma 4 thinking
+                            // arrives as streaming tokens that would be spoken aloud.
+                            let filtered = thinkingFilter.feed(chunk)
+                            let cleaned = cleanChunkForTTS(filtered)
                             if firstTokenTime == nil,
                                !cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 firstTokenTime = ContinuousClock.now
@@ -731,7 +734,6 @@ final class ConversationCoordinator: ObservableObject {
                     }
                     streamingLLMText = ""
                     var cleaned = OutputCleaner.clean(family.postProcess(raw))
-                    cleaned = OutputCleaner.stripEcho(cleaned, instruction: trimmedCommand)
 
                     // Tool-use loop: if the LLM emitted a tool call, execute it and re-generate
                     if let toolExecutor = self.toolExecutor {
@@ -751,7 +753,7 @@ final class ConversationCoordinator: ObservableObject {
                             }
                             streamingLLMText = ""
                             cleaned = OutputCleaner.clean(family.postProcess(raw))
-                            cleaned = OutputCleaner.stripEcho(cleaned, instruction: trimmedCommand)
+                            // stripEcho removed — prompt improvements prevent echoing at the source
                         }
                         // Strip any residual tool call tags that slipped through
                         cleaned = await toolExecutor.stripToolCallTags(from: cleaned)
@@ -762,20 +764,30 @@ final class ConversationCoordinator: ObservableObject {
                     }
 
                     // Flush any remaining text that didn't reach a split point.
-                    if willStreamTTS, let remainder = ttsChunker.flush() {
-                        await TTSService.shared.enqueue(
-                            text: remainder, voice: ttsVoice, speed: ttsSpeed, backend: ttsStreamBackend
-                        )
+                    if willStreamTTS {
+                        // Flush thinking filter first — any buffered non-thinking text
+                        let thinkingRemainder = thinkingFilter.flush()
+                        if !thinkingRemainder.isEmpty {
+                            let cleanedRemainder = cleanChunkForTTS(thinkingRemainder)
+                            _ = ttsChunker.feed(cleanedRemainder)
+                        }
+                        if let remainder = ttsChunker.flush() {
+                            await TTSService.shared.enqueue(
+                                text: remainder, voice: ttsVoice, speed: ttsSpeed, backend: ttsStreamBackend
+                            )
+                        }
                     }
 
                     try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS)
                     lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
                     SoundPlayer.shared.playCompletion()
                     modelManager.keepAlive()
+                    if stt != nil { modelManager.keepSTTAlive() }
                 } else {
                     // STT-only mode (None selected): paste raw transcript directly
                     try await presentOutput(trimmedCommand, savedClipboard: savedClipboard)
                     SoundPlayer.shared.playCompletion()
+                    if stt != nil { modelManager.keepSTTAlive() }
                 }
 
                 state = .idle
@@ -811,6 +823,7 @@ final class ConversationCoordinator: ObservableObject {
         guard state == .idle else { return }
 
         modelManager.cancelOffload()
+        modelManager.cancelSTTOffload()
         await TTSService.shared.stop()
         clearDisplayModeResult()
 
@@ -925,6 +938,7 @@ final class ConversationCoordinator: ObservableObject {
         guard state == .idle else { return }
 
         modelManager.cancelOffload()
+        modelManager.cancelSTTOffload()
         await TTSService.shared.stop()
         clearDisplayModeResult()
 
@@ -1079,9 +1093,7 @@ final class ConversationCoordinator: ObservableObject {
 
             SoundPlayer.shared.playCompletion()
             modelManager.keepAlive()
-
-            // STT loaded on-demand for dictation stays in memory — the normal
-            // auto-offload timer (5 min) will release it along with the LLM.
+            modelManager.keepSTTAlive()
             state = .idle
         } catch {
             state = .error(error.localizedDescription)
@@ -1295,6 +1307,10 @@ final class ConversationCoordinator: ObservableObject {
         t = t.replacingOccurrences(of: "<|end|>", with: "")
         t = t.replacingOccurrences(of: "<|im_end|>", with: "")
         t = t.replacingOccurrences(of: "<|im_start|>", with: "")
+        // Gemma 4 — residual tags that slip through the ThinkingBlockFilter
+        t = t.replacingOccurrences(of: "<|channel>", with: "")
+        t = t.replacingOccurrences(of: "<channel|>", with: "")
+        t = t.replacingOccurrences(of: "<end_of_turn>", with: "")
         // Convert numbers to words so Kokoro can pronounce them.
         t = Self.convertNumbersToWords(t)
         return t

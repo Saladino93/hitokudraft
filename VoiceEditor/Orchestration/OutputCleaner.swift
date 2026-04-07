@@ -115,13 +115,11 @@ enum OutputCleaner {
 
     // MARK: - Instruction-echo detection
 
-    /// Strips the first line of output if it appears to be an echo of the user's instruction.
-    /// Uses word overlap: if >60% of instruction words appear in the first line, it's an echo.
+    /// Strips leading lines that appear to be echoes of the user's instruction.
+    /// Uses word overlap: if >60% of instruction words appear in a leading line, it's an echo.
+    /// Strips consecutively from the top — stops at the first non-echo line.
     /// Conservative threshold avoids false positives; safe for all model families.
     static func stripEcho(_ text: String, instruction: String) -> String {
-        let lines = text.components(separatedBy: .newlines)
-        guard let firstLine = lines.first, !firstLine.isEmpty else { return text }
-
         let instructionWords = Set(
             instruction.lowercased()
                 .components(separatedBy: .whitespacesAndNewlines)
@@ -129,22 +127,42 @@ enum OutputCleaner {
         )
         guard !instructionWords.isEmpty else { return text }
 
-        let firstLineWords = Set(
-            firstLine.lowercased()
-                .components(separatedBy: .whitespacesAndNewlines)
-                .filter { $0.count > 2 }
-        )
+        var lines = text.components(separatedBy: .newlines)
+        var strippedCount = 0
 
-        let overlap = instructionWords.intersection(firstLineWords).count
-        let ratio = Double(overlap) / Double(instructionWords.count)
+        // Strip consecutive echo lines from the top (max 3 to avoid over-stripping)
+        for line in lines.prefix(3) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else {
+                strippedCount += 1
+                continue
+            }
 
-        if ratio > 0.6 {
-            let remaining = lines.dropFirst().joined(separator: "\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return remaining.isEmpty ? text : remaining  // don't strip if nothing left
+            let lineWords = Set(
+                trimmed.lowercased()
+                    .components(separatedBy: .whitespacesAndNewlines)
+                    .filter { $0.count > 2 }
+            )
+            guard !lineWords.isEmpty else {
+                strippedCount += 1
+                continue
+            }
+
+            let overlap = instructionWords.intersection(lineWords).count
+            let ratio = Double(overlap) / Double(instructionWords.count)
+
+            if ratio > 0.6 {
+                strippedCount += 1
+            } else {
+                break  // Stop at first non-echo line
+            }
         }
 
-        return text
+        guard strippedCount > 0 else { return text }
+
+        let remaining = lines.dropFirst(strippedCount).joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return remaining.isEmpty ? text : remaining  // don't strip if nothing left
     }
 
     // MARK: - Full cleaning pipeline
