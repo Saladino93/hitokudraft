@@ -14,8 +14,15 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Audio-direct action mode** — Ctrl+A works with LiteRT: Gemma transcribes audio natively before routing to ActionRouter.
 - **RoutedLLMService adapter** — Bridges app-level `LLMService` protocol to `InferenceRouter`. All existing callers (ConversationCoordinator, ActionCoordinator, DictationPolisher) work unchanged.
 - **AudioEncoder utility** — Converts Float32 PCM samples to WAV format for LiteRT audio input.
-- **Smart STT management** — STT models unload automatically when Gemma is selected (saves ~460MB RAM). Settings shows "Built into Gemma" for Active STT.
+- **Smart STT management** — STT skipped on launch when Gemma is active. Loaded on-demand for dictation (stays in memory until auto-offload). Settings shows "Built into the LLM model" for Active STT.
+- **"None" STT option** — Users who only use Gemma can select "None" in the STT picker to avoid loading any speech model.
 - **Gemma repetition protection** — Temperature floor (0.5), higher top_p (0.95), capped max tokens (400 draft/500 edit), 20-chunk loop detection, tool-use disabled.
+- **Background LLM loading** — Voice edit loads LLM without changing app state, so recording isn't interrupted.
+
+### Fixed
+- **ActionConfirmationPanel crash** — NSAlert.runModal() now dispatched to MainActor (was crashing from background thread).
+- **"No speech detected" with Gemma** — Audio-direct path now polls for VAD silence detection instead of falling through immediately.
+- **Model memory leak** — Old backends properly freed on background thread when switching models.
 
 ### Changed
 - **Streamlined model picker** — Removed LFM2.5 and Granite 4 Micro from bundled defaults. Models sorted by size. Users can still add any model via Custom Source.
