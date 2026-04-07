@@ -182,8 +182,12 @@ final class ConversationCoordinator: ObservableObject {
             }
         }
 
-        // Phase 1: STT — always runs (independent of LLM choice)
-        if stt == nil {
+        // Phase 1: STT — skip when LiteRT is active (Gemma handles audio natively)
+        if modelManager.selectedModel.backendType == .liteRT {
+            // LiteRT models have built-in audio understanding — no separate STT needed.
+            // This saves ~460MB RAM (Parakeet/WhisperKit model weights).
+            modelManager.sttReady = true
+        } else if stt == nil {
             modelManager.sttLoading = true
             do {
                 try await modelManager.reloadSTT()
@@ -418,6 +422,11 @@ final class ConversationCoordinator: ObservableObject {
 
     /// Reloads STT from disk if it was offloaded. No-op if already loaded.
     private func ensureSTTReady() async throws {
+        // LiteRT models handle audio natively — no separate STT needed
+        if modelManager.selectedModel.backendType == .liteRT {
+            modelManager.sttReady = true
+            return
+        }
         guard stt == nil else { return }
         modelManager.sttLoading = true
         defer { modelManager.sttLoading = false }
