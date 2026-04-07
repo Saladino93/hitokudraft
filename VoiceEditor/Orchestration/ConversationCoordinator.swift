@@ -544,6 +544,11 @@ final class ConversationCoordinator: ObservableObject {
                         }
                     )
                 } else {
+                    // No STT (LiteRT audio-direct) — wait for silence detection manually.
+                    // runStreamingTranscription normally does this polling loop; replicate it here.
+                    while !Task.isCancelled && !session.isSilenceDetected {
+                        try await Task.sleep(for: .milliseconds(100))
+                    }
                     lastTranscription = ""
                 }
 

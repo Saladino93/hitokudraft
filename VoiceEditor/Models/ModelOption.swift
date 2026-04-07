@@ -155,7 +155,7 @@ enum ModelRegistry {
 
     /// Sentinel: no LLM loaded. Voice edit pastes raw STT transcript; grammar fix silently no-ops.
     static let noLLM = ModelOption(
-        name: "None — STT only",
+        name: "None (STT only)",
         path: "__none__",
         description: "model.none_description",
         estimatedMemoryGB: 0
