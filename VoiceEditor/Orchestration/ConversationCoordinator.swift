@@ -1145,6 +1145,9 @@ final class ConversationCoordinator: ObservableObject {
         let tools: [any Tool] = [
             WebSearchTool(searchService: searchService),
             FetchURLTool(fetchService: fetchService),
+            ListEventsTool(),
+            FindFreeTimeTool(),
+            CheckAvailabilityTool(),
         ]
         return ToolExecutor(tools: tools)
     }
@@ -1163,10 +1166,16 @@ final class ConversationCoordinator: ObservableObject {
 
         You have access to the following tools to help answer questions:
 
-        - **web_search**: Search the web for current information. Use for factual questions, current events, or when you need up-to-date data.
+        - **web_search**: Search the web for current information.
           Parameters: {"query": "your search query"}
-        - **fetch_url**: Fetch and read a web page. Use when you need to read the content of a specific URL.
+        - **fetch_url**: Fetch and read a web page.
           Parameters: {"url": "https://example.com/page"}
+        - **list_events**: List calendar events for a date range.
+          Parameters: {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
+        - **find_free_time**: Find free time slots on a given date.
+          Parameters: {"date": "YYYY-MM-DD", "start_hour": "9", "end_hour": "18"}
+        - **check_availability**: Check if a specific time is free.
+          Parameters: {"datetime": "YYYY-MM-DDTHH:mm", "duration_minutes": "60"}
 
         When you need to use a tool, output EXACTLY this format (no other text around it):
         <tool_call>
@@ -1174,8 +1183,8 @@ final class ConversationCoordinator: ObservableObject {
         </tool_call>
 
         Use tools when:
-        - The user asks about current events, recent news, or time-sensitive information
-        - The user asks a factual question you are unsure about
+        - The user asks about current events, news, or time-sensitive information
+        - The user asks about their calendar, schedule, availability, or free time
         - The user mentions or asks about a specific URL
         - The user explicitly asks you to search or look something up
 
@@ -1200,7 +1209,7 @@ final class ConversationCoordinator: ObservableObject {
         }
     }
 
-    /// Strips TTS-unfriendly artifacts from a raw LLM token stream chunk.
+    /// Strips TTS-unfriendly artifacts and converts numbers to words.
     /// Lightweight — runs per-chunk during streaming. The full OutputCleaner
     /// still runs on the final assembled text.
     private func cleanChunkForTTS(_ chunk: String) -> String {
@@ -1213,7 +1222,36 @@ final class ConversationCoordinator: ObservableObject {
         t = t.replacingOccurrences(of: "<|end|>", with: "")
         t = t.replacingOccurrences(of: "<|im_end|>", with: "")
         t = t.replacingOccurrences(of: "<|im_start|>", with: "")
+        // Convert numbers to words so Kokoro can pronounce them.
+        t = Self.convertNumbersToWords(t)
         return t
+    }
+
+    /// Replaces digit sequences with their spelled-out equivalents.
+    /// Handles integers and decimals. Uses the current locale for natural phrasing.
+    private static let spellOutFormatter: NumberFormatter = {
+        let fmt = NumberFormatter()
+        fmt.numberStyle = .spellOut
+        fmt.locale = Locale(identifier: "en_US")
+        return fmt
+    }()
+
+    private static func convertNumbersToWords(_ text: String) -> String {
+        // Match sequences of digits, optionally with a decimal point (e.g. "3.14", "42", "1000")
+        let pattern = try! NSRegularExpression(pattern: #"\b\d+(\.\d+)?\b"#)
+        let range = NSRange(text.startIndex..., in: text)
+        var result = text
+        // Process matches in reverse order to preserve indices
+        let matches = pattern.matches(in: text, range: range)
+        for match in matches.reversed() {
+            guard let swiftRange = Range(match.range, in: result) else { continue }
+            let numStr = String(result[swiftRange])
+            if let number = Double(numStr),
+               let spelled = spellOutFormatter.string(from: NSNumber(value: number)) {
+                result.replaceSubrange(swiftRange, with: spelled)
+            }
+        }
+        return result
     }
 
     // MARK: - TTS Language Detection

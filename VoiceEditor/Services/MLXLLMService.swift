@@ -30,6 +30,7 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
 
         let parameters = GenerateParameters(
             maxTokens: maxTokens,
+            kvBits: 4,
             temperature: temperature,
             topP: family.topP,
             repetitionPenalty: family.repetitionPenalty,

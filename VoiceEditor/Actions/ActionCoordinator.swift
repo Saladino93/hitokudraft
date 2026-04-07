@@ -190,6 +190,52 @@ final class ActionCoordinator {
             }.joined(separator: "\n")
             onDisplayResult?(cleaned + "\n\n" + sources)
 
+        case .calendarQuery(let q):
+            guard let llm = getLLM() else {
+                throw NSError(domain: "ActionCoordinator", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "No LLM loaded."])
+            }
+            onStateChange?(.generating)
+            defer { onStateChange?(.idle) }
+
+            // Determine which calendar tool to use based on the query.
+            let date = q.date ?? {
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                // Default to today if no date extracted
+                return fmt.string(from: Date())
+            }()
+            let nextDay = {
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                let d = fmt.date(from: date) ?? Date()
+                return fmt.string(from: Calendar.current.date(byAdding: .day, value: 1, to: d)!)
+            }()
+
+            // Run both list_events and find_free_time for a comprehensive answer.
+            let listTool = ListEventsTool()
+            let freeTool = FindFreeTimeTool()
+
+            let events = try await listTool.execute(arguments: ["start_date": date, "end_date": nextDay])
+            let freeTime = try await freeTool.execute(arguments: ["date": date])
+
+            let isoFmt = ISO8601DateFormatter()
+            isoFmt.formatOptions = [.withInternetDateTime]
+            let nowISO = isoFmt.string(from: Date())
+
+            let calContext = "Events:\n\(events)\n\nFree time:\n\(freeTime)"
+            let summarizePrompt = """
+            Current date/time: \(nowISO). The calendar data below is for \(date).
+            The user asked: "\(q.query)"
+
+            Calendar data:
+            \(calContext)
+
+            Answer their question naturally and concisely. Mention specific times.
+            """
+            let answer = try await llm.generate(prompt: summarizePrompt, maxTokens: 300)
+            onDisplayResult?(answer.trimmingCharacters(in: .whitespacesAndNewlines))
+
         case .unknown:
             break  // confirm() returns false for .unknown; should not reach here
         }

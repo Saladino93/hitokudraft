@@ -38,12 +38,18 @@ enum PendingAction: Sendable {
         let query: String
     }
 
+    struct CalendarQuery: Sendable {
+        let query: String
+        let date: String?  // optional YYYY-MM-DD
+    }
+
     case calendarEvent(CalendarEvent)
     case reminder(Reminder)
     case note(Note)
     case timer(TimerAction)
     case email(EmailAction)
     case webSearch(WebSearch)
+    case calendarQuery(CalendarQuery)
     case unknown(transcript: String)  // LLM could not classify
 }
 
@@ -78,6 +84,8 @@ extension PendingAction {
             return "Subject: \(e.subject)\n\(e.body.prefix(120))"
         case .webSearch(let s):
             return "Search: \"\(s.query)\""
+        case .calendarQuery(let q):
+            return "Calendar: \"\(q.query)\""
         case .unknown(let t):
             return "Could not understand: \"\(t)\""
         }
@@ -92,6 +100,7 @@ extension PendingAction {
         case .timer:         return "Set Timer"
         case .email:         return "Open Compose"
         case .webSearch:     return "Search"
+        case .calendarQuery: return "Check"
         case .unknown:       return "OK"
         }
     }

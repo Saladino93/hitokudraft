@@ -44,7 +44,8 @@ struct ActionRouter {
         4. timer — set a countdown timer (not a calendar event)
         5. email — compose an email (opens compose window for review; never auto-sends)
         6. web_search — search the web for information
-        7. unknown — cannot be classified
+        7. calendar_query — check calendar, availability, or schedule (NOT creating events)
+        8. unknown — cannot be classified
 
         Respond with ONLY a JSON object on a single line. No markdown, no commentary.
 
@@ -67,12 +68,17 @@ struct ActionRouter {
         For web_search:
         {"type":"web_search","query":"..."}
 
+        For calendar_query:
+        {"type":"calendar_query","query":"...","date":"YYYY-MM-DD"}
+        IMPORTANT: Always resolve the date. "tomorrow" = the day after the current date above. "today" = the current date. Never output null for date.
+
         For unknown:
         {"type":"unknown"}
 
         Rules:
         - "search for", "look up", "what is", "find out", "Google" → web_search. Extract the search query.
-        - Questions about current events, sports, news, prices, weather, or any factual question the user wants an up-to-date answer for → web_search. The query should be a concise search-engine-friendly rephrasing.
+        - Questions about current events, sports, news, prices, weather → web_search.
+        - "am I free", "what's on my calendar", "my schedule", "my availability", "do I have anything" → calendar_query.
         - "remind me to", "don't forget" → reminder. "schedule", "book", "meeting", "appointment" → calendar_event.
         - "take a note", "note that", "jot down" → note. Body is the content; title is a short summary.
         - "set a timer", "timer for", "remind me in X minutes/seconds" (countdown) → timer.
@@ -125,6 +131,10 @@ struct ActionRouter {
                 return .unknown(transcript: raw)
             }
             return .webSearch(.init(query: query))
+        case "calendar_query":
+            let query = dict["query"] as? String ?? raw
+            let date = dict["date"] as? String
+            return .calendarQuery(.init(query: query, date: date))
         default:
             return .unknown(transcript: raw)
         }
