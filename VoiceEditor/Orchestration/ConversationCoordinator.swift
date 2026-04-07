@@ -910,13 +910,24 @@ final class ConversationCoordinator: ObservableObject {
         await TTSService.shared.stop()
         clearDisplayModeResult()
 
-        do { try await ensureSTTReady() } catch {
-            state = .error(error.localizedDescription)
-            resetErrorAfterDelay()
-            return
+        // Dictation always needs STT — even when LiteRT is active.
+        // (dictation shows live text to the user, not to the model)
+        if stt == nil {
+            modelManager.sttLoading = true
+            do {
+                try await modelManager.reloadSTT()
+                stt = try await makeSttService()
+                modelManager.sttReady = (stt != nil)
+            } catch {
+                state = .error(error.localizedDescription)
+                resetErrorAfterDelay()
+                modelManager.sttLoading = false
+                return
+            }
+            modelManager.sttLoading = false
         }
 
-        guard modelManager.selectedModel.backendType == .liteRT || stt != nil else {
+        guard stt != nil else {
             state = .error(VoiceEditorError.modelsNotLoaded.localizedDescription)
             resetErrorAfterDelay()
             return
