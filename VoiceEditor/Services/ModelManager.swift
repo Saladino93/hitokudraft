@@ -140,9 +140,20 @@ final class ModelManager: ObservableObject {
 
         Memory.cacheLimit = Self.gpuCacheLimit
 
+        // Unload previous backends on a background thread to avoid blocking UI
+        // during LiteRT GPU teardown (engineDelete can take seconds).
+        let router = inferenceRouter
+        let keys = router.registeredKeys
+        if !keys.isEmpty {
+            Task.detached {
+                for key in keys { router.remove(key) }
+            }
+            // Brief yield to let the detached task start
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         llmReady = false
         modelContainer = nil
-        Memory.clearCache()  // Evict old model's GPU buffers before loading new one
+        Memory.clearCache()  // Evict old model's GPU buffers
         if loadedModelPath != nil { previousModelPath = loadedModelPath }
         loadedModelPath = nil
         statusMessage = "Loading \(model.name)..."
