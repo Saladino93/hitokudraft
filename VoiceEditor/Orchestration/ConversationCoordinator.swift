@@ -475,14 +475,19 @@ final class ConversationCoordinator: ObservableObject {
         await TTSService.shared.stop()
         clearDisplayModeResult()
 
-        // Reload STT and LLM from disk cache if they were offloaded
-        do {
-            try await ensureSTTReady()
-            try await ensureLLMReady()
-        } catch {
+        // Ensure STT ready (skip for LiteRT)
+        do { try await ensureSTTReady() } catch {
             state = .error(error.localizedDescription)
             resetErrorAfterDelay()
             return
+        }
+
+        // Load LLM in background while recording starts — don't block the user
+        let llmLoadTask = Task { [weak self] in
+            guard let self else { return }
+            do { try await self.ensureLLMReady() } catch {
+                // Will be caught when we need the LLM after recording
+            }
         }
 
         // STT can be nil when LiteRT is active (Gemma handles audio natively)
@@ -558,6 +563,12 @@ final class ConversationCoordinator: ObservableObject {
                 let samples = session.audioBuffer.getAll()
                 guard samples.count >= 16_000 else {
                     throw VoiceEditorError.emptyTranscription
+                }
+
+                // Wait for LLM to finish loading (started in background before recording)
+                await llmLoadTask.value
+                guard let llm = self.llm else {
+                    throw VoiceEditorError.modelsNotLoaded
                 }
 
                 // Audio-direct path: when the active backend supports native audio input
