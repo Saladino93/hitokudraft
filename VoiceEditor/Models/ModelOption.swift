@@ -226,7 +226,7 @@ enum ModelRegistry {
             path: "litert-community/gemma-4-E2B-it-litert-lm",
             backendType: .liteRT,
             liteRTFilename: "gemma-4-E2B-it.litertlm",
-            description: "Native audio + vision, skips STT (fastest end-to-end)",
+            description: "Native audio + vision (fastest end-to-end)",
             estimatedMemoryGB: 2.6
         ),
         ModelOption(

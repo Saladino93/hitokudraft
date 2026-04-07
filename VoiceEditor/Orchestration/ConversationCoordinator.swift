@@ -485,7 +485,9 @@ final class ConversationCoordinator: ObservableObject {
             return
         }
 
-        guard let stt else {
+        // STT can be nil when LiteRT is active (Gemma handles audio natively)
+        let needsSTT = modelManager.selectedModel.backendType != .liteRT
+        guard !needsSTT || stt != nil else {
             state = .error(VoiceEditorError.modelsNotLoaded.localizedDescription)
             resetErrorAfterDelay()
             return
@@ -518,13 +520,19 @@ final class ConversationCoordinator: ObservableObject {
                 // Streaming transcription loop — shows live text while recording
                 // Path A (legacy): 300ms re-transcription poll
                 // Path B (native): Qwen3-ASR StreamingInferenceSession
-                let lastTranscription = await runStreamingTranscription(
-                    session: session,
-                    stt: stt,
-                    onTextUpdate: { [weak self] text in
-                        self?.liveTranscriptionText = text
-                    }
-                )
+                // LiteRT handles audio natively — no live STT transcription needed
+                let lastTranscription: String
+                if let stt {
+                    lastTranscription = await runStreamingTranscription(
+                        session: session,
+                        stt: stt,
+                        onTextUpdate: { [weak self] text in
+                            self?.liveTranscriptionText = text
+                        }
+                    )
+                } else {
+                    lastTranscription = ""
+                }
 
                 // Check cancellation after recording phase
                 guard !Task.isCancelled else {
@@ -568,7 +576,7 @@ final class ConversationCoordinator: ObservableObject {
                 } else {
                     state = .transcribing
                     do {
-                        command = try await stt.transcribe(samples: samples)
+                        command = try await stt!.transcribe(samples: samples)
                     } catch {
                         Self.log.error("Final transcription failed, falling back to streaming result: \(error.localizedDescription, privacy: .public)")
                         command = lastTranscription
@@ -908,7 +916,7 @@ final class ConversationCoordinator: ObservableObject {
             return
         }
 
-        guard stt != nil else {
+        guard modelManager.selectedModel.backendType == .liteRT || stt != nil else {
             state = .error(VoiceEditorError.modelsNotLoaded.localizedDescription)
             resetErrorAfterDelay()
             return
