@@ -8,12 +8,17 @@ All notable changes to Hitoku Draft are documented in this file.
 - **HitokuInference framework** — Independent Swift Package (`examples/HitokuInference/`) with `InferenceBackend` protocol, `InferenceRouter` for multi-backend dispatch, and `InferenceRequest` multimodal value type. Backends conform to the protocol; callers depend only on abstractions.
 - **MLXBackend** — Wraps existing MLXLLM/MLXVLM `ModelContainer` behind `InferenceBackend`. Drop-in replacement for direct `MLXLLMService` usage.
 - **LiteRTBackend** — Google LiteRT-LM integration via dlopen/dlsym C bridge. Supports Gemma 4 E2B with native audio + vision + text in a single model. GPU (Metal/WebGPU) for text generation, CPU for audio encoder.
-- **Gemma 4 E2B model** — Selectable in model picker as "Gemma 4 E2B (LiteRT)". 2.6 GB model, ~100 tok/s GPU decode. Understands voice commands natively — skips STT entirely.
-- **Audio-direct voice edit** — When LiteRT backend is active, voice instructions are sent as raw WAV audio directly to the model. No STT transcription step needed.
+- **Gemma 4 E2B model** — Selectable in model picker. 2.6 GB, ~100 tok/s GPU decode. Understands voice commands natively with built-in audio + vision.
+- **Gemma 4 E4B model** — Larger LiteRT multimodal model (3.7 GB) for higher quality output.
+- **Audio-direct voice edit** — When LiteRT backend is active, voice instructions are sent as raw WAV audio directly to the model. No separate STT step needed.
+- **Audio-direct action mode** — Ctrl+A works with LiteRT: Gemma transcribes audio natively before routing to ActionRouter.
 - **RoutedLLMService adapter** — Bridges app-level `LLMService` protocol to `InferenceRouter`. All existing callers (ConversationCoordinator, ActionCoordinator, DictationPolisher) work unchanged.
 - **AudioEncoder utility** — Converts Float32 PCM samples to WAV format for LiteRT audio input.
+- **Smart STT management** — STT models unload automatically when Gemma is selected (saves ~460MB RAM). Settings shows "Built into Gemma" for Active STT.
+- **Gemma repetition protection** — Temperature floor (0.5), higher top_p (0.95), capped max tokens (400 draft/500 edit), 20-chunk loop detection, tool-use disabled.
 
 ### Changed
+- **Streamlined model picker** — Removed LFM2.5 and Granite 4 Micro from bundled defaults. Models sorted by size. Users can still add any model via Custom Source.
 - **Voice readback** — TTS in display/non-editable mode (e.g. reading a PDF with Ctrl+Z). Two engines: Kokoro (multi-voice, speed control) and PocketTTS (flow-matching). Streaming TTS with prefetch synthesis, adaptive chunking, and segment highlighting in the overlay.
 - **Browser context** — Full-page text extraction from Safari, Chrome, Arc, Brave, and Edge via AppleScript JavaScript. Data-driven browser registry for easy extensibility.
 - **Vision Language Model support** — Qwen3.5 models load via MLXVLM and can see window screenshots in Advanced context mode. The LLM describes images, charts, and UI on screen.

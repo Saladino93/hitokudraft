@@ -523,7 +523,7 @@ struct SettingsView: View {
                 GridRow {
                     Text(L("model.active_stt"))
                     if modelManager.selectedModel.backendType == .liteRT {
-                        Text("Built into \(modelManager.selectedModel.name)")
+                        Text("Built into the LLM model")
                             .foregroundColor(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
