@@ -222,7 +222,7 @@ enum ModelRegistry {
             estimatedMemoryGB: 2.5
         ),
         ModelOption(
-            name: "Gemma 4 E2B (LiteRT)",
+            name: "Gemma 4 E2B",
             path: "litert-community/gemma-4-E2B-it-litert-lm",
             backendType: .liteRT,
             liteRTFilename: "gemma-4-E2B-it.litertlm",
@@ -230,7 +230,7 @@ enum ModelRegistry {
             estimatedMemoryGB: 2.6
         ),
         ModelOption(
-            name: "Gemma 4 E4B (LiteRT)",
+            name: "Gemma 4 E4B",
             path: "litert-community/gemma-4-E4B-it-litert-lm",
             backendType: .liteRT,
             liteRTFilename: "gemma-4-E4B-it.litertlm",
