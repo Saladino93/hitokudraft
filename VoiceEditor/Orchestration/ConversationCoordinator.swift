@@ -910,9 +910,14 @@ final class ConversationCoordinator: ObservableObject {
         await TTSService.shared.stop()
         clearDisplayModeResult()
 
-        // Dictation always needs STT — even when LiteRT is active.
-        // (dictation shows live text to the user, not to the model)
+        // Dictation always needs STT — even when LiteRT is active or "None" STT selected.
+        // Temporarily switch to Parakeet if needed, then load.
         if stt == nil {
+            let savedSTT = modelManager.selectedSTTModel
+            if savedSTT.isNone || modelManager.selectedModel.backendType == .liteRT {
+                // Force Parakeet for dictation
+                modelManager.selectedSTTModel = STTModelRegistry.defaultModel
+            }
             modelManager.sttLoading = true
             do {
                 try await modelManager.reloadSTT()
@@ -922,6 +927,7 @@ final class ConversationCoordinator: ObservableObject {
                 state = .error(error.localizedDescription)
                 resetErrorAfterDelay()
                 modelManager.sttLoading = false
+                modelManager.selectedSTTModel = savedSTT
                 return
             }
             modelManager.sttLoading = false
