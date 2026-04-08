@@ -65,7 +65,7 @@ struct DefaultModelFamily: ModelFamily {
     }
 
     func draftPrompt(instruction: String, context: ScreenContext?) -> String {
-        Prompts.draft(instruction: instruction, context: context)
+        Prompts.conciseDraft(instruction: instruction, context: context)
     }
 
     func postProcess(_ rawOutput: String) -> String { rawOutput }
@@ -82,7 +82,9 @@ struct Qwen3ModelFamily: ModelFamily {
     let familyName = "Qwen3"
 
     func systemPrompt(screenAware: Bool) -> String {
-        screenAware ? Prompts.screenAwareSystemPrompt : Prompts.systemPrompt
+        let base = screenAware ? Prompts.screenAwareSystemPrompt : Prompts.systemPrompt
+        // Encourage tool use for time-sensitive or URL-based questions when enabled.
+        return base + "\n\nWhen tools are available, prefer them for time-sensitive, factual, or URL-based questions."
     }
 
     func editPrompt(text: String, instruction: String, context: ScreenContext?) -> String {
@@ -134,7 +136,7 @@ struct Qwen35ModelFamily: ModelFamily {
     let repetitionPenalty: Float = 1.2
     let disableThinking = false
 
-    let draftMaxTokens: Int = 800
+    let draftMaxTokens: Int = 1000
 
     /// Qwen3.5 reliably follows structured tool-call instructions.
     let supportsToolUse = true
@@ -201,7 +203,11 @@ struct Gemma4ModelFamily: ModelFamily {
     let familyName = "Gemma4"
 
     func systemPrompt(screenAware: Bool) -> String {
-        screenAware ? Prompts.screenAwareSystemPrompt : Prompts.systemPrompt
+        if screenAware {
+            return Prompts.screenAwareVoiceCleanSystemPrompt + "\nUse on-screen context and any provided visuals/audio to produce a complete answer."
+        } else {
+            return Prompts.voiceCleanSystemPrompt + "\nUse audio cues to understand intent; avoid terse responses."
+        }
     }
 
     func editPrompt(text: String, instruction: String, context: ScreenContext?) -> String {
@@ -209,7 +215,8 @@ struct Gemma4ModelFamily: ModelFamily {
     }
 
     func draftPrompt(instruction: String, context: ScreenContext?) -> String {
-        Prompts.draft(instruction: instruction, context: context)
+        // Gemma 4 benefits from fuller drafts to offset its thinking preamble.
+        Prompts.conciseDraft(instruction: instruction, context: context)
     }
 
     /// Strip thinking blocks: <|channel>thought\n…<channel|>
@@ -226,7 +233,7 @@ struct Gemma4ModelFamily: ModelFamily {
                 withTemplate: ""
             )
         }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return OutputCleaner.cleanModelOutput(result.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     let temperature: Float = 0.6
@@ -243,8 +250,8 @@ struct Gemma4ModelFamily: ModelFamily {
         min(Prompts.editMaxTokens(for: text), 1000)
     }
 
-    // Gemma 4 E2B should NOT use tool-use prompts — causes infinite tool-call loops
-    let supportsToolUse = false
+    // Enable tool use; prompts already discourage preamble and OutputCleaner strips tags.
+    let supportsToolUse = true
 }
 
 // MARK: - Granite

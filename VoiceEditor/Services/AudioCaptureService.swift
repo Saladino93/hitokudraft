@@ -8,7 +8,7 @@ final class AudioCaptureService {
     private static let mutedMicThreshold: Float = 0.001
     private var silenceDurationLimit: TimeInterval {
         let v = UserDefaults.standard.double(forKey: "silenceDurationLimit")
-        return v > 0 ? v : 0.5
+        return v > 0 ? v : 1.5
     }
     private var maxRecordingDuration: TimeInterval {
         let v = UserDefaults.standard.double(forKey: "maxRecordingDuration")
@@ -16,7 +16,7 @@ final class AudioCaptureService {
     }
     private var noSpeechTimeout: TimeInterval {
         let v = UserDefaults.standard.double(forKey: "noSpeechTimeout")
-        return v > 0 ? v : 3.0
+        return v > 0 ? v : 3.5
     }
 
     /// Minimum samples (1 second at 16 kHz) before we attempt transcription.

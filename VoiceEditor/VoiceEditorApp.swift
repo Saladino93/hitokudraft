@@ -32,6 +32,15 @@ struct VoiceEditorApp: App {
             defaults.set(3.0, forKey: "noSpeechTimeout")
             defaults.set(true, forKey: "migration_v109_vad_defaults")
         }
+
+        // v1.1.0: Use slightly longer silence timeout to avoid premature cutoff.
+        if !defaults.bool(forKey: "migration_v110_silence_defaults") {
+            defaults.set(1.5, forKey: "silenceDurationLimit")
+            defaults.set(3.5, forKey: "noSpeechTimeout")
+            defaults.set("Tink", forKey: "activationSound")
+            defaults.set("Pop", forKey: "completionSound")
+            defaults.set(true, forKey: "migration_v110_silence_defaults")
+        }
     }
 
     var body: some Scene {
@@ -40,7 +49,7 @@ struct VoiceEditorApp: App {
         } label: {
             coordinator.menuBarIcon
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView(coordinator: coordinator, updater: updaterController.updater)

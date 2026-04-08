@@ -4,7 +4,8 @@ import Carbon.HIToolbox
 @MainActor
 final class TextCaptureService {
     struct ClipboardSnapshot {
-        let items: [(type: NSPasteboard.PasteboardType, data: Data)]
+        /// Array of pasteboard items, each with their typed payloads.
+        let items: [[(type: NSPasteboard.PasteboardType, data: Data)]]
     }
 
     private var targetApp: NSRunningApplication?
@@ -15,26 +16,32 @@ final class TextCaptureService {
 
     func saveClipboard() -> ClipboardSnapshot {
         let pasteboard = NSPasteboard.general
-        var items: [(NSPasteboard.PasteboardType, Data)] = []
+        var snapshotItems: [[(NSPasteboard.PasteboardType, Data)]] = []
         for item in pasteboard.pasteboardItems ?? [] {
+            var entry: [(NSPasteboard.PasteboardType, Data)] = []
             for type in item.types {
                 if let data = item.data(forType: type) {
-                    items.append((type, data))
+                    entry.append((type, data))
                 }
             }
+            if !entry.isEmpty { snapshotItems.append(entry) }
         }
-        return ClipboardSnapshot(items: items)
+        return ClipboardSnapshot(items: snapshotItems)
     }
 
     func restoreClipboard(_ snapshot: ClipboardSnapshot) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         guard !snapshot.items.isEmpty else { return }
-        let item = NSPasteboardItem()
-        for (type, data) in snapshot.items {
-            item.setData(data, forType: type)
+        var objects: [NSPasteboardItem] = []
+        for entry in snapshot.items {
+            let item = NSPasteboardItem()
+            for (type, data) in entry {
+                item.setData(data, forType: type)
+            }
+            objects.append(item)
         }
-        pasteboard.writeObjects([item])
+        pasteboard.writeObjects(objects)
     }
 
     func captureSelectedText() async throws -> String {

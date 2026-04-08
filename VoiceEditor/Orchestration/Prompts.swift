@@ -142,7 +142,9 @@ enum Prompts {
         Interpret the intent, not the literal wording.
 
         Rules:
-        - Output ONLY the rewritten text. No explanation, no preamble, no notes.
+        - Preserve meaning and important detail; do not shorten unless asked.
+        - Output ONLY the rewritten text. No preamble or meta commentary.
+        - If the instruction explicitly asks to explain/justify, give a concise 2–4 sentence explanation.
         - \(langRule)
         - Keep formatting (line breaks, bullet points) unless asked to change it.
         \(contextBlock)
@@ -167,8 +169,9 @@ enum Prompts {
 
         return """
         You are a writing assistant. The user asked you to write something via voice.
-        Produce ONLY the requested content — no preamble, no commentary.
+        Produce ONLY the requested content — no preamble, no commentary. Be complete and natural.
         Do NOT repeat or paraphrase the user's request.
+        If the user asks to explain or justify, provide a clear, concise explanation (2–5 sentences).
         Write directly, as if the text will be pasted into a document.
         \(contextBlock)
         Request: \(instruction)
@@ -214,9 +217,9 @@ enum Prompts {
 
         return """
         Write what the user asks for. Match the scope of the request — \
-        short tasks get short answers, code requests get complete code. \
-        Do not repeat or paraphrase the request. Do not explain what you are doing. \
-        Output ONLY the content itself.
+        short tasks get short answers; explanations use 2–5 clear sentences; code requests get complete code. \
+        Do not repeat or paraphrase the request. Do not explain what you are doing unless asked; \
+        when asked to explain, be concise but complete. Output ONLY the content itself.
         \(contextBlock)
         Request: \(instruction)
         """
