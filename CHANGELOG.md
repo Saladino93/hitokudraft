@@ -7,7 +7,7 @@ All notable changes to Hitoku Draft are documented in this file.
 ### Added
 - **TTS thinking block filter** — Gemma 4 thinking blocks (`<|channel>thought...<channel|>`) no longer read aloud. `ThinkingBlockFilter` stateful filter strips thinking content from the TTS streaming path while preserving it in the overlay.
 - **Separate STT auto-offload timer** — Independent 2-minute timer for STT models. When Gemma loads STT on-demand for dictation, STT (~460 MB) frees independently from the 5-minute LLM timer.
-- **HitokuInference framework** — Independent Swift Package (`examples/HitokuInference/`) with `InferenceBackend` protocol, `InferenceRouter` for multi-backend dispatch, and `InferenceRequest` multimodal value type. Backends conform to the protocol; callers depend only on abstractions.
+- **HitokuInference framework** — Independent Swift Package (`HitokuInference/`) with `InferenceBackend` protocol, `InferenceRouter` for multi-backend dispatch, and `InferenceRequest` multimodal value type. Backends conform to the protocol; callers depend only on abstractions.
 - **MLXBackend** — Wraps existing MLXLLM/MLXVLM `ModelContainer` behind `InferenceBackend`. Drop-in replacement for direct `MLXLLMService` usage.
 - **LiteRTBackend** — Google LiteRT-LM integration via dlopen/dlsym C bridge. Supports Gemma 4 E2B with native audio + vision + text in a single model. GPU (Metal/WebGPU) for text generation, CPU for audio encoder.
 - **Gemma 4 E2B model** — Selectable in model picker. 2.6 GB, ~100 tok/s GPU decode. Understands voice commands natively with built-in audio + vision.
