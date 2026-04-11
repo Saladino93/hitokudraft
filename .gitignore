@@ -43,6 +43,9 @@ text.txt
 credentials.json
 licensing.json
 
+# === Internal tracking ===
+KNOWN_ISSUES.md
+
 # === Release scripts & internal docs (owner-only) ===
 bundle.sh
 release.sh

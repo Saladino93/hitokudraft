@@ -2,7 +2,7 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
-## [Unreleased]
+## [1.6.0] — Unreleased
 
 ### Added
 - **TTS thinking block filter** — Gemma 4 thinking blocks (`<|channel>thought...<channel|>`) no longer read aloud. `ThinkingBlockFilter` stateful filter strips thinking content from the TTS streaming path while preserving it in the overlay.
