@@ -133,9 +133,18 @@ final class ActionCoordinator {
         setLiveTranscript?("")
         onStateChange?(.idle)
 
+        // Phase 3.5: Conflict detection for calendar events
+        var conflicts: [String] = []
+        if case .calendarEvent(let e) = action {
+            let permission = await eventKit.requestCalendarAccess()
+            if permission == .granted {
+                conflicts = eventKit.findConflicts(start: e.startDate, end: e.endDate)
+            }
+        }
+
         // Phase 4: Confirm (always required — never fire-and-forget)
         // Must run on MainActor for NSAlert.runModal()
-        guard await ActionConfirmationPanel.confirm(action) else { return }
+        guard await ActionConfirmationPanel.confirm(action, conflicts: conflicts) else { return }
 
         // Phase 5: Execute
         do {

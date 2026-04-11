@@ -10,7 +10,8 @@ struct ActionConfirmationPanel {
 
     /// Presents a modal alert and returns true if the user confirms.
     /// For `.unknown` actions, shows an informational alert and always returns false.
-    static func confirm(_ action: PendingAction) -> Bool {
+    /// `conflicts` is an optional list of existing event titles that overlap (calendar events only).
+    static func confirm(_ action: PendingAction, conflicts: [String] = []) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .informational
 
@@ -23,9 +24,13 @@ struct ActionConfirmationPanel {
             return false
 
         case .calendarEvent:
-            alert.messageText = "Add to Calendar?"
-            alert.informativeText = action.confirmationSummary
-            alert.addButton(withTitle: action.actionVerb)
+            alert.messageText = conflicts.isEmpty ? "Add to Calendar?" : "⚠️ Calendar Conflict"
+            var info = action.confirmationSummary
+            if !conflicts.isEmpty {
+                info += "\n\nConflicts with:\n" + conflicts.map { "• \($0)" }.joined(separator: "\n")
+            }
+            alert.informativeText = info
+            alert.addButton(withTitle: conflicts.isEmpty ? action.actionVerb : "Add Anyway")
             alert.addButton(withTitle: "Cancel")
 
         case .reminder:
