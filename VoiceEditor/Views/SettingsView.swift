@@ -466,47 +466,41 @@ struct SettingsView: View {
             Text("Available Tools")
                 .font(.subheadline.weight(.medium))
 
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 10),
-                GridItem(.flexible(), spacing: 10)
-            ], spacing: 8) {
-                toolCell(icon: "magnifyingglass", name: "Web Search", subtitle: "DuckDuckGo", internet: true)
-                toolCell(icon: "globe", name: "URL Fetch", subtitle: "Read web pages", internet: true)
-                toolCell(icon: "calendar", name: "Calendar", subtitle: "Events & free time", internet: false)
-                toolCell(icon: "timer", name: "Timer", subtitle: "Countdown alerts", internet: false)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                toolCell(icon: "magnifyingglass", name: "Search", subtitle: "DuckDuckGo", internet: true)
+                toolCell(icon: "globe", name: "URL", subtitle: "Fetch page", internet: true)
+                toolCell(icon: "calendar", name: "Calendar", subtitle: "Events", internet: false)
+                toolCell(icon: "timer", name: "Timer", subtitle: "Countdown", internet: false)
                 toolCell(icon: "note.text", name: "Notes", subtitle: "Apple Notes", internet: false)
-                toolCell(icon: "envelope", name: "Email", subtitle: "Compose window", internet: false)
-                toolCell(icon: "macwindow", name: "Launch App", subtitle: "Open by name", internet: false)
+                toolCell(icon: "envelope", name: "Email", subtitle: "Compose", internet: false)
+                toolCell(icon: "macwindow", name: "Launch", subtitle: "Open app", internet: false)
             }
         }
         .padding(20)
     }
 
     private func toolCell(icon: String, name: String, subtitle: String, internet: Bool) -> some View {
-        HStack(spacing: 8) {
+        VStack(spacing: 3) {
             Image(systemName: icon)
-                .frame(width: 18)
+                .font(.system(size: 14))
                 .foregroundStyle(internet && !internetAccessEnabled ? .quaternary : .secondary)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Text(name)
-                        .font(.caption.weight(.medium))
-                        .lineLimit(1)
-                    if internet {
-                        Circle()
-                            .fill(internetAccessEnabled ? .green : .gray.opacity(0.4))
-                            .frame(width: 5, height: 5)
-                    }
-                }
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 3) {
+                Text(name)
+                    .font(.caption2.weight(.medium))
                     .lineLimit(1)
+                if internet {
+                    Circle()
+                        .fill(internetAccessEnabled ? .green : .gray.opacity(0.4))
+                        .frame(width: 4, height: 4)
+                }
             }
-            Spacer()
+            Text(subtitle)
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
         .background(Color.primary.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.06)))
