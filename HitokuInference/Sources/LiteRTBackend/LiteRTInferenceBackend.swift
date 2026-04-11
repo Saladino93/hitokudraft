@@ -213,7 +213,8 @@ extension LiteRTInferenceBackend: InferenceBackend {
                 // Build the message JSON and strdup it. Ownership stays HERE —
                 // we free it after conversationSendMessageStream returns, because the
                 // C library may still reference the pointer after callbacks fire.
-                let messageCStr = strdup(Self.buildMessageJSON(request: request))
+                let (messageJSON, tempFiles) = Self.buildMessageJSON(request: request)
+                let messageCStr = strdup(messageJSON)
 
                 print("[LiteRT] sending: \(String(cString: messageCStr!))")
 
@@ -280,6 +281,11 @@ extension LiteRTInferenceBackend: InferenceBackend {
                 // The C library may reference it during/after callbacks for conversation history.
                 if let messageCStr { free(messageCStr) }
 
+                // Clean up temp files (audio/image) now that LiteRT has consumed them.
+                for url in tempFiles {
+                    try? FileManager.default.removeItem(at: url)
+                }
+
                 if result != 0 {
                     print("[LiteRT] ERROR: stream failed with code \(result)")
                     // Non-zero return = stream never started, callback was not invoked.
@@ -296,8 +302,10 @@ extension LiteRTInferenceBackend: InferenceBackend {
 
     /// Build message JSON using JSONSerialization for proper escaping of all characters.
     /// Hand-crafted JSON breaks on real-world text (French accents, tabs, control chars, etc.)
-    private static func buildMessageJSON(request: InferenceRequest) -> String {
+    /// Returns (json, tempFileURLs) — caller must delete temp files after the C call returns.
+    private static func buildMessageJSON(request: InferenceRequest) -> (String, [URL]) {
         var contentParts: [[String: String]] = []
+        var tempFiles: [URL] = []
 
         if let text = request.text, !text.isEmpty {
             contentParts.append(["type": "text", "text": text])
@@ -311,6 +319,7 @@ extension LiteRTInferenceBackend: InferenceBackend {
                         .appendingPathComponent("litert_img_\(ProcessInfo.processInfo.processIdentifier)_\(i).png")
                     try? pngData.write(to: tempURL)
                     contentParts.append(["type": "image", "path": tempURL.path])
+                    tempFiles.append(tempURL)
                 }
             }
         }
@@ -321,6 +330,7 @@ extension LiteRTInferenceBackend: InferenceBackend {
                 .appendingPathComponent("litert_audio_\(ProcessInfo.processInfo.processIdentifier).wav")
             try? audio.write(to: tempURL)
             contentParts.append(["type": "audio", "path": tempURL.path])
+            tempFiles.append(tempURL)
         }
 
         let message: [String: Any] = [
@@ -332,9 +342,9 @@ extension LiteRTInferenceBackend: InferenceBackend {
               let json = String(data: data, encoding: .utf8) else {
             // Fallback: simple text-only message
             let fallbackText = (request.text ?? "").replacingOccurrences(of: "\"", with: "'")
-            return "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"\(fallbackText)\"}]}"
+            return ("{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"\(fallbackText)\"}]}", tempFiles)
         }
-        return json
+        return (json, tempFiles)
     }
 
     /// Convert CGImage to PNG data for base64 encoding.

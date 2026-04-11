@@ -174,16 +174,16 @@ final class ModelManager: ObservableObject {
 
         Memory.cacheLimit = Self.gpuCacheLimit
 
-        // Unload previous backends on a background thread to avoid blocking UI
-        // during LiteRT GPU teardown (engineDelete can take seconds).
+        // Unload previous backends — must complete before loading the new model
+        // to avoid both models coexisting in memory (OOM risk on 8/16GB machines).
         let router = inferenceRouter
         let keys = router.registeredKeys
         if !keys.isEmpty {
-            Task.detached {
+            // Run unload off MainActor (LiteRT engineDelete can take seconds)
+            // but await completion before proceeding.
+            await Task.detached {
                 for key in keys { router.remove(key) }
-            }
-            // Brief yield to let the detached task start
-            try? await Task.sleep(for: .milliseconds(50))
+            }.value
         }
         llmReady = false
         modelContainer = nil
