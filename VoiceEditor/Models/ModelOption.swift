@@ -52,6 +52,8 @@ struct ModelOption: Identifiable, Hashable, Codable {
     var isVLM: Bool {
         let lower = path.lowercased()
         if lower.contains("qwen3.5") { return true }
+        // Gemma 4 via LiteRT is natively multimodal (audio + vision + text)
+        if lower.contains("gemma-4") || lower.contains("gemma4") { return true }
         return lower.contains("-vl-") || lower.contains("-vlm")
             || lower.hasSuffix("-vl")
     }
