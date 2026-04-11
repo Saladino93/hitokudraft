@@ -258,10 +258,11 @@ final class ConversationCoordinator: ObservableObject {
     // MARK: - Voice Edit
 
     func handleVoiceEdit() async {
-        // Toggle: pressing during recording cancels the voice edit
-        if state == .listening {
+        // Toggle: pressing during recording or setup cancels the voice edit
+        if state == .listening || state == .warmingUp {
             voiceEditTask?.cancel()
             voiceEditTask = nil
+            state = .idle
             return
         }
 
@@ -273,10 +274,12 @@ final class ConversationCoordinator: ObservableObject {
 
         guard state == .idle else { return }
 
+        // Set warmingUp immediately to prevent re-entry during async setup
+        state = .warmingUp
         clearDisplayModeResult()
         modelManager.cancelOffload()
         modelManager.cancelSTTOffload()
-        Task { await TTSService.shared.stop() }  // non-blocking — don't delay overlay
+        Task { await TTSService.shared.stop() }
 
         // Ensure STT ready (skip for LiteRT)
         do { try await ensureSTTReady() } catch {
@@ -285,7 +288,7 @@ final class ConversationCoordinator: ObservableObject {
             return
         }
 
-        // Ensure LLM is ready — but don't change state (would interrupt recording)
+        // Ensure LLM is ready
         if llm == nil, !modelManager.selectedModel.isNone {
             do {
                 let model = modelManager.selectedModel
