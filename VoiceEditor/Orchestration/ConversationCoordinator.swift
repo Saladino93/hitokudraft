@@ -184,6 +184,11 @@ final class ConversationCoordinator: ObservableObject {
         }
 
         // Phase 1: STT — always load (needed for dictation even with LiteRT/Gemma 4)
+        // If the user has "None" selected (e.g. from a previous Gemma-only session),
+        // switch to Parakeet so dictation works out of the box.
+        if modelManager.selectedSTTModel.isNone {
+            modelManager.selectedSTTModel = STTModelRegistry.defaultModel
+        }
         if stt == nil {
             modelManager.sttLoading = true
             do {
