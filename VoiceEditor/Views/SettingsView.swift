@@ -653,26 +653,20 @@ struct SettingsView: View {
 
                 GridRow {
                     Text(L("model.active_stt"))
-                    if modelManager.selectedModel.backendType == .liteRT {
-                        Text("Built into the LLM model")
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Picker("", selection: $modelManager.selectedSTTModel) {
-                            ForEach(STTModelRegistry.availableModels) { model in
-                                Button {} label: {
-                                    Text(L(model.description))
-                                    Text(model.estimatedMemoryGB > 0
-                                         ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))"
-                                         : model.name)
-                                }
-                                .tag(model)
-                                .disabled(modelExceedsRAM(model.estimatedMemoryGB))
+                    Picker("", selection: $modelManager.selectedSTTModel) {
+                        ForEach(STTModelRegistry.availableModels) { model in
+                            Button {} label: {
+                                Text(L(model.description))
+                                Text(model.estimatedMemoryGB > 0
+                                     ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))"
+                                     : model.name)
                             }
+                            .tag(model)
+                            .disabled(modelExceedsRAM(model.estimatedMemoryGB))
                         }
-                        .labelsHidden()
-                        .frame(maxWidth: .infinity)
                     }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
                 }
 
                 Color.clear.frame(height: 18)
