@@ -21,8 +21,8 @@ final class OverlayViewModel: ObservableObject {
     /// Number of lines needed for display-mode content (3–10).
     @Published var displayModeMaxLines: Int = 3
 
-    /// Fires every ~33ms to drive waveform animation.
-    @Published var tick = Date()
+    // Waveform animation is driven by WaveformBarsView's own timer (not here)
+    // to avoid re-rendering the entire overlay 30 times per second.
 
     // MARK: - Internal
 
@@ -202,7 +202,6 @@ final class OverlayViewModel: ObservableObject {
         let alpha: CGFloat = 0.3
         let smoothed = audioLevel + alpha * (raw - audioLevel)
         audioLevel = max(0, min(1, smoothed))
-        tick = Date()
     }
 
     // MARK: - Helpers

@@ -62,7 +62,7 @@ struct DictationOverlayContent: View {
     private func indicatorView(for state: OverlayState) -> some View {
         switch state {
         case .listening:
-            WaveformBarsView(audioLevel: viewModel.audioLevel, theme: theme, tick: viewModel.tick)
+            WaveformBarsView(viewModel: viewModel, theme: theme)
         case .generating:
             PulsingDotsView(theme: theme)
         case .speaking:

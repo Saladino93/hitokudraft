@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// 5 animated waveform bars driven by audio level + sine oscillation.
+/// Uses its own internal timer so it doesn't force the parent view to re-render at 30fps.
 struct WaveformBarsView: View {
-    let audioLevel: CGFloat
+    @ObservedObject var viewModel: OverlayViewModel
     let theme: DictationTheme
-    let tick: Date  // drives re-render at 30fps
+
+    private var audioLevel: CGFloat { viewModel.audioLevel }
 
     private static let barCount = 5
     private static let barWidth: CGFloat = 3
@@ -31,7 +33,9 @@ struct WaveformBarsView: View {
         }
         .frame(width: CGFloat(Self.barCount) * Self.barWidth + CGFloat(Self.barCount - 1) * Self.barSpacing,
                height: Self.maxHeight)
-        .onChange(of: tick) { updateBars() }
+        .onReceive(Timer.publish(every: 1.0/30.0, on: .main, in: .common).autoconnect()) { _ in
+            updateBars()
+        }
         .onAppear { updateBars() }
     }
 
