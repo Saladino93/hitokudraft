@@ -2,6 +2,12 @@
 
 A Swift package that provides a unified interface for routing inference requests across multiple on-device backends. Built for [Hitoku Draft](https://hitoku.me/draft/), but designed as a standalone, reusable abstraction.
 
+## Why this exists
+
+Google's LiteRT (formerly TensorFlow Lite) provides a C API for on-device inference with Gemma 4 models, but as of April 2026 there are no official Swift bindings or Swift Package Manager support. To use LiteRT from a native macOS app, you need to write your own C-to-Swift wrapper, handle `dlopen` loading of the dylibs, and manage the conversation lifecycle manually.
+
+This package does that wrapping — and while we were at it, we made the abstraction generic enough to support multiple backends behind one protocol. The result is that adding LiteRT (or any future framework) to a Swift app requires zero changes to the calling code.
+
 ## Motivation
 
 Running LLMs locally on Apple Silicon means choosing between frameworks — MLX for GPU-accelerated transformer inference, LiteRT for Google's optimized multimodal models, potentially CoreML in the future. Each has different APIs, capabilities, and supported input types.
