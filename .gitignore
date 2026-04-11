@@ -34,6 +34,10 @@ build.log
 text.txt
 .text.txt.swp
 
+# === Test binaries ===
+test_flags
+test_nsevents
+
 # === Secrets & local config ===
 .env
 .env.*

@@ -2,7 +2,7 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
-## [1.6.0] — Unreleased
+## [1.6.0] — 2026-04-12
 
 ### Added
 - **TTS thinking block filter** — Gemma 4 thinking blocks (`<|channel>thought...<channel|>`) no longer read aloud. `ThinkingBlockFilter` stateful filter strips thinking content from the TTS streaming path while preserving it in the overlay.
@@ -48,6 +48,8 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Fullscreen apps not captured** — Window-based ScreenCaptureKit capture fails for fullscreen apps in other Spaces. Added display-based fallback that captures the full screen when the target window isn't found.
 - **Overlay sliding between screens on multi-monitor** — Panel was kept alive across hide/show cycles, causing visible movement to the new screen. Now destroyed on hide and recreated fresh on the active screen.
 - **Gemma 4 quality (terse, repetitive, hallucinations)** — Switched draft prompt from `conciseDraft` to explicit `draft` template. Lowered temperature 0.6→0.5 and top_p 0.95→0.9 for tighter, more deterministic output. Note: LiteRT C API has no repetition penalty field — the ModelFamily value is silently ignored.
+- **Overlay pill too tall in listening/generating states** — Panel unconditionally reserved 40pt for action buttons/progress bar. Now conditional: only `.speaking` and `.done` get the extra height.
+- **Overlay on wrong screen in multi-monitor** — `NSScreen.main` was read lazily at panel creation (after async setup could shift focus). Now captured at hotkey-press time and passed to the panel.
 - **Safari treated as editable** — AXWebArea role now has a refinement check (settable text range) to distinguish read-only articles from web editors like Gmail/Notion.
 - **Esc key system alert sound** — CGEventTap suppresses the Esc key globally when the display overlay is visible.
 - **PocketTTS voice compatibility** — Filtered to voices with 125-frame prompt length (the only format FluidAudio supports).

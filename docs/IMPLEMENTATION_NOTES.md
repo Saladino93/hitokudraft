@@ -271,7 +271,7 @@ VoiceEditor/
 
 ## How to Run
 
-1. Open `/Users/omard/Documents/projects/AI_projects/VoiceEditor/Package.swift` in Xcode
+1. Open `Package.swift` in Xcode
 2. Select the VoiceEditor scheme
 3. In Xcode project settings:
    - Set Info.plist path to `VoiceEditor/Info.plist`
