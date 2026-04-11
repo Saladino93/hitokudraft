@@ -24,4 +24,12 @@ enum OverlayState: Equatable {
         case .done(let t): return t
         }
     }
+
+    /// Whether this state shows a bottom bar (action buttons or progress bar).
+    var hasBottomBar: Bool {
+        switch self {
+        case .speaking, .done: return true
+        case .listening, .generating: return false
+        }
+    }
 }

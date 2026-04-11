@@ -60,15 +60,16 @@ final class DictationOverlayPanel {
 
     private func showPanel(for state: OverlayState) {
         let lines = linesNeeded(for: state)
+        let bottomBar = state.hasBottomBar
         if panel == nil {
             // Fresh panel on the current screen
             anchoredScreen = NSScreen.main
             lastPanelLines = lines
-            createPanel(forLines: lines)
+            createPanel(forLines: lines, hasBottomBar: bottomBar)
         } else if lines != lastPanelLines {
             // Only resize when line count actually changes (prevents bouncing during streaming)
             lastPanelLines = lines
-            resizePanel(forLines: lines)
+            resizePanel(forLines: lines, hasBottomBar: bottomBar)
         }
         panel?.orderFrontRegardless()
     }
@@ -82,9 +83,9 @@ final class DictationOverlayPanel {
         lastPanelLines = 0
     }
 
-    private func createPanel(forLines lines: Int) {
+    private func createPanel(forLines lines: Int, hasBottomBar: Bool = false) {
         let width = panelWidth
-        let height = panelHeight(forLines: lines)
+        let height = panelHeight(forLines: lines, hasBottomBar: hasBottomBar)
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -132,10 +133,10 @@ final class DictationOverlayPanel {
         }
     }
 
-    private func resizePanel(forLines lines: Int) {
+    private func resizePanel(forLines lines: Int, hasBottomBar: Bool = false) {
         guard let panel, let screen = anchoredScreen ?? NSScreen.main else { return }
         let width = panelWidth
-        let height = panelHeight(forLines: lines)
+        let height = panelHeight(forLines: lines, hasBottomBar: hasBottomBar)
         let screenFrame = screen.visibleFrame
         let newFrame = NSRect(
             x: screenFrame.midX - width / 2,
@@ -160,9 +161,9 @@ final class DictationOverlayPanel {
 
     private var panelWidth: CGFloat { overlayWidthSetting + 16 }
 
-    private func panelHeight(forLines lines: Int) -> CGFloat {
+    private func panelHeight(forLines lines: Int, hasBottomBar: Bool = false) -> CGFloat {
         let capsuleHeight: CGFloat = 35 + CGFloat(max(0, lines - 1)) * 20
-        return capsuleHeight + 40 // extra space for action buttons / progress bar
+        return capsuleHeight + (hasBottomBar ? 40 : 8)
     }
 
     // MARK: - Esc Key Tap
