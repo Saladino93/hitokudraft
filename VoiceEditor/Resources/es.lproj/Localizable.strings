@@ -136,7 +136,7 @@
 "High-quality streaming ASR" = "ASR en streaming de alta calidad";
 
 /* None LLM sentinel */
-"model.none_description" = "Sin LLM — la edición de voz pega la transcripción directamente.";
+"model.none_description" = "Sin LLM (la edición de voz pega la transcripción directamente)";
 "status.llm_disabled" = "Desactivado";
 
 /* Auto-descarga */

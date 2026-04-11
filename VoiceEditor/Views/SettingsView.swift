@@ -62,7 +62,7 @@ struct SettingsView: View {
         switch selectedTab {
         case .license: return 178
         case .general: return 510
-        case .tools: return 440
+        case .tools: return 340
         case .appearance: return 473
         case .model: return ttsEnabled ? 518 : 423
         case .updates: return 122
@@ -441,141 +441,85 @@ struct SettingsView: View {
     // MARK: - Tools Tab
 
     private var toolsTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
 
-                // Master toggle
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
-                    GridRow {
-                        Text("Internet access")
-                            .gridColumnAlignment(.trailing)
-                        HStack(spacing: 8) {
-                            Toggle("", isOn: $internetAccessEnabled)
-                                .labelsHidden()
-                            Text("Allow tools that require internet")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .gridColumnAlignment(.leading)
-                    }
-                }
-
-                Divider()
-
-                Text("Available Tools")
-                    .font(.headline)
-
-                // Tool list
-                VStack(spacing: 0) {
-                    toolRow(
-                        icon: "magnifyingglass",
-                        name: "Web Search",
-                        description: "Search DuckDuckGo for current events and facts. No API key needed.",
-                        requiresInternet: true
-                    )
-                    Divider().padding(.leading, 40)
-                    toolRow(
-                        icon: "globe",
-                        name: "URL Fetch",
-                        description: "Read and summarize web pages when a URL is mentioned.",
-                        requiresInternet: true
-                    )
-                    Divider().padding(.leading, 40)
-                    toolRow(
-                        icon: "calendar",
-                        name: "Calendar",
-                        description: "List events, find free time, check availability. Requires Calendar permission.",
-                        requiresInternet: false
-                    )
-                    Divider().padding(.leading, 40)
-                    toolRow(
-                        icon: "timer",
-                        name: "Timer",
-                        description: "Set countdown timers via voice. Uses macOS notifications.",
-                        requiresInternet: false
-                    )
-                    Divider().padding(.leading, 40)
-                    toolRow(
-                        icon: "note.text",
-                        name: "Notes",
-                        description: "Create notes in Apple Notes via voice command.",
-                        requiresInternet: false
-                    )
-                    Divider().padding(.leading, 40)
-                    toolRow(
-                        icon: "envelope",
-                        name: "Email",
-                        description: "Open a pre-filled compose window in your default mail client.",
-                        requiresInternet: false
-                    )
-                    Divider().padding(.leading, 40)
-                    toolRow(
-                        icon: "macwindow",
-                        name: "Launch App",
-                        description: "Open one or more apps by name. \"Open Safari and Terminal.\"",
-                        requiresInternet: false
-                    )
-                }
-                .background(Color.primary.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
-
-                // Transcription log info
-                Divider()
-
-                HStack(spacing: 8) {
-                    Image(systemName: "doc.text")
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Transcription History")
-                            .font(.subheadline.weight(.medium))
-                        Text("All voice interactions are saved as JSON files.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("Reveal in Finder") {
-                        Task {
-                            let path = await TranscriptionStore.shared.directoryPath
-                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
-                        }
-                    }
-                    .font(.caption)
-                }
-            }
-            .padding(20)
-        }
-    }
-
-    private func toolRow(icon: String, name: String, description: String, requiresInternet: Bool) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .frame(width: 24)
-                .foregroundStyle(requiresInternet && !internetAccessEnabled ? .tertiary : .secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(name)
+            // Transcription history (top)
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Transcription History")
                         .font(.subheadline.weight(.medium))
-                    if requiresInternet {
-                        Text("internet")
-                            .font(.caption2)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(internetAccessEnabled ? Color.green.opacity(0.15) : Color.primary.opacity(0.06))
-                            .foregroundColor(internetAccessEnabled ? .green : .gray)
-                            .clipShape(Capsule())
+                    Text("All voice interactions are saved as JSON files.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Reveal in Finder") {
+                    Task {
+                        let path = await TranscriptionStore.shared.directoryPath
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
                     }
                 }
-                Text(description)
+                .font(.caption)
+            }
+
+            Divider()
+
+            // Internet toggle
+            HStack(spacing: 8) {
+                Toggle("", isOn: $internetAccessEnabled)
+                    .labelsHidden()
+                Text("Allow internet access")
+                    .font(.subheadline)
+                Text("(web search, URL fetch)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            }
+
+            Divider()
+
+            // Available tools — compact 2-column grid
+            Text("Available Tools")
+                .font(.subheadline.weight(.medium))
+
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10)
+            ], spacing: 8) {
+                toolCell(icon: "magnifyingglass", name: "Web Search", internet: true)
+                toolCell(icon: "globe", name: "URL Fetch", internet: true)
+                toolCell(icon: "calendar", name: "Calendar", internet: false)
+                toolCell(icon: "timer", name: "Timer", internet: false)
+                toolCell(icon: "note.text", name: "Notes", internet: false)
+                toolCell(icon: "envelope", name: "Email", internet: false)
+                toolCell(icon: "macwindow", name: "Launch App", internet: false)
+            }
+        }
+        .padding(20)
+    }
+
+    private func toolCell(icon: String, name: String, internet: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .frame(width: 18)
+                .foregroundStyle(internet && !internetAccessEnabled ? .quaternary : .secondary)
+            Text(name)
+                .font(.caption)
+                .lineLimit(1)
+            if internet {
+                Circle()
+                    .fill(internetAccessEnabled ? .green : .gray.opacity(0.4))
+                    .frame(width: 6, height: 6)
             }
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .opacity(requiresInternet && !internetAccessEnabled ? 0.5 : 1.0)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.06)))
+        .opacity(internet && !internetAccessEnabled ? 0.5 : 1.0)
     }
 
     // MARK: - Model Tab
