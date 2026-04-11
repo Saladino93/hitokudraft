@@ -62,7 +62,7 @@ struct SettingsView: View {
         switch selectedTab {
         case .license: return 178
         case .general: return 510
-        case .tools: return 340
+        case .tools: return 420
         case .appearance: return 473
         case .model: return ttsEnabled ? 518 : 423
         case .updates: return 122
