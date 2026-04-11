@@ -21,10 +21,12 @@ extension ConversationCoordinator {
 
         guard state == .idle else { return }
 
+        // Block re-entry during async setup
+        state = .warmingUp
         clearDisplayModeResult()
         modelManager.cancelOffload()
         modelManager.cancelSTTOffload()
-        Task { await TTSService.shared.stop() }  // non-blocking — don't delay overlay
+        Task { await TTSService.shared.stop() }
 
         // Dictation always needs STT. If not loaded (e.g. offloaded), reload now.
         if stt == nil {
