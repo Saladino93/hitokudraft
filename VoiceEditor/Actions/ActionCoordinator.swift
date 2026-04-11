@@ -269,15 +269,16 @@ final class ActionCoordinator {
 
         case .launchApp(let l):
             for name in l.appNames {
-                // Best effort — don't let one failed app prevent others from opening
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-                process.arguments = ["-a", name]
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                } catch {
-                    // Silently skip — app name may not exist
+                // Try common app locations — pure NSWorkspace, no Process calls
+                let candidates = [
+                    "/Applications/\(name).app",
+                    "/Applications/Utilities/\(name).app",
+                    "/System/Applications/\(name).app",
+                    "/System/Applications/Utilities/\(name).app",
+                ]
+                let found = candidates.first { FileManager.default.fileExists(atPath: $0) }
+                if let path = found {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
                 }
             }
 
