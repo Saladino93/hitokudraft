@@ -269,17 +269,15 @@ final class ActionCoordinator {
 
         case .launchApp(let l):
             for name in l.appNames {
-                let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: name)
-                    ?? NSWorkspace.shared.urlForApplication(toOpen: URL(fileURLWithPath: "/Applications/\(name).app"))
-                if let url {
-                    try await NSWorkspace.shared.openApplication(at: url, configuration: .init())
-                } else {
-                    // Fallback: try opening by name via "open -a"
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-                    process.arguments = ["-a", name]
+                // Best effort — don't let one failed app prevent others from opening
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                process.arguments = ["-a", name]
+                do {
                     try process.run()
                     process.waitUntilExit()
+                } catch {
+                    // Silently skip — app name may not exist
                 }
             }
 
