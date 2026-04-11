@@ -1,3 +1,0 @@
-# Prebuilt LiteRT dylibs — too large for git.
-# Run setup_litert_libs.sh to download/build them.
-*.dylib

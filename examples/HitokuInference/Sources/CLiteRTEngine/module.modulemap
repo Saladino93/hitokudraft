@@ -1,4 +1,0 @@
-module CLiteRTEngine {
-    header "engine.h"
-    export *
-}
