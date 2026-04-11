@@ -7,6 +7,8 @@ import os
 extension ConversationCoordinator {
 
     func handleDictation() async {
+        captureTargetScreen()
+
         // Toggle: pressing during dictation stops immediately
         if case .dictating = state {
             await stopDictation()

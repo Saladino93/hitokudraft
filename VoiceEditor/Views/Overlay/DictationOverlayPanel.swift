@@ -21,6 +21,10 @@ final class DictationOverlayPanel {
     /// The screen the overlay was first shown on — stays anchored here.
     private var anchoredScreen: NSScreen?
 
+    /// Screen captured at hotkey-press time — used instead of NSScreen.main
+    /// (which can shift during async setup before the overlay appears).
+    var targetScreen: NSScreen?
+
     // Esc key tap state
     private var escapeTapInstalled = false
     private var escapeTapContext: EscapeTapContext?
@@ -62,8 +66,9 @@ final class DictationOverlayPanel {
         let lines = linesNeeded(for: state)
         let bottomBar = state.hasBottomBar
         if panel == nil {
-            // Fresh panel on the current screen
-            anchoredScreen = NSScreen.main
+            // Use screen captured at hotkey time; fall back to NSScreen.main
+            anchoredScreen = targetScreen ?? NSScreen.main
+            targetScreen = nil
             lastPanelLines = lines
             createPanel(forLines: lines, hasBottomBar: bottomBar)
         } else if lines != lastPanelLines {

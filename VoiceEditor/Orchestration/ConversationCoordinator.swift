@@ -255,12 +255,20 @@ final class ConversationCoordinator: ObservableObject {
 
     // Model lifecycle methods are in ConversationCoordinator+ModelLifecycle.swift
 
+    /// Snapshot NSScreen.main at hotkey-press time so the overlay appears on the
+    /// correct monitor even if async setup shifts focus before the panel is created.
+    func captureTargetScreen() {
+        dictationOverlay.targetScreen = NSScreen.main
+    }
+
     // MARK: - Voice Edit
 
     /// Prevents re-entry during async setup (model loading, STT init).
     private var voiceEditSetupInProgress = false
 
     func handleVoiceEdit() async {
+        captureTargetScreen()
+
         // Toggle: pressing during recording cancels the voice edit
         if state == .listening {
             voiceEditTask?.cancel()
@@ -652,6 +660,8 @@ final class ConversationCoordinator: ObservableObject {
     // MARK: - Grammar Fix
 
     func handleGrammarFix() async {
+        captureTargetScreen()
+
         guard licenseManager.isActivated else {
             state = .error(L("license.not_activated"))
             resetErrorAfterDelay()
