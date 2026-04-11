@@ -40,16 +40,14 @@ final class OverlayViewModel: ObservableObject {
         self.coordinator = coordinator
         cancellables.removeAll()
 
-        // Merge all relevant signals into a single state derivation.
-        // We subscribe to each property individually and call deriveState() on any change.
+        // All sinks fire on MainActor (coordinator is @MainActor) — no receive(on:) needed.
+        // This eliminates a run-loop-cycle delay on every text update.
 
         coordinator.$state
-            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.deriveState() }
             .store(in: &cancellables)
 
         coordinator.$liveTranscriptionText
-            .receive(on: RunLoop.main)
             .sink { [weak self] text in
                 if !text.isEmpty { self?.lastTranscription = text }
                 self?.deriveState()
@@ -57,12 +55,10 @@ final class OverlayViewModel: ObservableObject {
             .store(in: &cancellables)
 
         coordinator.$streamingLLMText
-            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.deriveState() }
             .store(in: &cancellables)
 
         coordinator.$displayModeResult
-            .receive(on: RunLoop.main)
             .sink { [weak self] text in
                 guard let self else { return }
                 if text.isEmpty {
@@ -77,7 +73,6 @@ final class OverlayViewModel: ObservableObject {
             .store(in: &cancellables)
 
         coordinator.$activeRecordingSession
-            .receive(on: RunLoop.main)
             .sink { [weak self] session in
                 guard let self else { return }
                 if let session {
@@ -89,7 +84,6 @@ final class OverlayViewModel: ObservableObject {
             .store(in: &cancellables)
 
         coordinator.$ttsSpeakingSegment
-            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.deriveState() }
             .store(in: &cancellables)
     }
@@ -151,8 +145,14 @@ final class OverlayViewModel: ObservableObject {
             overlayState = .listening(transcription: text)
 
         case .transcribing:
-            // Keep showing last transcription text during final STT pass
-            overlayState = .listening(transcription: lastTranscription)
+            // Keep showing last transcription text during final STT pass.
+            // Also covers Action Mode: transcript appears after recording,
+            // persists while LLM routes the action.
+            if !liveText.isEmpty {
+                overlayState = .listening(transcription: liveText)
+            } else {
+                overlayState = .listening(transcription: lastTranscription)
+            }
 
         case .generating:
             let streamingEnabled = (UserDefaults.standard.object(forKey: "showLLMStreamingInOverlay") as? Bool) ?? true
@@ -169,7 +169,10 @@ final class OverlayViewModel: ObservableObject {
             }
 
         case .idle, .error, .downloading, .warmingUp:
-            if overlayState != nil && displayResult.isEmpty {
+            // Keep overlay visible if there's still live text (Action Mode routing phase)
+            if !liveText.isEmpty {
+                overlayState = .listening(transcription: liveText)
+            } else if overlayState != nil && displayResult.isEmpty {
                 overlayState = nil
                 lastTranscription = ""
             }
