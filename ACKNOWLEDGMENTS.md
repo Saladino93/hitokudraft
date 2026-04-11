@@ -160,7 +160,7 @@ A simple in-app "Acknowledgments" window listing all libraries and their license
 
 ## Inspiration
 
-Hitoku Draft was inspired by projects like [VoiceInk](https://github.com/Beingpax/VoiceInk) and [FluidVoice](https://github.com/FluidInference/FluidVoice) that demonstrated how powerful local voice-to-text can be on the Mac. We're grateful to these developers for paving the way and sharing their work.
+Hitoku Draft was inspired by projects like [VoiceInk](https://github.com/Beingpax/VoiceInk) and [FluidVoice](https://github.com/altic-dev/FluidVoice) that demonstrated how powerful local voice-to-text can be on the Mac. We're grateful to these developers for paving the way and sharing their work.
 
 ---
 
