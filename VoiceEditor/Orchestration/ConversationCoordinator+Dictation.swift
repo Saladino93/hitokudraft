@@ -21,10 +21,13 @@ extension ConversationCoordinator {
 
         guard state == .idle else { return }
 
+        // Show overlay immediately — before any async work
+        state = .dictating("")
+        clearDisplayModeResult()
+
         modelManager.cancelOffload()
         modelManager.cancelSTTOffload()
         await TTSService.shared.stop()
-        clearDisplayModeResult()
 
         // Dictation always needs STT. If not loaded (e.g. offloaded), reload now.
         if stt == nil {
@@ -59,7 +62,6 @@ extension ConversationCoordinator {
             dictationSession = session
 
             SoundPlayer.shared.playActivation()
-            state = .dictating("")
             activeRecordingSession = session
 
             // Streaming loop — picks native streaming (Path B) or legacy poll (Path A)

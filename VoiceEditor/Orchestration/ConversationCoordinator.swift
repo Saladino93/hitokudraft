@@ -273,10 +273,13 @@ final class ConversationCoordinator: ObservableObject {
 
         guard state == .idle else { return }
 
+        // Show overlay immediately — before any async model loading
+        state = .listening
+        clearDisplayModeResult()
+
         modelManager.cancelOffload()
         modelManager.cancelSTTOffload()
         await TTSService.shared.stop()
-        clearDisplayModeResult()
 
         // Ensure STT ready (skip for LiteRT)
         do { try await ensureSTTReady() } catch {
