@@ -851,9 +851,8 @@ final class ConversationCoordinator: ObservableObject {
         let isScreenAware = contextAwareMode != .off
         var systemPrompt = family.systemPrompt(screenAware: isScreenAware)
 
-        // Inject tool definitions when internet access is enabled and the model supports it
-        let internetEnabled = preferences.internetAccessEnabled
-        if internetEnabled && family.supportsToolUse {
+        // Inject tool definitions — calendar tools always available, internet tools gated by preference
+        if family.supportsToolUse {
             let executor = makeToolExecutor()
             toolExecutor = executor
             let toolPrompt = buildToolDefinitionsPrompt()
@@ -869,17 +868,20 @@ final class ConversationCoordinator: ObservableObject {
         )
     }
 
-    /// Creates a ToolExecutor with web search and URL fetch tools.
+    /// Creates a ToolExecutor. Calendar tools are always included;
+    /// internet tools (web search, URL fetch) only when internet access is enabled.
     func makeToolExecutor() -> ToolExecutor {
-        let searchService = DuckDuckGoSearchService()
-        let fetchService = ReadabilityWebFetcher()
-        let tools: [any Tool] = [
-            WebSearchTool(searchService: searchService),
-            FetchURLTool(fetchService: fetchService),
+        var tools: [any Tool] = [
             ListEventsTool(),
             FindFreeTimeTool(),
             CheckAvailabilityTool(),
         ]
+        if preferences.internetAccessEnabled {
+            let searchService = DuckDuckGoSearchService()
+            let fetchService = ReadabilityWebFetcher()
+            tools.insert(WebSearchTool(searchService: searchService), at: 0)
+            tools.insert(FetchURLTool(fetchService: fetchService), at: 1)
+        }
         return ToolExecutor(tools: tools)
     }
 
@@ -892,21 +894,42 @@ final class ConversationCoordinator: ObservableObject {
         let weekday = Calendar.current.weekdaySymbols[
             Calendar.current.component(.weekday, from: Date()) - 1
         ]
-        return """
-        Current date and time: \(nowISO) (\(weekday))
 
-        You have access to the following tools to help answer questions:
-
-        - **web_search**: Search the web for current information.
-          Parameters: {"query": "your search query"}
-        - **fetch_url**: Fetch and read a web page.
-          Parameters: {"url": "https://example.com/page"}
+        let internetEnabled = preferences.internetAccessEnabled
+        var toolDefs = """
         - **list_events**: List calendar events for a date range.
           Parameters: {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
         - **find_free_time**: Find free time slots on a given date.
           Parameters: {"date": "YYYY-MM-DD", "start_hour": "9", "end_hour": "18"}
         - **check_availability**: Check if a specific time is free.
           Parameters: {"datetime": "YYYY-MM-DDTHH:mm", "duration_minutes": "60"}
+        """
+        if internetEnabled {
+            toolDefs = """
+            - **web_search**: Search the web for current information.
+              Parameters: {"query": "your search query"}
+            - **fetch_url**: Fetch and read a web page.
+              Parameters: {"url": "https://example.com/page"}
+            """ + "\n" + toolDefs
+        }
+
+        var useRules = """
+        - The user asks about their calendar, schedule, availability, or free time
+        """
+        if internetEnabled {
+            useRules = """
+            - The user asks about current events, news, or time-sensitive information
+            - The user mentions or asks about a specific URL
+            - The user explicitly asks you to search or look something up
+            """ + "\n" + useRules
+        }
+
+        return """
+        Current date and time: \(nowISO) (\(weekday))
+
+        You have access to the following tools to help answer questions:
+
+        \(toolDefs)
 
         When you need to use a tool, output EXACTLY this format (no other text around it):
         <tool_call>
@@ -914,15 +937,13 @@ final class ConversationCoordinator: ObservableObject {
         </tool_call>
 
         Use tools when:
-        - The user asks about current events, news, or time-sensitive information
-        - The user asks about their calendar, schedule, availability, or free time
-        - The user mentions or asks about a specific URL
-        - The user explicitly asks you to search or look something up
+        \(useRules)
 
         Do NOT use tools for:
         - Text editing, rewriting, or grammar fixes
         - Creative writing or drafting
         - Questions you can confidently answer from your training data
+        - Opening or launching applications
 
         After receiving tool results, incorporate the information naturally into your response. \
         Output ONLY the final answer text -- no tool call tags in the final response.
