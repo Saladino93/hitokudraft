@@ -17,7 +17,16 @@ final class ModelManager: ObservableObject {
     @Published var llmReady = false
     @Published var statusMessage = ""
     @Published var selectedModel: ModelOption
-    @Published var selectedSTTModel: STTModelOption = STTModelRegistry.defaultModel
+    @Published var selectedSTTModel: STTModelOption = {
+        // Restore persisted STT choice, falling back to RAM-based default
+        if let saved = UserDefaults.standard.string(forKey: "selectedSTTModelID"),
+           let match = STTModelRegistry.availableModels.first(where: { $0.id == saved }) {
+            return match
+        }
+        return STTModelRegistry.defaultModel
+    }() {
+        didSet { UserDefaults.standard.set(selectedSTTModel.id, forKey: "selectedSTTModelID") }
+    }
     @Published var autoOffloadEnabled: Bool = true
 
     private(set) var modelContainer: ModelContainer?

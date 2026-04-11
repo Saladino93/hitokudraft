@@ -269,16 +269,20 @@ final class ActionCoordinator {
 
         case .launchApp(let l):
             for name in l.appNames {
-                // Try common app locations — pure NSWorkspace, no Process calls
-                let candidates = [
-                    "/Applications/\(name).app",
-                    "/Applications/Utilities/\(name).app",
-                    "/System/Applications/\(name).app",
-                    "/System/Applications/Utilities/\(name).app",
-                ]
-                let found = candidates.first { FileManager.default.fileExists(atPath: $0) }
-                if let path = found {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                // Try the exact name and common variations (e.g. "Apple Maps" → "Maps")
+                let variations = [name] + name.split(separator: " ").map(String.init)
+                var opened = false
+                for variant in variations where !opened {
+                    let candidates = [
+                        "/Applications/\(variant).app",
+                        "/Applications/Utilities/\(variant).app",
+                        "/System/Applications/\(variant).app",
+                        "/System/Applications/Utilities/\(variant).app",
+                    ]
+                    if let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        opened = true
+                    }
                 }
             }
 
