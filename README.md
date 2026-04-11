@@ -1,15 +1,21 @@
 # Hitoku Draft
 
-A native macOS menu bar app that lets you select text in any application, press a hotkey, speak a voice command, and have the text rewritten in-place by a small on-device LLM. Everything runs locally on Apple Silicon — no cloud calls.
+A native macOS menu bar AI assistant. 
+
+Everything runs locally on Apple Silicon. No cloud calls.
+
+Hold to talk. Ask it for email drafting, or understanding a PDF, or set up a calendar meeting.
+
+Download here https://hitoku.me/draft/ or compile yourself.
 
 ## Features
 
+- **Context Awareness** — Reads surrounding screen context (active app, selected text, document content) to produce better results.
+- **Draft Mode** — Generate new content from voice ("draft an email declining the meeting") — pastes at cursor.
 - **Voice Edit** — Select text, press a hotkey, speak an instruction ("make this more formal", "translate to Spanish"), and the text is rewritten in-place.
 - **Grammar Fix** — One-hotkey grammar and spelling correction with automatic language detection (English, Italian, French, German, and more).
-- **Draft Mode** — Generate new content from voice ("draft an email declining the meeting") — pastes at cursor.
 - **Continuous Dictation** — Real-time speech-to-text with optional LLM polish (filler removal, punctuation).
 - **Action Mode** — Voice-triggered actions: set timers, create calendar events, send emails, take notes.
-- **Context Awareness** — Reads surrounding screen context (active app, selected text, document content) to produce better results.
 - **Web Search & Tools** — LLM can search the web, fetch URLs, and query your calendar to answer questions.
 - **Multiple STT Backends** — Parakeet TDT (CoreML), Qwen3-ASR (streaming MLX), WhisperKit (Whisper tiny/base).
 - **Multiple LLM Backends** — MLX (Qwen3.5), LiteRT (Gemma 4 with native audio + vision).
@@ -53,7 +59,7 @@ cd HitokuInference
 - **AppState enum** — Single source of truth for all UI state
 - **Swift concurrency** — async/await and actors throughout; @MainActor on coordinators
 
-See `SWIFT_REWRITE_BRIEF.md` for the full architecture specification.
+See `docs/SWIFT_REWRITE_BRIEF.md` for the full architecture specification.
 
 ## Models
 
