@@ -487,35 +487,43 @@ struct SettingsView: View {
                 GridItem(.flexible(), spacing: 10),
                 GridItem(.flexible(), spacing: 10)
             ], spacing: 8) {
-                toolCell(icon: "magnifyingglass", name: "Web Search", internet: true)
-                toolCell(icon: "globe", name: "URL Fetch", internet: true)
-                toolCell(icon: "calendar", name: "Calendar", internet: false)
-                toolCell(icon: "timer", name: "Timer", internet: false)
-                toolCell(icon: "note.text", name: "Notes", internet: false)
-                toolCell(icon: "envelope", name: "Email", internet: false)
-                toolCell(icon: "macwindow", name: "Launch App", internet: false)
+                toolCell(icon: "magnifyingglass", name: "Web Search", subtitle: "DuckDuckGo", internet: true)
+                toolCell(icon: "globe", name: "URL Fetch", subtitle: "Read web pages", internet: true)
+                toolCell(icon: "calendar", name: "Calendar", subtitle: "Events & free time", internet: false)
+                toolCell(icon: "timer", name: "Timer", subtitle: "Countdown alerts", internet: false)
+                toolCell(icon: "note.text", name: "Notes", subtitle: "Apple Notes", internet: false)
+                toolCell(icon: "envelope", name: "Email", subtitle: "Compose window", internet: false)
+                toolCell(icon: "macwindow", name: "Launch App", subtitle: "Open by name", internet: false)
             }
         }
         .padding(20)
     }
 
-    private func toolCell(icon: String, name: String, internet: Bool) -> some View {
+    private func toolCell(icon: String, name: String, subtitle: String, internet: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .frame(width: 18)
                 .foregroundStyle(internet && !internetAccessEnabled ? .quaternary : .secondary)
-            Text(name)
-                .font(.caption)
-                .lineLimit(1)
-            if internet {
-                Circle()
-                    .fill(internetAccessEnabled ? .green : .gray.opacity(0.4))
-                    .frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(name)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                    if internet {
+                        Circle()
+                            .fill(internetAccessEnabled ? .green : .gray.opacity(0.4))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer()
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(Color.primary.opacity(0.03))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.06)))
