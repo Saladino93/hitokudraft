@@ -18,6 +18,9 @@ final class DictationOverlayPanel {
     private var cancellables = Set<AnyCancellable>()
     private weak var coordinator: ConversationCoordinator?
 
+    /// The screen the overlay was first shown on — stays anchored here.
+    private var anchoredScreen: NSScreen?
+
     // Esc key tap state
     private var escapeTapInstalled = false
     private var escapeTapContext: EscapeTapContext?
@@ -66,9 +69,15 @@ final class DictationOverlayPanel {
         let lines = linesNeeded(for: state)
         let isNew = panel == nil
         if isNew {
+            // Anchor to the current screen — don't move if mouse changes screens
+            anchoredScreen = NSScreen.main
             lastPanelLines = lines
             createPanel(forLines: lines)
-        } else if lines != lastPanelLines {
+        } else if panel?.isVisible == false {
+            // Re-showing after hide — re-anchor to current screen
+            anchoredScreen = NSScreen.main
+        }
+        if lines != lastPanelLines {
             // Only resize when line count actually changes (prevents bouncing during streaming)
             lastPanelLines = lines
             resizePanel(forLines: lines)
@@ -80,6 +89,7 @@ final class DictationOverlayPanel {
         viewModel.stopPolling()
         removeEscapeTap()
         panel?.orderOut(nil)
+        anchoredScreen = nil
         // Keep panel alive — avoid expensive re-creation on next show
     }
 
@@ -101,7 +111,7 @@ final class DictationOverlayPanel {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        if let screen = NSScreen.main {
+        if let screen = anchoredScreen ?? NSScreen.main {
             let frame = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(
                 x: frame.midX - width / 2,
@@ -134,7 +144,7 @@ final class DictationOverlayPanel {
     }
 
     private func resizePanel(forLines lines: Int) {
-        guard let panel, let screen = NSScreen.main else { return }
+        guard let panel, let screen = anchoredScreen ?? NSScreen.main else { return }
         let width = panelWidth
         let height = panelHeight(forLines: lines)
         let screenFrame = screen.visibleFrame
