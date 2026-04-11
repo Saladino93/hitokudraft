@@ -34,7 +34,6 @@ final class DictationOverlayPanel {
 
         // React to state changes: show/hide panel, resize, install/remove Esc tap
         viewModel.$overlayState
-            .receive(on: RunLoop.main)
             .sink { [weak self] state in
                 guard let self else { return }
                 if let state {
@@ -85,7 +84,7 @@ final class DictationOverlayPanel {
         viewModel.stopPolling()
         removeEscapeTap()
         panel?.orderOut(nil)
-        panel = nil
+        // Keep panel alive — avoid expensive re-creation on next show
     }
 
     private func createPanel(forLines lines: Int) {

@@ -472,10 +472,11 @@ final class ConversationCoordinator: ObservableObject {
                         }
                     }
 
-                    // Pass screenshot to VLM models — they see the image directly.
-                    // Text-only models ignore the images parameter (protocol default).
+                    // Pass screenshot to VLM models — only when "Allow vision" is enabled.
+                    // This applies to both MLX (Qwen3.5) and LiteRT (Gemma 4).
+                    let visionEnabled = UserDefaults.standard.bool(forKey: "visionEnabled")
                     let vlmImages: [CGImage] = {
-                        guard modelManager.selectedModel.isVLM,
+                        guard visionEnabled, modelManager.selectedModel.isVLM,
                               let screenshot = screenContext.screenshot else { return [] }
                         return [screenshot]
                     }()
