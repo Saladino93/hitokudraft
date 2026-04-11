@@ -430,8 +430,10 @@ final class ConversationCoordinator: ObservableObject {
                     let maxTokens: Int
 
                     // Build effective instruction — prepend previous result for follow-up commands.
+                    // Skip multi-turn for audio-direct: the model hears the instruction in the audio,
+                    // so "[voice instruction]" placeholder must not be wrapped in follow-up context.
                     let effectiveInstruction: String
-                    if let ctx = lastEditContext, !ctx.isExpired, selectedText.isEmpty {
+                    if !audioDirectMode, let ctx = lastEditContext, !ctx.isExpired, selectedText.isEmpty {
                         effectiveInstruction = """
                         Previous result: \(ctx.result)
                         Follow-up: \(trimmedCommand)
