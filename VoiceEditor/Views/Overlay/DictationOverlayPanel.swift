@@ -60,17 +60,12 @@ final class DictationOverlayPanel {
 
     private func showPanel(for state: OverlayState) {
         let lines = linesNeeded(for: state)
-        let isNew = panel == nil
-        if isNew {
-            // Anchor to the current screen — don't move if mouse changes screens
+        if panel == nil {
+            // Fresh panel on the current screen
             anchoredScreen = NSScreen.main
             lastPanelLines = lines
             createPanel(forLines: lines)
-        } else if panel?.isVisible == false {
-            // Re-showing after hide — re-anchor to current screen
-            anchoredScreen = NSScreen.main
-        }
-        if lines != lastPanelLines {
+        } else if lines != lastPanelLines {
             // Only resize when line count actually changes (prevents bouncing during streaming)
             lastPanelLines = lines
             resizePanel(forLines: lines)
@@ -82,8 +77,9 @@ final class DictationOverlayPanel {
         viewModel.stopPolling()
         removeEscapeTap()
         panel?.orderOut(nil)
+        panel = nil
         anchoredScreen = nil
-        // Keep panel alive — avoid expensive re-creation on next show
+        lastPanelLines = 0
     }
 
     private func createPanel(forLines lines: Int) {
