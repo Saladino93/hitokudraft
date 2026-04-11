@@ -43,10 +43,11 @@ text.txt
 credentials.json
 licensing.json
 
-# === Release scripts (owner-only) ===
+# === Release scripts & internal docs (owner-only) ===
 bundle.sh
 release.sh
 ExportOptions.plist
+docs/DISTRIBUTION.md
 
 # === Cloudflare Wrangler ===
 .wrangler/
