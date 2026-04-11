@@ -581,12 +581,28 @@ final class ConversationCoordinator: ObservableObject {
                     try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS)
                     lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
                     SoundPlayer.shared.playCompletion()
+                    Task.detached {
+                        await TranscriptionStore.shared.save(
+                            mode: .voiceEdit,
+                            transcription: trimmedCommand,
+                            llmResponse: cleaned,
+                            activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
+                            modelName: self.modelManager.selectedModel.name
+                        )
+                    }
                     modelManager.keepAlive()
                     if stt != nil { modelManager.keepSTTAlive() }
                 } else {
                     // STT-only mode (None selected): paste raw transcript directly
                     try await presentOutput(trimmedCommand, savedClipboard: savedClipboard)
                     SoundPlayer.shared.playCompletion()
+                    Task.detached {
+                        await TranscriptionStore.shared.save(
+                            mode: .voiceEdit,
+                            transcription: trimmedCommand,
+                            activeApp: NSWorkspace.shared.frontmostApplication?.localizedName
+                        )
+                    }
                     if stt != nil { modelManager.keepSTTAlive() }
                 }
 
@@ -695,6 +711,15 @@ final class ConversationCoordinator: ObservableObject {
                 try await presentOutput(cleaned, savedClipboard: savedClipboard, useDisplayMode: false)
 
                 SoundPlayer.shared.playCompletion()
+                Task.detached {
+                    await TranscriptionStore.shared.save(
+                        mode: .grammarFix,
+                        transcription: selectedText,
+                        llmResponse: cleaned,
+                        activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
+                        modelName: self.modelManager.selectedModel.name
+                    )
+                }
                 modelManager.keepAlive()
                 state = .idle
             } catch is CancellationError {

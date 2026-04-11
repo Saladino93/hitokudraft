@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -175,6 +176,15 @@ extension ConversationCoordinator {
             try await presentOutput(finalText, savedClipboard: savedClipboardOpt, useDisplayMode: false)
 
             SoundPlayer.shared.playCompletion()
+            Task.detached {
+                await TranscriptionStore.shared.save(
+                    mode: .dictation,
+                    transcription: trimmed,
+                    llmResponse: finalText != trimmed ? finalText : nil,
+                    activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
+                    modelName: self.modelManager.selectedModel.name
+                )
+            }
             modelManager.keepAlive()
             modelManager.keepSTTAlive()
             state = .idle

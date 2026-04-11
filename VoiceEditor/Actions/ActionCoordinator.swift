@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Orchestrates the Action Mode pipeline for Ctrl+A with no text selected:
@@ -140,6 +141,14 @@ final class ActionCoordinator {
         do {
             try await execute(action)
             SoundPlayer.shared.playCompletion()
+            Task.detached {
+                await TranscriptionStore.shared.save(
+                    mode: .action,
+                    transcription: trimmed,
+                    llmResponse: String(describing: action),
+                    activeApp: NSWorkspace.shared.frontmostApplication?.localizedName
+                )
+            }
         } catch {
             onStateChange?(.error(error.localizedDescription))
         }
