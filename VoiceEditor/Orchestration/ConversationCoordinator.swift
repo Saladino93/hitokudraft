@@ -489,10 +489,13 @@ final class ConversationCoordinator: ObservableObject {
 
                     for try await chunk in generationStream {
                         raw += chunk
-                        // Show raw tokens in overlay — postProcess() runs once on the final string.
-                        // Running regex cleanup per-token was O(N²); models with enable_thinking=false
-                        // produce no thinking blocks to strip mid-stream anyway.
-                        streamingLLMText = raw
+                        // Show tokens in overlay — but hide tool call tags from the user.
+                        // If a <tool_call> is in progress, show a status message instead.
+                        if raw.contains("<tool_call>") {
+                            streamingLLMText = "Searching…"
+                        } else {
+                            streamingLLMText = raw
+                        }
 
                         // Stream text segments to TTS as the LLM generates (display mode only).
                         if willStreamTTS {
@@ -538,11 +541,13 @@ final class ConversationCoordinator: ObservableObject {
                             guard let toolCall = await toolExecutor.detectToolCall(in: raw) else { break }
 
                             Self.log.info("Tool call detected: \(toolCall.name) — executing")
+                            streamingLLMText = "Using \(toolCall.name)…"
                             let toolResult = try await toolExecutor.execute(toolCall)
 
                             // Re-generate with tool result appended to the original prompt
                             let augmentedPrompt = prompt + "\n\nTool result for \(toolCall.name):\n\(toolResult)\n\nNow answer the user's question using this information. Output ONLY the final answer — no tool calls."
                             raw = ""
+                            streamingLLMText = ""
                             for try await chunk in llm.generateStream(prompt: augmentedPrompt, images: vlmImages, maxTokens: maxTokens) {
                                 raw += chunk
                                 streamingLLMText = raw
