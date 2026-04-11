@@ -40,14 +40,18 @@ final class OverlayViewModel: ObservableObject {
         self.coordinator = coordinator
         cancellables.removeAll()
 
-        // All sinks fire on MainActor (coordinator is @MainActor) — no receive(on:) needed.
-        // This eliminates a run-loop-cycle delay on every text update.
+        // IMPORTANT: .receive(on: RunLoop.main) is required because @Published fires
+        // its publisher on willSet — BEFORE the property is updated. Without deferral,
+        // deriveState() reads stale values from coordinator properties, causing the
+        // overlay to be permanently one state behind (e.g. stuck at "Generating...").
 
         coordinator.$state
+            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.deriveState() }
             .store(in: &cancellables)
 
         coordinator.$liveTranscriptionText
+            .receive(on: RunLoop.main)
             .sink { [weak self] text in
                 if !text.isEmpty { self?.lastTranscription = text }
                 self?.deriveState()
@@ -55,10 +59,12 @@ final class OverlayViewModel: ObservableObject {
             .store(in: &cancellables)
 
         coordinator.$streamingLLMText
+            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.deriveState() }
             .store(in: &cancellables)
 
         coordinator.$displayModeResult
+            .receive(on: RunLoop.main)
             .sink { [weak self] text in
                 guard let self else { return }
                 if text.isEmpty {
@@ -73,6 +79,7 @@ final class OverlayViewModel: ObservableObject {
             .store(in: &cancellables)
 
         coordinator.$activeRecordingSession
+            .receive(on: RunLoop.main)
             .sink { [weak self] session in
                 guard let self else { return }
                 if let session {
@@ -84,6 +91,7 @@ final class OverlayViewModel: ObservableObject {
             .store(in: &cancellables)
 
         coordinator.$ttsSpeakingSegment
+            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.deriveState() }
             .store(in: &cancellables)
     }

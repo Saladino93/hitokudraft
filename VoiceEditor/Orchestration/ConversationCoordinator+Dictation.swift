@@ -59,6 +59,7 @@ extension ConversationCoordinator {
             dictationSession = session
 
             SoundPlayer.shared.playActivation()
+            state = .dictating("")
             activeRecordingSession = session
 
             // Streaming loop — picks native streaming (Path B) or legacy poll (Path A)
