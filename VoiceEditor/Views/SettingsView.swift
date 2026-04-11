@@ -366,48 +366,31 @@ struct SettingsView: View {
             }
             .padding(.top, -20)
 
-            VStack(spacing: 8) {
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10)
+            ], spacing: 10) {
                 ForEach(DictationTheme.allCases) { theme in
                     let isSelected = dictationTheme == theme.rawValue
-                    let isHovered = hoveredTheme == theme
-
-                    HStack(spacing: 14) {
-                        // Mini preview capsule
+                    VStack(spacing: 6) {
                         themePreview(theme: theme)
-
-                        // Name + description
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(theme.displayName)
-                                .font(.system(size: 13, weight: .medium))
-                            Text(theme.displayDescription)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        // Radio checkmark
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 18))
-                            .foregroundStyle(isSelected ? theme.accent : .secondary)
+                        Text(theme.displayName)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(isSelected ? theme.accent.opacity(0.08) : (isHovered ? .white.opacity(0.03) : .clear))
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isSelected ? theme.accentColor.opacity(0.10) : .white.opacity(0.03))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(isSelected ? theme.accent.opacity(0.3) : .clear, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(isSelected ? theme.accentColor.opacity(0.4) : .white.opacity(0.06), lineWidth: isSelected ? 2 : 1)
                     )
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        dictationTheme = theme.rawValue
-                    }
-                    .onHover { hovering in
-                        hoveredTheme = hovering ? theme : nil
-                    }
+                    .onTapGesture { dictationTheme = theme.rawValue }
                 }
             }
         }
