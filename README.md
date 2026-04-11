@@ -1,6 +1,6 @@
 # Hitoku Draft
 
-A native macOS menu bar AI assistant. 
+A context aware native macOS menu bar AI assistant. 
 
 Everything runs locally on Apple Silicon. No cloud calls.
 
