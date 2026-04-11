@@ -12,7 +12,7 @@ import SwiftUI
 @MainActor
 final class ConversationCoordinator: ObservableObject {
     static let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pipeline")
-    @Published internal(set) var state: AppState = .idle
+    @Published var state: AppState = .idle
 
     /// True while any pipeline is active (listening, transcribing, generating, pasting).
     /// Used to show the Cancel button in the menu bar.
@@ -35,9 +35,9 @@ final class ConversationCoordinator: ObservableObject {
 
     /// Non-empty when the last result was displayed in the overlay instead of pasted
     /// (focused element was not editable). Auto-cleared after 20 seconds.
-    @Published internal(set) var displayModeResult: String = ""
+    @Published var displayModeResult: String = ""
     /// The TTS segment currently being spoken — used by the overlay to highlight text.
-    @Published internal(set) var ttsSpeakingSegment: String = ""
+    @Published var ttsSpeakingSegment: String = ""
     var stt: (any STTService)?
     var llm: (any LLMService)?
     private var hotkeyManager: HotkeyManager?
@@ -53,20 +53,20 @@ final class ConversationCoordinator: ObservableObject {
     var toolExecutor: ToolExecutor?
 
     /// Live transcription text for the overlay (updated during streaming; empty = show status label).
-    @Published internal(set) var liveTranscriptionText: String = ""
+    @Published var liveTranscriptionText: String = ""
     /// Accumulating LLM output shown in the overlay during generation; cleared before paste.
-    @Published internal(set) var streamingLLMText: String = ""
+    @Published var streamingLLMText: String = ""
     /// The active recording session — non-nil while the mic is recording.
     /// DictationOverlayPanel subscribes to this to start/stop level polling.
-    @Published internal(set) var activeRecordingSession: AudioCaptureService.ContinuousSession?
+    @Published var activeRecordingSession: AudioCaptureService.ContinuousSession?
 
-    @Published internal(set) var contextAwareMode: ContextAwareMode =
+    @Published var contextAwareMode: ContextAwareMode =
         ContextAwareMode(rawValue: UserDefaults.standard.string(forKey: "contextAwareMode") ?? "off") ?? .off
 
     /// When true, raw dictation transcripts are passed through a lightweight LLM pass
     /// that removes filler words and adds punctuation — without changing actual words.
     /// Only takes effect when an LLM is loaded (not the None sentinel).
-    @Published internal(set) var polishDictation: Bool =
+    @Published var polishDictation: Bool =
         UserDefaults.standard.bool(forKey: "polishDictation")
 
     /// Tracks the current internet access setting to detect changes and rebuild LLM service.
