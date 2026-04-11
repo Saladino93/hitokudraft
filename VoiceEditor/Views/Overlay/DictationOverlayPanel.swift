@@ -45,14 +45,18 @@ final class DictationOverlayPanel {
             }
             .store(in: &cancellables)
 
-        // Install/remove Esc tap based on display mode
-        viewModel.$isDisplayMode
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isDisplay in
+        // Install Esc tap when overlay is showing Done or Speaking state (display mode)
+        viewModel.$overlayState
+            .sink { [weak self] state in
                 guard let self else { return }
-                if isDisplay && !self.escapeTapInstalled {
+                let needsEsc: Bool
+                switch state {
+                case .done, .speaking: needsEsc = true
+                default: needsEsc = false
+                }
+                if needsEsc && !self.escapeTapInstalled {
                     self.installEscapeTap()
-                } else if !isDisplay && self.escapeTapInstalled {
+                } else if !needsEsc && self.escapeTapInstalled {
                     self.removeEscapeTap()
                 }
             }
