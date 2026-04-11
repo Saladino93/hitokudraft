@@ -11,7 +11,18 @@ Hitoku Draft is a commercial macOS application built on open-source software and
 - **Origin:** [github.com/FluidInference/FluidAudio](https://github.com/FluidInference/FluidAudio)
 - **License:** Apache 2.0
 - **Used for:** Speech-to-text (ASR) via Parakeet TDT v3 CoreML model, voice activity detection, silence detection
-- **Note:** FluidAudio is actively used. It handles all microphone transcription via `AsrManager` and downloads the Parakeet TDT CoreML model on first launch.
+
+### HitokuInference
+- **Source:** Local vendored copy — `examples/HitokuInference/`
+- **License:** Proprietary (part of this project)
+- **Used for:** Unified inference routing across MLX and LiteRT backends, multimodal input handling (text, audio, image)
+
+### LiteRT-LM (runtime dylibs)
+- **Source:** [ai.google.dev/edge/litert](https://ai.google.dev/edge/litert)
+- **License:** Apache 2.0
+- **By:** Google
+- **Used for:** On-device multimodal inference engine for Gemma 4 models. Dylibs (`liblitert_lm_engine.dylib`, `libLiteRt.dylib`, `libLiteRtMetalAccelerator.dylib`) are bundled in the app Frameworks directory.
+- **Note:** Not included in the git repository. Downloaded separately via `setup_litert_libs.sh`.
 
 ### mlx-swift-lm
 - **Source:** Local vendored copy — `examples/mlx-swift-lm/`
@@ -32,7 +43,12 @@ Hitoku Draft is a commercial macOS application built on open-source software and
 ### mlx-audio-swift — v0.1.1
 - **Source:** [github.com/Blaizzy/mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift)
 - **License:** MIT
-- **Used for:** Audio speech-to-text (MLXAudio, MLXAudioSTT) for on-device transcription
+- **Used for:** Audio speech-to-text (MLXAudio, MLXAudioSTT) for on-device transcription via Qwen3-ASR models
+
+### WhisperKit
+- **Source:** [github.com/argmaxinc/WhisperKit](https://github.com/argmaxinc/WhisperKit)
+- **License:** MIT — Copyright © 2024 Argmax, Inc.
+- **Used for:** CoreML/ANE speech recognition for Whisper Tiny and Whisper Base (English-only models)
 
 ### swift-huggingface — v0.8.1
 - **Source:** [github.com/huggingface/swift-huggingface](https://github.com/huggingface/swift-huggingface)
@@ -68,26 +84,17 @@ All are Apache 2.0 unless noted otherwise.
 | swift-atomics | 1.3.0 | Apache 2.0 | github.com/apple/swift-atomics |
 | swift-certificates | 1.18.0 | Apache 2.0 | github.com/apple/swift-certificates |
 | swift-collections | 1.4.0 | Apache 2.0 | github.com/apple/swift-collections |
-| swift-configuration | 1.2.0 | Apache 2.0 | github.com/apple/swift-configuration |
 | swift-crypto | 4.2.0 | Apache 2.0 | github.com/apple/swift-crypto |
-| swift-distributed-tracing | 1.4.1 | Apache 2.0 | github.com/apple/swift-distributed-tracing |
-| swift-http-structured-headers | 1.6.0 | Apache 2.0 | github.com/apple/swift-http-structured-headers |
 | swift-http-types | 1.5.1 | Apache 2.0 | github.com/apple/swift-http-types |
 | swift-jinja | 2.3.2 | Apache 2.0 | github.com/huggingface/swift-jinja |
 | swift-log | 1.10.1 | Apache 2.0 | github.com/apple/swift-log |
 | swift-nio | 2.95.0 | Apache 2.0 | github.com/apple/swift-nio |
-| swift-nio-extras | 1.32.1 | Apache 2.0 | github.com/apple/swift-nio-extras |
-| swift-nio-http2 | 1.40.0 | Apache 2.0 | github.com/apple/swift-nio-http2 |
 | swift-nio-ssl | 2.36.0 | Apache 2.0 | github.com/apple/swift-nio-ssl |
-| swift-nio-transport-services | 1.26.0 | Apache 2.0 | github.com/apple/swift-nio-transport-services |
 | swift-numerics | 1.1.1 | Apache 2.0 | github.com/apple/swift-numerics |
-| swift-service-context | 1.3.0 | Apache 2.0 | github.com/apple/swift-service-context |
-| swift-service-lifecycle | 2.10.1 | Apache 2.0 | github.com/swift-server/swift-service-lifecycle |
 | swift-system | 1.6.4 | Apache 2.0 | github.com/apple/swift-system |
 | swift-transformers | 1.1.9 | Apache 2.0 | github.com/huggingface/swift-transformers |
-| swift-xet | 0.2.3 | MIT | github.com/mattt/swift-xet |
-| swift-asn1 | 1.5.1 | Apache 2.0 | github.com/apple/swift-asn1 |
 | EventSource | 1.4.1 | MIT | github.com/mattt/EventSource |
+| swift-xet | 0.2.3 | MIT | github.com/mattt/swift-xet |
 | yyjson | 0.12.0 | MIT | github.com/ibireme/yyjson |
 
 ---
@@ -105,45 +112,34 @@ Models are downloaded on first launch from HuggingFace and cached locally. They 
 - **Used for:** All speech-to-text transcription (25 European languages)
 - **Attribution required:** "Parakeet TDT 0.6B v3 by NVIDIA, licensed under CC BY 4.0"
 
+#### OpenAI Whisper tiny.en / base.en
+- **Original model:** [openai/whisper](https://github.com/openai/whisper)
+- **License:** MIT — Commercial use permitted
+- **By:** OpenAI
+- **Used for:** Lightweight English-only speech recognition via WhisperKit (CoreML/ANE)
+
+#### Qwen3-ASR 0.6B / 1.7B
+- **HuggingFace repos:** [mlx-community/Qwen3-ASR-0.6B-6bit](https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-6bit), [mlx-community/Qwen3-ASR-1.7B-bf16](https://huggingface.co/mlx-community/Qwen3-ASR-1.7B-bf16)
+- **Original model:** [Qwen/Qwen3-ASR](https://huggingface.co/collections/Qwen/qwen3-asr)
+- **License:** Apache 2.0 — Commercial use permitted
+- **By:** Alibaba Cloud (Qwen Team)
+- **Used for:** Native streaming speech recognition with multilingual support
+
 ### Language Models (LLM)
 
-#### Qwen3 4B 4-bit
-- **HuggingFace repo:** [mlx-community/Qwen3-4B-4bit](https://huggingface.co/mlx-community/Qwen3-4B-4bit)
-- **Original model:** [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B)
+#### Qwen3.5 0.8B / 4B / 9B 4-bit
+- **HuggingFace repos:** [mlx-community/Qwen3.5-0.8B-MLX-4bit](https://huggingface.co/mlx-community/Qwen3.5-0.8B-MLX-4bit), [mlx-community/Qwen3.5-4B-4bit](https://huggingface.co/mlx-community/Qwen3.5-4B-4bit), [mlx-community/Qwen3.5-9B-4bit](https://huggingface.co/mlx-community/Qwen3.5-9B-4bit)
+- **Original models:** [Qwen/Qwen3.5](https://huggingface.co/collections/Qwen/qwen35)
 - **License:** Apache 2.0 — Commercial use permitted
 - **By:** Alibaba Cloud (Qwen Team)
 
-#### Qwen3 8B 4-bit
-- **HuggingFace repo:** [mlx-community/Qwen3-8B-4bit](https://huggingface.co/mlx-community/Qwen3-8B-4bit)
-- **Original model:** [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B)
-- **License:** Apache 2.0 — Commercial use permitted
-- **By:** Alibaba Cloud (Qwen Team)
-
-#### IBM Granite 4.0 1B 4-bit
-- **HuggingFace repo:** [mlx-community/granite-4.0-h-1b-base-4bit](https://huggingface.co/mlx-community/granite-4.0-h-1b-base-4bit)
-- **Original model:** [ibm-granite/granite-4.0-h-1b-base](https://huggingface.co/ibm-granite/granite-4.0-h-1b-base)
-- **License:** Apache 2.0 — Commercial use permitted
-- **By:** IBM Research
-
-#### IBM Granite 4.0 1B 8-bit
-- **HuggingFace repo:** [mlx-community/granite-4.0-h-1b-base-8bit](https://huggingface.co/mlx-community/granite-4.0-h-1b-base-8bit)
-- **Original model:** [ibm-granite/granite-4.0-h-1b-base](https://huggingface.co/ibm-granite/granite-4.0-h-1b-base)
-- **License:** Apache 2.0 — Commercial use permitted
-- **By:** IBM Research
-
-#### LFM2.5 1.2B Instruct 4-bit ⚠️
-- **HuggingFace repo:** [mlx-community/LFM2.5-1.2B-Instruct-4bit](https://huggingface.co/mlx-community/LFM2.5-1.2B-Instruct-4bit)
-- **Original model:** [LiquidAI/LFM2.5-1.2B-Instruct](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct)
-- **License:** LFM Open License v1.0 (Apache 2.0 base + revenue cap)
-- **Commercial use:** Free for companies with < $10M annual revenue. Above that threshold, a paid license from Liquid AI is required.
-- **By:** Liquid AI
-
-#### LFM2.5 1.2B Instruct 8-bit ⚠️
-- **HuggingFace repo:** [mlx-community/LFM2.5-1.2B-Instruct-8bit](https://huggingface.co/mlx-community/LFM2.5-1.2B-Instruct-8bit)
-- **Original model:** [LiquidAI/LFM2.5-1.2B-Instruct](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct)
-- **License:** LFM Open License v1.0 (Apache 2.0 base + revenue cap)
-- **Commercial use:** Free for companies with < $10M annual revenue. Above that threshold, contact [liquid.ai/lfm-license](https://www.liquid.ai/lfm-license).
-- **By:** Liquid AI
+#### Google Gemma 4 E2B / E4B (LiteRT)
+- **HuggingFace repos:** [litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm), [litert-community/gemma-4-E4B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm)
+- **Original models:** [google/gemma-4](https://ai.google.dev/gemma)
+- **License:** Gemma Terms of Use — Commercial use permitted
+- **By:** Google DeepMind
+- **Used for:** Native multimodal inference (audio + vision) via LiteRT on Apple Silicon
+- **Note:** The Gemma license permits commercial use but requires accepting Google's Terms of Use.
 
 ---
 
@@ -154,7 +150,9 @@ For direct distribution of a paid app, the following is required:
 - [x] **Apache 2.0 libraries** — Include their license texts in app or documentation. A bundled `ACKNOWLEDGMENTS.md` (this file) or in-app Acknowledgments screen satisfies this.
 - [x] **MIT libraries** — Same requirement: include license text + copyright notice.
 - [x] **Parakeet TDT (CC BY 4.0)** — Must credit NVIDIA in your app's About screen or documentation.
-- [ ] **LFM2.5 (LFM1.0)** — Permitted under $10M revenue. Monitor if revenue exceeds threshold; contact Liquid AI for a commercial license if it does. Consider whether to include or remove LFM2.5 from the default model list depending on your risk tolerance.
+- [x] **Gemma 4 (Gemma Terms of Use)** — Requires acceptance of Google's terms; commercial use permitted.
+- [x] **WhisperKit / Whisper (MIT)** — Standard MIT attribution.
+- [x] **Qwen3.5 / Qwen3-ASR (Apache 2.0)** — Standard Apache attribution.
 
 ### Recommended: Add an Acknowledgments screen
 

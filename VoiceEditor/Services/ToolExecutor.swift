@@ -119,7 +119,11 @@ actor ToolExecutor {
 
     // MARK: - Execution
 
+    /// Maximum time a single tool execution may take before being cancelled.
+    private static let executionTimeout: Duration = .seconds(30)
+
     /// Executes a detected tool call and returns the formatted result.
+    /// Times out after 30 seconds to prevent hung tool calls from blocking the pipeline.
     func execute(_ call: ToolCall) async throws -> String {
         guard let tool = tools[call.name] else {
             return "Error: Unknown tool '\(call.name)'"
@@ -130,7 +134,21 @@ actor ToolExecutor {
 
         let result: String
         do {
-            result = try await tool.execute(arguments: call.arguments)
+            result = try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    try await tool.execute(arguments: call.arguments)
+                }
+                group.addTask {
+                    try await Task.sleep(for: Self.executionTimeout)
+                    throw CancellationError()
+                }
+                let first = try await group.next()!
+                group.cancelAll()
+                return first
+            }
+        } catch is CancellationError {
+            Self.log.warning("Tool \(call.name) timed out after \(Self.executionTimeout)")
+            return "Error: Tool '\(call.name)' timed out after 30 seconds"
         } catch {
             Self.log.error("Tool \(call.name) failed: \(error.localizedDescription)")
             return "Error: Tool '\(call.name)' failed -- \(error.localizedDescription)"
