@@ -257,11 +257,21 @@ final class ConversationCoordinator: ObservableObject {
 
     // MARK: - Voice Edit
 
+    /// Prevents re-entry during async setup (model loading, STT init).
+    private var voiceEditSetupInProgress = false
+
     func handleVoiceEdit() async {
-        // Toggle: pressing during recording or setup cancels the voice edit
-        if state == .listening || state == .warmingUp {
+        // Toggle: pressing during recording cancels the voice edit
+        if state == .listening {
             voiceEditTask?.cancel()
             voiceEditTask = nil
+            state = .idle
+            return
+        }
+
+        // Cancel if pressed during setup (before recording starts)
+        if voiceEditSetupInProgress {
+            voiceEditSetupInProgress = false
             state = .idle
             return
         }
@@ -274,8 +284,7 @@ final class ConversationCoordinator: ObservableObject {
 
         guard state == .idle else { return }
 
-        // Set warmingUp immediately to prevent re-entry during async setup
-        state = .warmingUp
+        voiceEditSetupInProgress = true
         clearDisplayModeResult()
         modelManager.cancelOffload()
         modelManager.cancelSTTOffload()
@@ -312,6 +321,7 @@ final class ConversationCoordinator: ObservableObject {
             return
         }
 
+        voiceEditSetupInProgress = false
         voiceEditTask = Task { [weak self] in
             guard let self else { return }
 
@@ -828,6 +838,7 @@ final class ConversationCoordinator: ObservableObject {
         displayModeClearTask?.cancel()
         displayModeClearTask = nil
         displayModeResult = ""
+        ttsSpeakingSegment = ""
         Task { await TTSService.shared.stop() }
     }
 

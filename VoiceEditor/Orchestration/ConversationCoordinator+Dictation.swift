@@ -21,8 +21,6 @@ extension ConversationCoordinator {
 
         guard state == .idle else { return }
 
-        // Block re-entry during async setup
-        state = .warmingUp
         clearDisplayModeResult()
         modelManager.cancelOffload()
         modelManager.cancelSTTOffload()

@@ -35,36 +35,20 @@ final class DictationOverlayPanel {
         self.coordinator = coordinator
         viewModel.observe(coordinator)
 
-        // React to state changes: show/hide panel, resize, install/remove Esc tap
+        // Single sink for all overlay state changes: show/hide panel + Esc tap
         viewModel.$overlayState
             .sink { [weak self] state in
                 guard let self else { return }
                 if let state {
                     self.showPanel(for: state)
+                    // Install Esc tap for display mode (Done/Speaking)
+                    if case .done = state, !self.escapeTapInstalled {
+                        self.installEscapeTap()
+                    } else if case .speaking = state, !self.escapeTapInstalled {
+                        self.installEscapeTap()
+                    }
                 } else {
                     self.hide()
-                }
-            }
-            .store(in: &cancellables)
-
-        // Install Esc tap whenever overlay shows display-mode content (Done/Speaking).
-        viewModel.$isDisplayMode
-            .sink { [weak self] isDisplay in
-                guard let self else { return }
-                if isDisplay && !self.escapeTapInstalled {
-                    self.installEscapeTap()
-                } else if !isDisplay && self.escapeTapInstalled {
-                    self.removeEscapeTap()
-                }
-            }
-            .store(in: &cancellables)
-
-        // Also allow Ctrl+Z to dismiss via the coordinator's clearDisplayModeResult
-        viewModel.$overlayState
-            .sink { [weak self] state in
-                guard let self else { return }
-                if state == nil {
-                    self.removeEscapeTap()
                 }
             }
             .store(in: &cancellables)
