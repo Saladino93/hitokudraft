@@ -49,7 +49,7 @@ struct VoiceEditorApp: App {
         } label: {
             coordinator.menuBarIcon
         }
-        .menuBarExtraStyle(.window)
+        .menuBarExtraStyle(.menu)
 
         Settings {
             SettingsView(coordinator: coordinator, updater: updaterController.updater)
