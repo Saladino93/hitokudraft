@@ -508,6 +508,13 @@ struct SettingsView: View {
                         description: "Open a pre-filled compose window in your default mail client.",
                         requiresInternet: false
                     )
+                    Divider().padding(.leading, 40)
+                    toolRow(
+                        icon: "macwindow",
+                        name: "Launch App",
+                        description: "Open one or more apps by name. \"Open Safari and Terminal.\"",
+                        requiresInternet: false
+                    )
                 }
                 .background(Color.primary.opacity(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 8))

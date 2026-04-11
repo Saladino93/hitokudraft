@@ -45,7 +45,8 @@ struct ActionRouter {
         5. email — compose an email (opens compose window for review; never auto-sends)
         6. web_search — search the web for information
         7. calendar_query — check calendar, availability, or schedule (NOT creating events)
-        8. unknown — cannot be classified
+        8. launch_app — open one or more applications
+        9. unknown — cannot be classified
 
         Respond with ONLY a JSON object on a single line. No markdown, no commentary.
 
@@ -72,6 +73,9 @@ struct ActionRouter {
         {"type":"calendar_query","query":"...","date":"YYYY-MM-DD"}
         IMPORTANT: Always resolve the date. "tomorrow" = the day after the current date above. "today" = the current date. Never output null for date.
 
+        For launch_app:
+        {"type":"launch_app","apps":["App Name","Another App"]}
+
         For unknown:
         {"type":"unknown"}
 
@@ -83,6 +87,7 @@ struct ActionRouter {
         - "take a note", "note that", "jot down" → note. Body is the content; title is a short summary.
         - "set a timer", "timer for", "remind me in X minutes/seconds" (countdown) → timer.
         - "email", "send a message to", "write to" → email. Subject MUST be non-empty (derive from body if not stated, max 50 chars). Body is a complete, naturally-written email — write full sentences on the user's behalf, expanding their intent. Do NOT just copy the user's words verbatim; write as if composing the email for them.
+        - "open", "launch", "start", "run" + app name(s) → launch_app. Use the canonical macOS app name (e.g. "Safari", "Terminal", "Xcode", "Google Chrome").
         - Resolve relative dates ("tomorrow", "next Monday", "in 2 hours") using the current date above.
         - duration_minutes: use ONLY what the user explicitly stated (e.g. "2-hour meeting" → 120). Otherwise output 60.
         - duration_seconds: convert as needed (e.g. "10 minutes" → 600, "30 seconds" → 30).
@@ -135,6 +140,11 @@ struct ActionRouter {
             let query = dict["query"] as? String ?? raw
             let date = dict["date"] as? String
             return .calendarQuery(.init(query: query, date: date))
+        case "launch_app":
+            guard let apps = dict["apps"] as? [String], !apps.isEmpty else {
+                return .unknown(transcript: raw)
+            }
+            return .launchApp(.init(appNames: apps))
         default:
             return .unknown(transcript: raw)
         }

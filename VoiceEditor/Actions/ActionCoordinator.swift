@@ -267,6 +267,22 @@ final class ActionCoordinator {
             let answer = try await llm.generate(prompt: summarizePrompt, maxTokens: 300)
             onDisplayResult?(answer.trimmingCharacters(in: .whitespacesAndNewlines))
 
+        case .launchApp(let l):
+            for name in l.appNames {
+                let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: name)
+                    ?? NSWorkspace.shared.urlForApplication(toOpen: URL(fileURLWithPath: "/Applications/\(name).app"))
+                if let url {
+                    try await NSWorkspace.shared.openApplication(at: url, configuration: .init())
+                } else {
+                    // Fallback: try opening by name via "open -a"
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                    process.arguments = ["-a", name]
+                    try process.run()
+                    process.waitUntilExit()
+                }
+            }
+
         case .unknown:
             break  // confirm() returns false for .unknown; should not reach here
         }
