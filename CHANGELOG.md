@@ -42,6 +42,10 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Chat data models** — ChatMessage, Conversation, and ChatStore scaffolded for future persistent conversation history.
 
 ### Fixed
+- **Ctrl+S dictation overlay missing** — `state = .dictating("")` was accidentally removed during the overlay refactor. Without this initial transition, the overlay never appeared, Ctrl+S toggle didn't stop dictation, and live transcription text never updated.
+- **Overlay stuck at "Generating..." after paste** — `OverlayViewModel` Combine sinks were firing on `@Published` `willSet` (before property update), causing `deriveState()` to always read the previous state. Re-added `.receive(on: RunLoop.main)` to defer until properties are updated.
+- **Ctrl+S overlay lag (~300ms)** — Same `@Published` timing bug. The initial `.dictating("")` state was missed, overlay only appeared on first streaming text update.
+- **Fullscreen apps not captured** — Window-based ScreenCaptureKit capture fails for fullscreen apps in other Spaces. Added display-based fallback that captures the full screen when the target window isn't found.
 - **Safari treated as editable** — AXWebArea role now has a refinement check (settable text range) to distinguish read-only articles from web editors like Gmail/Notion.
 - **Esc key system alert sound** — CGEventTap suppresses the Esc key globally when the display overlay is visible.
 - **PocketTTS voice compatibility** — Filtered to voices with 125-frame prompt length (the only format FluidAudio supports).

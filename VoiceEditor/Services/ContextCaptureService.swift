@@ -339,12 +339,29 @@ final class ContextCaptureService {
                 }
             }
 
-            guard let window else { return nil }
+            let filter: SCContentFilter
+            let captureWidth: Int
+            let captureHeight: Int
 
-            let filter = SCContentFilter(desktopIndependentWindow: window)
+            if let window {
+                // Window-based capture — precise, no extraneous UI
+                filter = SCContentFilter(desktopIndependentWindow: window)
+                captureWidth = min(Int(window.frame.width) * 2, 3840)
+                captureHeight = min(Int(window.frame.height) * 2, 2160)
+            } else if let display = content.displays.first {
+                // Display-based fallback — captures the full screen when the target
+                // window isn't found (e.g. fullscreen apps in another Space).
+                Self.log.info("Window not found for pid \(pid), falling back to display capture")
+                filter = SCContentFilter(display: display, excludingWindows: [])
+                captureWidth = min(Int(display.width) * 2, 3840)
+                captureHeight = min(Int(display.height) * 2, 2160)
+            } else {
+                return nil
+            }
+
             let config = SCStreamConfiguration()
-            config.width = min(Int(window.frame.width) * 2, 3840)
-            config.height = min(Int(window.frame.height) * 2, 2160)
+            config.width = captureWidth
+            config.height = captureHeight
             config.capturesAudio = false
             config.showsCursor = false
 
