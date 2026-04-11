@@ -53,7 +53,6 @@ struct DictationOverlayContent: View {
                     .stroke(borderColor(for: state), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
-            .animation(.easeInOut(duration: 0.3), value: viewModel.overlayState)
         }
     }
 
@@ -85,12 +84,12 @@ struct DictationOverlayContent: View {
                     .foregroundColor(.white.opacity(0.5))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                OverlayTextRenderer(
-                    text: transcription,
-                    maxLines: effectiveMaxLines,
-                    textAreaHeight: textAreaHeight,
-                    isGhosting: true
-                )
+                Text(transcription)
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.92))
+                    .lineLimit(effectiveMaxLines)
+                    .truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
         case .generating(let text):
