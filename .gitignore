@@ -41,6 +41,12 @@ text.txt
 *.p12
 *.pem
 credentials.json
+licensing.json
+
+# === Release scripts (owner-only) ===
+bundle.sh
+release.sh
+ExportOptions.plist
 
 # === Cloudflare Wrangler ===
 .wrangler/

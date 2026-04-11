@@ -14,25 +14,60 @@ final class LicenseManager: ObservableObject {
     @Published var activationError: String?
     @Published var isActivating = false
 
-    // MARK: - Constants
+    // MARK: - Licensing Configuration
 
-    private static let productID = "REDACTED_PRODUCT_ID"
+    /// Loaded from `licensing.json` at the repo root (gitignored).
+    /// When the file is missing (open-source builds), licensing is disabled
+    /// and the app runs in unlicensed/free mode.
+    private static let config: LicensingConfig? = {
+        // Try bundle resource first (release builds), then source root (dev builds)
+        let bundleURL = Bundle.main.url(forResource: "licensing", withExtension: "json")
+        let sourceURL = Bundle.main.bundleURL
+            .deletingLastPathComponent() // .app
+            .deletingLastPathComponent() // Products
+            .deletingLastPathComponent() // Build
+            .deletingLastPathComponent() // Intermediates or DerivedData
+            .appendingPathComponent("licensing.json")
+        // In a normal dev workflow, the file sits next to the xcodeproj
+        let devURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // Services
+            .deletingLastPathComponent() // VoiceEditor
+            .appendingPathComponent("licensing.json")
+
+        for url in [bundleURL, devURL, sourceURL].compactMap({ $0 }) {
+            if let data = try? Data(contentsOf: url),
+               let cfg = try? JSONDecoder().decode(LicensingConfig.self, from: data) {
+                return cfg
+            }
+        }
+        return nil
+    }()
+
+    /// True when licensing.json is present — commercial build.
+    /// False for open-source builds — all features unlocked, no Gumroad checks.
+    static var licensingEnabled: Bool { config != nil }
+
+    private struct LicensingConfig: Decodable {
+        let productID: String
+        let integrityKey: String  // base64-encoded 256-bit key
+    }
+
     private static let maxUses = 2
     private static let keychainService = "com.hitokudraft.license"
     private static let keychainKeyAccount = "gumroad-license-key"
     private static let keychainTokenAccount = "license-token"
     private static let offlineGracePeriod: TimeInterval = 7 * 24 * 60 * 60 // 7 days
 
-    /// HMAC key stored as raw bytes — not discoverable via `strings` binary scan.
-    /// Finding this requires disassembling the HMAC verification logic.
+    private static var productID: String { config?.productID ?? "" }
+
     private static let integrityKey: SymmetricKey = {
-        let k: [UInt8] = [
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-        ]
-        return SymmetricKey(data: Data(k))
+        guard let b64 = config?.integrityKey,
+              let data = Data(base64Encoded: b64) else {
+            // Fallback: zero key (licensing disabled — token verification will always fail,
+            // but init() returns isActivated = true when licensingEnabled is false).
+            return SymmetricKey(data: Data(repeating: 0, count: 32))
+        }
+        return SymmetricKey(data: data)
     }()
 
     // MARK: - License Token (Keychain-stored, HMAC-signed)
@@ -56,6 +91,13 @@ final class LicenseManager: ObservableObject {
         licenseEmail = "dev@hitokudraft.local"
         return
         #endif
+
+        // Open-source builds without licensing.json: everything unlocked.
+        guard Self.licensingEnabled else {
+            isActivated = true
+            licenseEmail = nil
+            return
+        }
 
         if let token = loadAndVerifyToken() {
             isActivated = true
