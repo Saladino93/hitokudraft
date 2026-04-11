@@ -161,9 +161,17 @@ extension LiteRTInferenceBackend: InferenceBackend {
 
                 self.lock.lock()
 
-                // Reuse existing conversation (LiteRT only supports one session at a time).
-                // Create on first call, reuse for subsequent calls.
-                if self.activeConversation == nil {
+                // Fresh conversation each time — prevents context accumulation
+                // that causes the model to degrade after many interactions.
+                if let oldConv = self.activeConversation {
+                    funcs.conversationDelete(oldConv)
+                    self.activeConversation = nil
+                    if let cfg = self.activeConvConfig { funcs.conversationConfigDelete(cfg) }
+                    self.activeConvConfig = nil
+                    if let scfg = self.activeSessionConfig { funcs.sessionConfigDelete(scfg) }
+                    self.activeSessionConfig = nil
+                }
+                do {
                     print("[LiteRT] creating new conversation")
                     let sessionConfig = funcs.sessionConfigCreate()
                     if let sessionConfig {
@@ -198,8 +206,6 @@ extension LiteRTInferenceBackend: InferenceBackend {
                     self.activeConvConfig = convConfig
                     self.activeSessionConfig = sessionConfig
                     if let systemCStr { free(systemCStr) }
-                } else {
-                    print("[LiteRT] reusing existing conversation")
                 }
 
                 guard let conversation = self.activeConversation else {
