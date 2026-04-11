@@ -46,6 +46,8 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Overlay stuck at "Generating..." after paste** — `OverlayViewModel` Combine sinks were firing on `@Published` `willSet` (before property update), causing `deriveState()` to always read the previous state. Re-added `.receive(on: RunLoop.main)` to defer until properties are updated.
 - **Ctrl+S overlay lag (~300ms)** — Same `@Published` timing bug. The initial `.dictating("")` state was missed, overlay only appeared on first streaming text update.
 - **Fullscreen apps not captured** — Window-based ScreenCaptureKit capture fails for fullscreen apps in other Spaces. Added display-based fallback that captures the full screen when the target window isn't found.
+- **Overlay sliding between screens on multi-monitor** — Panel was kept alive across hide/show cycles, causing visible movement to the new screen. Now destroyed on hide and recreated fresh on the active screen.
+- **Gemma 4 quality (terse, repetitive, hallucinations)** — Switched draft prompt from `conciseDraft` to explicit `draft` template. Lowered temperature 0.6→0.5 and top_p 0.95→0.9 for tighter, more deterministic output. Note: LiteRT C API has no repetition penalty field — the ModelFamily value is silently ignored.
 - **Safari treated as editable** — AXWebArea role now has a refinement check (settable text range) to distinguish read-only articles from web editors like Gmail/Notion.
 - **Esc key system alert sound** — CGEventTap suppresses the Esc key globally when the display overlay is visible.
 - **PocketTTS voice compatibility** — Filtered to voices with 125-frame prompt length (the only format FluidAudio supports).

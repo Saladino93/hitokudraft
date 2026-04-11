@@ -215,8 +215,7 @@ struct Gemma4ModelFamily: ModelFamily {
     }
 
     func draftPrompt(instruction: String, context: ScreenContext?) -> String {
-        // Gemma 4 benefits from fuller drafts to offset its thinking preamble.
-        Prompts.conciseDraft(instruction: instruction, context: context)
+        Prompts.draft(instruction: instruction, context: context)
     }
 
     /// Strip thinking blocks: <|channel>thought\n…<channel|>
@@ -236,8 +235,8 @@ struct Gemma4ModelFamily: ModelFamily {
         return OutputCleaner.cleanModelOutput(result.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    let temperature: Float = 0.6
-    let topP: Float = 0.95
+    let temperature: Float = 0.5
+    let topP: Float = 0.9
     let repetitionPenalty: Float = 1.2
     let disableThinking = false
 
