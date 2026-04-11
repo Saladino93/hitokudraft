@@ -38,7 +38,6 @@ enum STTModelRegistry {
     )
 
     static let availableModels: [STTModelOption] = [
-        noSTT,
         STTModelOption(
             name: "Whisper Tiny",
             path: "tiny.en",
