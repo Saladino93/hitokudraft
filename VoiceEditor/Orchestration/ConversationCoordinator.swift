@@ -273,15 +273,10 @@ final class ConversationCoordinator: ObservableObject {
 
         guard state == .idle else { return }
 
-        // If overlay is showing a result (display mode), just dismiss — don't start a new edit
-        if !displayModeResult.isEmpty {
-            clearDisplayModeResult()
-            return
-        }
-
         modelManager.cancelOffload()
         modelManager.cancelSTTOffload()
         await TTSService.shared.stop()
+        clearDisplayModeResult()
 
         // Ensure STT ready (skip for LiteRT)
         do { try await ensureSTTReady() } catch {
