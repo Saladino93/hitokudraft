@@ -41,7 +41,7 @@ xcodebuild -scheme HitokuDraft -configuration Release build
 LiteRT dylibs for Gemma 4 support are not included in the repository. To enable LiteRT:
 
 ```bash
-cd examples/HitokuInference
+cd HitokuInference
 ./setup_litert_libs.sh
 ```
 

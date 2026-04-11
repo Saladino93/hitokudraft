@@ -1,9 +1,9 @@
 # VoiceEditor — Claude Code Instructions
 
-Read `SWIFT_REWRITE_BRIEF.md` as the primary build specification.
+Read `docs/SWIFT_REWRITE_BRIEF.md` as the primary build specification.
 It contains the product goal, architecture, module map, protocol signatures, UX requirements, model strategy, MVP checklist, and starter code stubs.
 
-Read `NOTES.md` for Python prototype context when a design question arises (e.g., silence detection parameters, prompt templates, output cleaning logic).
+Read `docs/NOTES.md` for Python prototype context when a design question arises (e.g., silence detection parameters, prompt templates, output cleaning logic).
 
 ## Build target
 
@@ -38,9 +38,8 @@ For any new service, feature, or significant code change:
 
 ## FluidAudio reference documentation
 
-Before exploring FluidAudio source code, check `examples/FluidAudio/Documentation/` first.
-It contains up-to-date API guides for: ASR, TTS (Kokoro, PocketTTS, SSML), VAD, and Diarization.
-Key TTS files: `Documentation/TTS/Kokoro.md`, `Documentation/TTS/PocketTTS.md`.
+FluidAudio is now a remote SPM dependency (github.com/FluidInference/FluidAudio).
+For API guides (ASR, TTS, VAD, Diarization), check the upstream repo's `Documentation/` folder.
 
 ## Adding new files
 

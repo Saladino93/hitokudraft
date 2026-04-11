@@ -6,9 +6,9 @@ let package = Package(
     defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(path: "examples/FluidAudio"),
-        .package(path: "examples/HitokuInference"),
-        .package(path: "examples/mlx-swift-lm"),
+        .package(url: "https://github.com/FluidInference/FluidAudio", revision: "843250b"),
+        .package(path: "HitokuInference"),
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", revision: "6bb84aa"),
         .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMinor(from: "0.30.6")),
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0"),
         .package(url: "https://github.com/Blaizzy/mlx-audio-swift", from: "0.1.0"),

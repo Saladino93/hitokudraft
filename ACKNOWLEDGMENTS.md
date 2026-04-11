@@ -7,13 +7,12 @@ Hitoku Draft is a commercial macOS application built on open-source software and
 ## Swift Libraries (bundled in the app)
 
 ### FluidAudio
-- **Source:** Local vendored copy — `examples/FluidAudio/`
-- **Origin:** [github.com/FluidInference/FluidAudio](https://github.com/FluidInference/FluidAudio)
+- **Source:** [github.com/FluidInference/FluidAudio](https://github.com/FluidInference/FluidAudio) (remote SPM dependency)
 - **License:** Apache 2.0
 - **Used for:** Speech-to-text (ASR) via Parakeet TDT v3 CoreML model, voice activity detection, silence detection
 
 ### HitokuInference
-- **Source:** Local vendored copy — `examples/HitokuInference/`
+- **Source:** Local package — `HitokuInference/`
 - **License:** Proprietary (part of this project)
 - **Used for:** Unified inference routing across MLX and LiteRT backends, multimodal input handling (text, audio, image)
 
@@ -25,8 +24,7 @@ Hitoku Draft is a commercial macOS application built on open-source software and
 - **Note:** Not included in the git repository. Downloaded separately via `setup_litert_libs.sh`.
 
 ### mlx-swift-lm
-- **Source:** Local vendored copy — `examples/mlx-swift-lm/`
-- **Origin:** Extracted from [github.com/ml-explore/mlx-swift-examples](https://github.com/ml-explore/mlx-swift-examples)
+- **Source:** [github.com/ml-explore/mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) (remote SPM dependency)
 - **License:** MIT — Copyright © 2024 ml-explore
 - **Used for:** LLM loading (`MLXLLM`, `MLXLMCommon`), model factory, generation pipeline
 

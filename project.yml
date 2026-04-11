@@ -9,11 +9,13 @@ options:
 
 packages:
   FluidAudio:
-    path: examples/FluidAudio
+    url: https://github.com/FluidInference/FluidAudio
+    revision: 843250b
   HitokuInference:
-    path: examples/HitokuInference
+    path: HitokuInference
   mlx-swift-lm:
-    path: examples/mlx-swift-lm
+    url: https://github.com/ml-explore/mlx-swift-lm
+    revision: 6bb84aa
   mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
     minorVersion: 0.30.6
@@ -113,7 +115,7 @@ targets:
     postBuildScripts:
       - script: |
           # Embed LiteRT dylibs into the app bundle for runtime dlopen loading.
-          LITERT_LIBS="${SRCROOT}/examples/HitokuInference/Libraries/macos_arm64"
+          LITERT_LIBS="${SRCROOT}/HitokuInference/Libraries/macos_arm64"
           LITERT_PREBUILT="${SRCROOT}/../litert-lm/prebuilt/macos_arm64"
           FRAMEWORKS_DIR="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
           MACOS_DIR="${BUILT_PRODUCTS_DIR}/${EXECUTABLE_FOLDER_PATH}"
