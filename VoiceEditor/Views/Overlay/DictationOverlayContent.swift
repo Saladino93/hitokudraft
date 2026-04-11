@@ -79,10 +79,8 @@ struct DictationOverlayContent: View {
         switch state {
         case .listening(let transcription):
             if transcription.isEmpty {
-                Text("Listening...")
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundColor(.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // No placeholder text — just show the waveform until speech is detected
+                Spacer().frame(maxWidth: .infinity)
             } else {
                 Text(transcription)
                     .font(.system(size: 15, weight: .medium, design: .rounded))

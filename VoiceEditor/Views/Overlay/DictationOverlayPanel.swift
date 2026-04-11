@@ -64,13 +64,13 @@ final class DictationOverlayPanel {
     private var lastPanelLines = 0
 
     private func showPanel(for state: OverlayState) {
+        let lines = linesNeeded(for: state)
         let isNew = panel == nil
         if isNew {
-            createPanel()
-        }
-        // Only resize when line count actually changes (prevents bouncing during streaming)
-        let lines = linesNeeded(for: state)
-        if isNew || lines != lastPanelLines {
+            lastPanelLines = lines
+            createPanel(forLines: lines)
+        } else if lines != lastPanelLines {
+            // Only resize when line count actually changes (prevents bouncing during streaming)
             lastPanelLines = lines
             resizePanel(forLines: lines)
         }
@@ -84,9 +84,9 @@ final class DictationOverlayPanel {
         panel = nil
     }
 
-    private func createPanel() {
+    private func createPanel(forLines lines: Int) {
         let width = panelWidth
-        let height = panelHeight(forLines: viewModel.displayModeMaxLines)
+        let height = panelHeight(forLines: lines)
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
