@@ -52,6 +52,12 @@ struct ActionConfirmationPanel {
             alert.addButton(withTitle: action.actionVerb)
             alert.addButton(withTitle: "Cancel")
 
+        case .launchApp:
+            alert.messageText = "Open Application?"
+            alert.informativeText = action.confirmationSummary
+            alert.addButton(withTitle: action.actionVerb)
+            alert.addButton(withTitle: "Cancel")
+
         case .webSearch, .calendarQuery:
             // No confirmation needed — read-only and non-destructive.
             return true
