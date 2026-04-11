@@ -1,12 +1,49 @@
-examples/
-VoiceEditor.app/
-.text.txt.swp
-.DS_Store
-.build/
-.swiftpm/
-mlx-swift-lm/
-HitokuDraft.xcodeproj/
-text.txt
+# === Build artifacts ===
 build/
 dist/
+DerivedData/
+*.xcarchive
+*.dSYM/
+*.ipa
+
+# === Xcode (managed by xcodegen) ===
+HitokuDraft.xcodeproj/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# === Swift Package Manager ===
+.build/
+.swiftpm/
+
+# === Dependencies (vendored separately) ===
+mlx-swift-lm/
+examples/
+
+# === macOS artifacts ===
+.DS_Store
+*.swp
+*.swo
+*.swn
+*~
+
+# === App bundles ===
+VoiceEditor.app/
+
+# === Logs & temp files ===
+build.log
+text.txt
+.text.txt.swp
+
+# === Secrets & local config ===
+.env
+.env.*
+*.p8
+*.p12
+*.pem
+credentials.json
+
+# === Cloudflare Wrangler ===
 .wrangler/
+
+# === Claude Code (local dev tool) ===
+.claude/

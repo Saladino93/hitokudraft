@@ -55,6 +55,7 @@ final class DictationOverlayPanel {
     func hide() {
         stopLevelPolling()
         viewModel.isStreamingLLM = false
+        viewModel.isGhosting = false
         viewModel.isDisplayMode = false
         viewModel.displayModeMaxLines = 3
         removeEscapeTap()
@@ -104,6 +105,7 @@ final class DictationOverlayPanel {
             .receive(on: RunLoop.main)
             .sink { [weak self] text in
                 guard let self, !text.isEmpty else { return }
+                self.viewModel.isGhosting = true
                 self.show(text: text, isStatus: false)
             }
             .store(in: &cancellables)
@@ -119,8 +121,11 @@ final class DictationOverlayPanel {
                 let streamingEnabled = (UserDefaults.standard.object(forKey: "showLLMStreamingInOverlay") as? Bool) ?? true
                 if text.isEmpty {
                     self.viewModel.isStreamingLLM = false
+                    self.viewModel.isGhosting = false
                 } else if streamingEnabled {
                     self.viewModel.isStreamingLLM = true
+                    // Dim tail text until a sentence boundary is reached.
+                    self.viewModel.isGhosting = true
                     self.show(text: text, isStatus: false)
                 }
             }
@@ -136,6 +141,7 @@ final class DictationOverlayPanel {
                 if text.isEmpty {
                     self.hide()
                 } else {
+                    self.viewModel.isGhosting = false
                     let lines = self.calculateLinesNeeded(for: text)
                     self.viewModel.displayModeMaxLines = lines
                     self.viewModel.isStreamingLLM = true  // keeps 3-line+ mode
@@ -366,6 +372,8 @@ private final class OverlayViewModel: ObservableObject {
     @Published var isStreamingLLM: Bool = false
     @Published var isDisplayMode: Bool = false
     @Published var displayModeMaxLines: Int = 3  // increased when showing long display-mode results
+    /// When true, render the trailing in-progress sentence as ghost text (dimmed).
+    @Published var isGhosting: Bool = false
     /// The TTS segment currently being spoken — highlights that text in the overlay.
     @Published var speakingSegment: String = ""
     @Published var tick = Date()
@@ -487,7 +495,8 @@ private struct DictationOverlayContent: View {
                     text: viewModel.text,
                     maxLines: maxLines,
                     textAreaHeight: textAreaHeight,
-                    speakingSegment: viewModel.speakingSegment
+                    speakingSegment: viewModel.speakingSegment,
+                    isGhosting: viewModel.isGhosting
                 )
             }
         }
@@ -544,6 +553,7 @@ private struct OverlayTextRenderer: View {
     let maxLines: Int
     let textAreaHeight: CGFloat
     var speakingSegment: String = ""
+    var isGhosting: Bool = false
 
     private var segments: [TextSegment] { parseSegments(text) }
 
@@ -577,10 +587,7 @@ private struct OverlayTextRenderer: View {
     @ViewBuilder
     private var plainTextView: some View {
         if maxLines == 1 {
-            Text(text)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.92))
-                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+            ghostedText(singleLine: true)
                 .lineLimit(1)
                 .truncationMode(.head)
                 .textSelection(.enabled)
@@ -588,7 +595,7 @@ private struct OverlayTextRenderer: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    highlightedTextView
+                    ghostedText(singleLine: false)
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                         .textSelection(.enabled)
@@ -606,20 +613,57 @@ private struct OverlayTextRenderer: View {
     /// Renders text with the currently-spoken TTS segment highlighted.
     /// Non-spoken text is dimmed; the speaking segment is bright and bold.
     /// Falls back to normal rendering when nothing is being spoken.
-    @ViewBuilder
-    private var highlightedTextView: some View {
+    private func ghostedText(singleLine: Bool) -> some View {
+        let baseFont = Font.system(size: 14, weight: .medium, design: .rounded)
+
+        // If speaking highlighting is active, keep that behavior and skip ghosting to avoid clashes.
         if !speakingSegment.isEmpty,
            let range = text.range(of: speakingSegment, options: .literal) {
             let before = text[text.startIndex..<range.lowerBound]
             let current = text[range]
             let after = text[range.upperBound...]
-            (Text(before).foregroundColor(.white.opacity(0.4))
-             + Text(current).foregroundColor(.white).fontWeight(.semibold)
-             + Text(after).foregroundColor(.white.opacity(0.4)))
-        } else {
-            Text(text)
-                .foregroundStyle(.white.opacity(0.92))
+            let view = Text(before).foregroundColor(.white.opacity(0.4))
+                + Text(current).foregroundColor(.white).fontWeight(.semibold)
+                + Text(after).foregroundColor(.white.opacity(0.4))
+            return view
+                .font(baseFont)
+                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
         }
+
+        let (solid, ghost) = ghostSplit(from: text)
+        let view: Text
+        if ghost.isEmpty || !isGhosting {
+            view = Text(text).foregroundStyle(.white.opacity(0.92))
+        } else {
+            let solidPart = Text(solid).foregroundStyle(.white.opacity(0.92))
+            let ghostPart = Text(ghost).foregroundStyle(.white.opacity(singleLine ? 0.45 : 0.5))
+            view = solidPart + ghostPart
+        }
+
+        return view
+            .font(baseFont)
+            .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+    }
+
+    /// Splits text into a solid (committed) part and a ghost (in-progress) tail.
+    private func ghostSplit(from text: String) -> (String, String) {
+        guard isGhosting else { return (text, "") }
+        // Find last sentence boundary; treat newline or punctuation as boundary.
+        let boundaries: CharacterSet = {
+            var set = CharacterSet(charactersIn: ".!?！。？")
+            set.insert(charactersIn: "\n")
+            return set
+        }()
+        if let idx = text.unicodeScalars.lastIndex(where: { boundaries.contains($0) }) {
+            let next = text.unicodeScalars.index(after: idx)
+            if next < text.unicodeScalars.endIndex {
+                let solidScalars = text.unicodeScalars[text.unicodeScalars.startIndex...idx]
+                let ghostScalars = text.unicodeScalars[next..<text.unicodeScalars.endIndex]
+                return (String(solidScalars), String(ghostScalars))
+            }
+        }
+        // No boundary yet — treat everything as ghost until a sentence is completed.
+        return ("", text)
     }
 
     // MARK: - Complex rendering path (math and/or code blocks)

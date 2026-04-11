@@ -15,10 +15,10 @@ struct SettingsView: View {
     }
 
     @AppStorage("maxRecordingDuration") private var maxRecordingDuration: Double = 30.0
-    @AppStorage("silenceDurationLimit") private var silenceDurationLimit: Double = 0.5
-    @AppStorage("noSpeechTimeout")      private var noSpeechTimeout: Double = 3.0
-    @AppStorage("activationSound")      private var activationSound: String = "Glass"
-    @AppStorage("completionSound")      private var completionSound: String = "Glass"
+    @AppStorage("silenceDurationLimit") private var silenceDurationLimit: Double = 1.5
+    @AppStorage("noSpeechTimeout")      private var noSpeechTimeout: Double = 3.5
+    @AppStorage("activationSound")      private var activationSound: String = "Tink"
+    @AppStorage("completionSound")      private var completionSound: String = "Pop"
     @AppStorage("appLanguage")           private var appLanguage: String = AppLocalization.detectInitialLanguage()
     @AppStorage("contextAwareMode")      private var contextAwareMode: String = "off"
     @AppStorage("visionEnabled")          private var visionEnabled: Bool = false

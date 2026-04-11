@@ -49,6 +49,20 @@ struct AcknowledgmentsView: View {
                 )
 
                 LibraryCard(
+                    name: "HitokuInference",
+                    source: "Local vendored copy",
+                    license: "Proprietary (part of this project)",
+                    usedFor: "Unified inference routing across MLX and LiteRT backends, multimodal input (text, audio, image)"
+                )
+
+                LibraryCard(
+                    name: "LiteRT-LM",
+                    source: "ai.google.dev/edge/litert",
+                    license: "Apache 2.0 — Google",
+                    usedFor: "On-device multimodal inference engine for Gemma 4 models (bundled dylibs)"
+                )
+
+                LibraryCard(
                     name: "mlx-swift-lm",
                     source: "github.com/ml-explore/mlx-swift-examples (local vendored copy)",
                     license: "MIT — Copyright © 2024 ml-explore",
@@ -146,22 +160,23 @@ struct AcknowledgmentsView: View {
                 )
 
                 ModelCard(
-                    name: "Qwen3 4B / 8B 4-bit",
+                    name: "Qwen3.5 0.8B / 4B / 9B 4-bit",
                     license: "Apache 2.0 — Commercial use permitted",
                     by: "Alibaba Cloud (Qwen Team)"
                 )
 
                 ModelCard(
-                    name: "IBM Granite 4.0 1B 4-bit / 8-bit",
+                    name: "Qwen3-ASR 0.6B / 1.7B",
                     license: "Apache 2.0 — Commercial use permitted",
-                    by: "IBM Research"
+                    by: "Alibaba Cloud (Qwen Team)",
+                    note: "Native streaming speech recognition with multilingual support"
                 )
 
                 ModelCard(
-                    name: "LFM2.5 1.2B Instruct 4-bit / 8-bit  ⚠️",
-                    license: "LFM Open License v1.0 (Apache 2.0 base + revenue cap)",
-                    by: "Liquid AI",
-                    note: "Free for companies with < $10M annual revenue. Above that threshold, a paid license from Liquid AI is required."
+                    name: "Google Gemma 4 E2B / E4B (LiteRT)",
+                    license: "Gemma Terms of Use — Commercial use permitted",
+                    by: "Google DeepMind",
+                    note: "Native multimodal inference (audio + vision) via LiteRT. Requires acceptance of Google's Terms of Use."
                 )
 
                 ModelCard(
