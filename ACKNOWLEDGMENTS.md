@@ -160,7 +160,7 @@ A simple in-app "Acknowledgments" window listing all libraries and their license
 
 ## Inspiration
 
-Hitoku Draft was inspired by the broader community of open-source voice and dictation tools — projects like [Whisper Transcription](https://github.com/Bradleycorn/Whisper-Transcription), [MacWhisper](https://goodsnooze.gumroad.com/l/macwhisper), [Aiko](https://github.com/nicklama/aiko), and others that demonstrated how powerful local speech-to-text can be on the Mac. We're grateful to these developers for paving the way and sharing their work.
+Hitoku Draft was inspired by projects like [VoiceInk](https://github.com/Beingpax/VoiceInk) and [FluidVoice](https://github.com/FluidInference/FluidVoice) that demonstrated how powerful local voice-to-text can be on the Mac. We're grateful to these developers for paving the way and sharing their work.
 
 ---
 
