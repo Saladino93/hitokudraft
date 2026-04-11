@@ -136,7 +136,7 @@
 "High-quality streaming ASR" = "High-quality streaming ASR";
 
 /* None LLM sentinel */
-"model.none_description" = "No LLM — voice edit pastes transcript directly.";
+"model.none_description" = "No LLM (voice edit pastes transcript directly)";
 "status.llm_disabled" = "Disabled";
 
 /* Auto-offload */

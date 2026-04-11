@@ -92,6 +92,15 @@ final class EventKitService {
         }
     }
 
+    // MARK: - Conflict Detection
+
+    /// Returns a list of event titles that overlap with the given time range.
+    func findConflicts(start: Date, end: Date) -> [String] {
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        let events = store.events(matching: predicate)
+        return events.map { $0.title ?? "Untitled" }
+    }
+
     // MARK: - Errors
 
     enum EventKitError: LocalizedError {

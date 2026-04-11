@@ -5,14 +5,15 @@ struct MenuBarMenu: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Button(statusText) {}
-            .disabled(true)
+        Text(statusText)
 
         if coordinator.isActive {
             Button(L("menu.cancel")) {
                 coordinator.cancelActiveOperation()
             }
         }
+
+        Divider()
 
         Button(L("menu.preferences")) {
             openSettings()

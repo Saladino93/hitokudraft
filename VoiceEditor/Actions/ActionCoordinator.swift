@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Orchestrates the Action Mode pipeline for Ctrl+A with no text selected:
@@ -132,14 +133,31 @@ final class ActionCoordinator {
         setLiveTranscript?("")
         onStateChange?(.idle)
 
+        // Phase 3.5: Conflict detection for calendar events
+        var conflicts: [String] = []
+        if case .calendarEvent(let e) = action {
+            let permission = await eventKit.requestCalendarAccess()
+            if permission == .granted {
+                conflicts = eventKit.findConflicts(start: e.startDate, end: e.endDate)
+            }
+        }
+
         // Phase 4: Confirm (always required — never fire-and-forget)
         // Must run on MainActor for NSAlert.runModal()
-        guard await ActionConfirmationPanel.confirm(action) else { return }
+        guard await ActionConfirmationPanel.confirm(action, conflicts: conflicts) else { return }
 
         // Phase 5: Execute
         do {
             try await execute(action)
             SoundPlayer.shared.playCompletion()
+            Task.detached {
+                await TranscriptionStore.shared.save(
+                    mode: .action,
+                    transcription: trimmed,
+                    llmResponse: String(describing: action),
+                    activeApp: NSWorkspace.shared.frontmostApplication?.localizedName
+                )
+            }
         } catch {
             onStateChange?(.error(error.localizedDescription))
         }
@@ -257,6 +275,25 @@ final class ActionCoordinator {
             """
             let answer = try await llm.generate(prompt: summarizePrompt, maxTokens: 300)
             onDisplayResult?(answer.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        case .launchApp(let l):
+            for name in l.appNames {
+                // Try the exact name and common variations (e.g. "Apple Maps" → "Maps")
+                let variations = [name] + name.split(separator: " ").map(String.init)
+                var opened = false
+                for variant in variations where !opened {
+                    let candidates = [
+                        "/Applications/\(variant).app",
+                        "/Applications/Utilities/\(variant).app",
+                        "/System/Applications/\(variant).app",
+                        "/System/Applications/Utilities/\(variant).app",
+                    ]
+                    if let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        opened = true
+                    }
+                }
+            }
 
         case .unknown:
             break  // confirm() returns false for .unknown; should not reach here

@@ -136,7 +136,7 @@
 "High-quality streaming ASR" = "ASR in streaming ad alta qualità";
 
 /* Sentinella LLM None */
-"model.none_description" = "Nessun LLM — la modifica vocale incolla la trascrizione direttamente.";
+"model.none_description" = "Nessun LLM (la modifica vocale incolla la trascrizione direttamente)";
 "status.llm_disabled" = "Disabilitato";
 
 /* Scaricamento automatico */

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -25,12 +26,9 @@ extension ConversationCoordinator {
         await TTSService.shared.stop()
         clearDisplayModeResult()
 
-        // Dictation always needs STT — even when LiteRT is active or "None" STT selected.
-        // Temporarily switch to Parakeet if needed, then load.
+        // Dictation always needs STT. If not loaded (e.g. offloaded), reload now.
         if stt == nil {
-            let savedSTT = modelManager.selectedSTTModel
-            if savedSTT.isNone || modelManager.selectedModel.backendType == .liteRT {
-                // Force Parakeet for dictation
+            if modelManager.selectedSTTModel.isNone {
                 modelManager.selectedSTTModel = STTModelRegistry.defaultModel
             }
             modelManager.sttLoading = true
@@ -42,7 +40,6 @@ extension ConversationCoordinator {
                 state = .error(error.localizedDescription)
                 resetErrorAfterDelay()
                 modelManager.sttLoading = false
-                modelManager.selectedSTTModel = savedSTT
                 return
             }
             modelManager.sttLoading = false
@@ -175,6 +172,15 @@ extension ConversationCoordinator {
             try await presentOutput(finalText, savedClipboard: savedClipboardOpt, useDisplayMode: false)
 
             SoundPlayer.shared.playCompletion()
+            Task.detached {
+                await TranscriptionStore.shared.save(
+                    mode: .dictation,
+                    transcription: trimmed,
+                    llmResponse: finalText != trimmed ? finalText : nil,
+                    activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
+                    modelName: self.modelManager.selectedModel.name
+                )
+            }
             modelManager.keepAlive()
             modelManager.keepSTTAlive()
             state = .idle

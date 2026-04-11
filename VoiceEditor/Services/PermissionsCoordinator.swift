@@ -59,17 +59,20 @@ final class PermissionsCoordinator: ObservableObject {
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
     }
 
-    /// Tracks whether we've already called CGRequestScreenCaptureAccess once.
-    /// The API only shows the system prompt on the first call; after that it's a no-op.
-    private var screenRecordingRequested = false
-
     func requestScreenRecording() {
-        if screenRecordingRequested {
-            // Already prompted once — open System Settings directly
-            openScreenRecordingSettings()
-        } else {
-            screenRecordingRequested = true
+        // CGRequestScreenCaptureAccess() only shows the system prompt on the very
+        // first call *ever* for this app. After denial/dismissal, macOS caches the
+        // decision and subsequent calls are no-ops. Always try the API first —
+        // if permission was already denied, immediately open System Settings so
+        // the user can toggle it manually.
+        if !CGPreflightScreenCaptureAccess() {
             CGRequestScreenCaptureAccess()
+            // Give the system dialog ~500ms to appear; if still not granted, open Settings.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                if !CGPreflightScreenCaptureAccess() {
+                    self?.openScreenRecordingSettings()
+                }
+            }
         }
     }
 

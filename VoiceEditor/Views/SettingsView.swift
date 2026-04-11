@@ -34,7 +34,7 @@ struct SettingsView: View {
     @AppStorage("internetAccessEnabled") private var internetAccessEnabled: Bool = false
 
     // MARK: - Navigation State
-    private enum Tab { case license, general, appearance, model, updates }
+    private enum Tab { case license, general, tools, appearance, model, updates }
     @State private var selectedTab: Tab = .general
 
     // MARK: - Custom Model State
@@ -61,7 +61,8 @@ struct SettingsView: View {
     private var currentHeight: CGFloat {
         switch selectedTab {
         case .license: return 178
-        case .general: return 568
+        case .general: return 510
+        case .tools: return 420
         case .appearance: return 473
         case .model: return ttsEnabled ? 518 : 423
         case .updates: return 122
@@ -77,6 +78,10 @@ struct SettingsView: View {
             modelTab
                 .tag(Tab.model)
                 .tabItem { Label(L("tab.model"), systemImage: "cpu") }
+
+            toolsTab
+                .tag(Tab.tools)
+                .tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
 
             appearanceTab
                 .padding(.top, 20)
@@ -265,21 +270,7 @@ struct SettingsView: View {
 
             Color.clear.frame(height: 18)
 
-            // --- Internet Access ---
-            GridRow {
-                Text("Internet access")
-                    .gridColumnAlignment(.trailing)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Toggle("", isOn: $internetAccessEnabled)
-                            .labelsHidden()
-                        Text("Allow web search during generation")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .gridColumnAlignment(.leading)
-            }
+            // Internet access moved to Tools tab
         }
         .padding(30)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -375,48 +366,31 @@ struct SettingsView: View {
             }
             .padding(.top, -20)
 
-            VStack(spacing: 8) {
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10)
+            ], spacing: 10) {
                 ForEach(DictationTheme.allCases) { theme in
                     let isSelected = dictationTheme == theme.rawValue
-                    let isHovered = hoveredTheme == theme
-
-                    HStack(spacing: 14) {
-                        // Mini preview capsule
+                    VStack(spacing: 6) {
                         themePreview(theme: theme)
-
-                        // Name + description
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(theme.displayName)
-                                .font(.system(size: 13, weight: .medium))
-                            Text(theme.displayDescription)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        // Radio checkmark
-                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 18))
-                            .foregroundStyle(isSelected ? theme.accent : .secondary)
+                        Text(theme.displayName)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(isSelected ? theme.accent.opacity(0.08) : (isHovered ? .white.opacity(0.03) : .clear))
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isSelected ? theme.accentColor.opacity(0.10) : .white.opacity(0.03))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(isSelected ? theme.accent.opacity(0.3) : .clear, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(isSelected ? theme.accentColor.opacity(0.4) : .white.opacity(0.06), lineWidth: isSelected ? 2 : 1)
                     )
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        dictationTheme = theme.rawValue
-                    }
-                    .onHover { hovering in
-                        hoveredTheme = hovering ? theme : nil
-                    }
+                    .onTapGesture { dictationTheme = theme.rawValue }
                 }
             }
         }
@@ -445,6 +419,92 @@ struct SettingsView: View {
                 .strokeBorder(theme.panelBorder, lineWidth: 0.5)
         )
         .scaleEffect(0.85)
+    }
+
+    // MARK: - Tools Tab
+
+    private var toolsTab: some View {
+        VStack(alignment: .leading, spacing: 16) {
+
+            // Transcription history (top)
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Transcription History")
+                        .font(.subheadline.weight(.medium))
+                    Text("All voice interactions are saved as JSON files.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Reveal in Finder") {
+                    Task {
+                        let path = await TranscriptionStore.shared.directoryPath
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+                    }
+                }
+                .font(.caption)
+            }
+
+            Divider()
+
+            // Internet toggle
+            HStack(spacing: 8) {
+                Toggle("", isOn: $internetAccessEnabled)
+                    .labelsHidden()
+                Text("Allow internet access")
+                    .font(.subheadline)
+                Text("(web search, URL fetch)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            // Available tools — compact 2-column grid
+            Text("Available Tools")
+                .font(.subheadline.weight(.medium))
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                toolCell(icon: "magnifyingglass", name: "Search", subtitle: "DuckDuckGo", internet: true)
+                toolCell(icon: "globe", name: "URL", subtitle: "Fetch page", internet: true)
+                toolCell(icon: "calendar", name: "Calendar", subtitle: "Events", internet: false)
+                toolCell(icon: "timer", name: "Timer", subtitle: "Countdown", internet: false)
+                toolCell(icon: "note.text", name: "Notes", subtitle: "Apple Notes", internet: false)
+                toolCell(icon: "envelope", name: "Email", subtitle: "Compose", internet: false)
+                toolCell(icon: "macwindow", name: "Launch", subtitle: "Open app", internet: false)
+            }
+        }
+        .padding(20)
+    }
+
+    private func toolCell(icon: String, name: String, subtitle: String, internet: Bool) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(internet && !internetAccessEnabled ? .quaternary : .secondary)
+            HStack(spacing: 3) {
+                Text(name)
+                    .font(.caption2.weight(.medium))
+                    .lineLimit(1)
+                if internet {
+                    Circle()
+                        .fill(internetAccessEnabled ? .green : .gray.opacity(0.4))
+                        .frame(width: 4, height: 4)
+                }
+            }
+            Text(subtitle)
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.06)))
+        .opacity(internet && !internetAccessEnabled ? 0.5 : 1.0)
     }
 
     // MARK: - Model Tab
@@ -522,26 +582,20 @@ struct SettingsView: View {
 
                 GridRow {
                     Text(L("model.active_stt"))
-                    if modelManager.selectedModel.backendType == .liteRT {
-                        Text("Built into the LLM model")
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Picker("", selection: $modelManager.selectedSTTModel) {
-                            ForEach(STTModelRegistry.availableModels) { model in
-                                Button {} label: {
-                                    Text(L(model.description))
-                                    Text(model.estimatedMemoryGB > 0
-                                         ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))"
-                                         : model.name)
-                                }
-                                .tag(model)
-                                .disabled(modelExceedsRAM(model.estimatedMemoryGB))
+                    Picker("", selection: $modelManager.selectedSTTModel) {
+                        ForEach(STTModelRegistry.availableModels) { model in
+                            Button {} label: {
+                                Text(L(model.description))
+                                Text(model.estimatedMemoryGB > 0
+                                     ? "\(model.name) (\(formattedSize(model.estimatedMemoryGB)))"
+                                     : model.name)
                             }
+                            .tag(model)
+                            .disabled(modelExceedsRAM(model.estimatedMemoryGB))
                         }
-                        .labelsHidden()
-                        .frame(maxWidth: .infinity)
                     }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
                 }
 
                 Color.clear.frame(height: 18)

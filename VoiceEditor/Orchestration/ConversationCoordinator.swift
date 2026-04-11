@@ -12,7 +12,7 @@ import SwiftUI
 @MainActor
 final class ConversationCoordinator: ObservableObject {
     static let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pipeline")
-    @Published internal(set) var state: AppState = .idle
+    @Published var state: AppState = .idle
 
     /// True while any pipeline is active (listening, transcribing, generating, pasting).
     /// Used to show the Cancel button in the menu bar.
@@ -35,9 +35,9 @@ final class ConversationCoordinator: ObservableObject {
 
     /// Non-empty when the last result was displayed in the overlay instead of pasted
     /// (focused element was not editable). Auto-cleared after 20 seconds.
-    @Published internal(set) var displayModeResult: String = ""
+    @Published var displayModeResult: String = ""
     /// The TTS segment currently being spoken — used by the overlay to highlight text.
-    @Published internal(set) var ttsSpeakingSegment: String = ""
+    @Published var ttsSpeakingSegment: String = ""
     var stt: (any STTService)?
     var llm: (any LLMService)?
     private var hotkeyManager: HotkeyManager?
@@ -53,20 +53,20 @@ final class ConversationCoordinator: ObservableObject {
     var toolExecutor: ToolExecutor?
 
     /// Live transcription text for the overlay (updated during streaming; empty = show status label).
-    @Published internal(set) var liveTranscriptionText: String = ""
+    @Published var liveTranscriptionText: String = ""
     /// Accumulating LLM output shown in the overlay during generation; cleared before paste.
-    @Published internal(set) var streamingLLMText: String = ""
+    @Published var streamingLLMText: String = ""
     /// The active recording session — non-nil while the mic is recording.
     /// DictationOverlayPanel subscribes to this to start/stop level polling.
-    @Published internal(set) var activeRecordingSession: AudioCaptureService.ContinuousSession?
+    @Published var activeRecordingSession: AudioCaptureService.ContinuousSession?
 
-    @Published internal(set) var contextAwareMode: ContextAwareMode =
+    @Published var contextAwareMode: ContextAwareMode =
         ContextAwareMode(rawValue: UserDefaults.standard.string(forKey: "contextAwareMode") ?? "off") ?? .off
 
     /// When true, raw dictation transcripts are passed through a lightweight LLM pass
     /// that removes filler words and adds punctuation — without changing actual words.
     /// Only takes effect when an LLM is loaded (not the None sentinel).
-    @Published internal(set) var polishDictation: Bool =
+    @Published var polishDictation: Bool =
         UserDefaults.standard.bool(forKey: "polishDictation")
 
     /// Tracks the current internet access setting to detect changes and rebuild LLM service.
@@ -183,12 +183,13 @@ final class ConversationCoordinator: ObservableObject {
             }
         }
 
-        // Phase 1: STT — skip when LiteRT is active (Gemma handles audio natively)
-        if modelManager.selectedModel.backendType == .liteRT {
-            // LiteRT models have built-in audio understanding — no separate STT needed.
-            // This saves ~460MB RAM (Parakeet/WhisperKit model weights).
-            modelManager.sttReady = true
-        } else if stt == nil {
+        // Phase 1: STT — always load (needed for dictation even with LiteRT/Gemma 4)
+        // If the user has "None" selected (e.g. from a previous Gemma-only session),
+        // switch to Parakeet so dictation works out of the box.
+        if modelManager.selectedSTTModel.isNone {
+            modelManager.selectedSTTModel = STTModelRegistry.defaultModel
+        }
+        if stt == nil {
             modelManager.sttLoading = true
             do {
                 try await modelManager.reloadSTT()
@@ -493,10 +494,13 @@ final class ConversationCoordinator: ObservableObject {
 
                     for try await chunk in generationStream {
                         raw += chunk
-                        // Show raw tokens in overlay — postProcess() runs once on the final string.
-                        // Running regex cleanup per-token was O(N²); models with enable_thinking=false
-                        // produce no thinking blocks to strip mid-stream anyway.
-                        streamingLLMText = raw
+                        // Show tokens in overlay — but hide tool call tags from the user.
+                        // If a <tool_call> is in progress, show a status message instead.
+                        if raw.contains("<tool_call>") {
+                            streamingLLMText = "Searching…"
+                        } else {
+                            streamingLLMText = raw
+                        }
 
                         // Stream text segments to TTS as the LLM generates (display mode only).
                         if willStreamTTS {
@@ -542,11 +546,13 @@ final class ConversationCoordinator: ObservableObject {
                             guard let toolCall = await toolExecutor.detectToolCall(in: raw) else { break }
 
                             Self.log.info("Tool call detected: \(toolCall.name) — executing")
+                            streamingLLMText = "Using \(toolCall.name)…"
                             let toolResult = try await toolExecutor.execute(toolCall)
 
                             // Re-generate with tool result appended to the original prompt
                             let augmentedPrompt = prompt + "\n\nTool result for \(toolCall.name):\n\(toolResult)\n\nNow answer the user's question using this information. Output ONLY the final answer — no tool calls."
                             raw = ""
+                            streamingLLMText = ""
                             for try await chunk in llm.generateStream(prompt: augmentedPrompt, images: vlmImages, maxTokens: maxTokens) {
                                 raw += chunk
                                 streamingLLMText = raw
@@ -581,12 +587,28 @@ final class ConversationCoordinator: ObservableObject {
                     try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS)
                     lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
                     SoundPlayer.shared.playCompletion()
+                    Task.detached {
+                        await TranscriptionStore.shared.save(
+                            mode: .voiceEdit,
+                            transcription: trimmedCommand,
+                            llmResponse: cleaned,
+                            activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
+                            modelName: self.modelManager.selectedModel.name
+                        )
+                    }
                     modelManager.keepAlive()
                     if stt != nil { modelManager.keepSTTAlive() }
                 } else {
                     // STT-only mode (None selected): paste raw transcript directly
                     try await presentOutput(trimmedCommand, savedClipboard: savedClipboard)
                     SoundPlayer.shared.playCompletion()
+                    Task.detached {
+                        await TranscriptionStore.shared.save(
+                            mode: .voiceEdit,
+                            transcription: trimmedCommand,
+                            activeApp: NSWorkspace.shared.frontmostApplication?.localizedName
+                        )
+                    }
                     if stt != nil { modelManager.keepSTTAlive() }
                 }
 
@@ -695,6 +717,15 @@ final class ConversationCoordinator: ObservableObject {
                 try await presentOutput(cleaned, savedClipboard: savedClipboard, useDisplayMode: false)
 
                 SoundPlayer.shared.playCompletion()
+                Task.detached {
+                    await TranscriptionStore.shared.save(
+                        mode: .grammarFix,
+                        transcription: selectedText,
+                        llmResponse: cleaned,
+                        activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
+                        modelName: self.modelManager.selectedModel.name
+                    )
+                }
                 modelManager.keepAlive()
                 state = .idle
             } catch is CancellationError {
@@ -825,9 +856,8 @@ final class ConversationCoordinator: ObservableObject {
         let isScreenAware = contextAwareMode != .off
         var systemPrompt = family.systemPrompt(screenAware: isScreenAware)
 
-        // Inject tool definitions when internet access is enabled and the model supports it
-        let internetEnabled = preferences.internetAccessEnabled
-        if internetEnabled && family.supportsToolUse {
+        // Inject tool definitions — calendar tools always available, internet tools gated by preference
+        if family.supportsToolUse {
             let executor = makeToolExecutor()
             toolExecutor = executor
             let toolPrompt = buildToolDefinitionsPrompt()
@@ -843,17 +873,20 @@ final class ConversationCoordinator: ObservableObject {
         )
     }
 
-    /// Creates a ToolExecutor with web search and URL fetch tools.
+    /// Creates a ToolExecutor. Calendar tools are always included;
+    /// internet tools (web search, URL fetch) only when internet access is enabled.
     func makeToolExecutor() -> ToolExecutor {
-        let searchService = DuckDuckGoSearchService()
-        let fetchService = ReadabilityWebFetcher()
-        let tools: [any Tool] = [
-            WebSearchTool(searchService: searchService),
-            FetchURLTool(fetchService: fetchService),
+        var tools: [any Tool] = [
             ListEventsTool(),
             FindFreeTimeTool(),
             CheckAvailabilityTool(),
         ]
+        if preferences.internetAccessEnabled {
+            let searchService = DuckDuckGoSearchService()
+            let fetchService = ReadabilityWebFetcher()
+            tools.insert(WebSearchTool(searchService: searchService), at: 0)
+            tools.insert(FetchURLTool(fetchService: fetchService), at: 1)
+        }
         return ToolExecutor(tools: tools)
     }
 
@@ -866,21 +899,42 @@ final class ConversationCoordinator: ObservableObject {
         let weekday = Calendar.current.weekdaySymbols[
             Calendar.current.component(.weekday, from: Date()) - 1
         ]
-        return """
-        Current date and time: \(nowISO) (\(weekday))
 
-        You have access to the following tools to help answer questions:
-
-        - **web_search**: Search the web for current information.
-          Parameters: {"query": "your search query"}
-        - **fetch_url**: Fetch and read a web page.
-          Parameters: {"url": "https://example.com/page"}
+        let internetEnabled = preferences.internetAccessEnabled
+        var toolDefs = """
         - **list_events**: List calendar events for a date range.
           Parameters: {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
         - **find_free_time**: Find free time slots on a given date.
           Parameters: {"date": "YYYY-MM-DD", "start_hour": "9", "end_hour": "18"}
         - **check_availability**: Check if a specific time is free.
           Parameters: {"datetime": "YYYY-MM-DDTHH:mm", "duration_minutes": "60"}
+        """
+        if internetEnabled {
+            toolDefs = """
+            - **web_search**: Search the web for current information.
+              Parameters: {"query": "your search query"}
+            - **fetch_url**: Fetch and read a web page.
+              Parameters: {"url": "https://example.com/page"}
+            """ + "\n" + toolDefs
+        }
+
+        var useRules = """
+        - The user asks about their calendar, schedule, availability, or free time
+        """
+        if internetEnabled {
+            useRules = """
+            - The user asks about current events, news, or time-sensitive information
+            - The user mentions or asks about a specific URL
+            - The user explicitly asks you to search or look something up
+            """ + "\n" + useRules
+        }
+
+        return """
+        Current date and time: \(nowISO) (\(weekday))
+
+        You have access to the following tools to help answer questions:
+
+        \(toolDefs)
 
         When you need to use a tool, output EXACTLY this format (no other text around it):
         <tool_call>
@@ -888,15 +942,13 @@ final class ConversationCoordinator: ObservableObject {
         </tool_call>
 
         Use tools when:
-        - The user asks about current events, news, or time-sensitive information
-        - The user asks about their calendar, schedule, availability, or free time
-        - The user mentions or asks about a specific URL
-        - The user explicitly asks you to search or look something up
+        \(useRules)
 
         Do NOT use tools for:
         - Text editing, rewriting, or grammar fixes
         - Creative writing or drafting
         - Questions you can confidently answer from your training data
+        - Opening or launching applications
 
         After receiving tool results, incorporate the information naturally into your response. \
         Output ONLY the final answer text -- no tool call tags in the final response.
