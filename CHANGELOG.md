@@ -7,6 +7,7 @@ All notable changes to Hitoku Draft are documented in this file.
 ### Fixed
 - **Memory spike when toggling "Allow vision" with Gemma 4** — Toggling the checkbox reloaded the LiteRT model unnecessarily, creating a second engine before freeing the first (12+ GB observed). LiteRT models have built-in vision and no longer reload on vision toggle.
 - **Missing translations** — Tools tab, model descriptions, and "Polish dictation" label/description were hardcoded English or missing from Spanish/French/Italian. ~30 new localization keys added per language.
+- **TTS not pronouncing numbers** — Number-to-words conversion only ran in the streaming path. Full-text speak and "Read Aloud" button now also convert numbers ("42" → "forty-two").
 - **What's New window** — Updated content for v1.6.0 features.
 - **Overlay pill sizing** — Removed 40pt of dead space in listening/generating states.
 - **Overlay on wrong screen** — `NSScreen.main` now captured at hotkey-press time instead of lazily at panel creation.
