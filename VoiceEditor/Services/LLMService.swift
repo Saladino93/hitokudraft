@@ -13,7 +13,7 @@ protocol LLMService: Sendable {
     /// Streams tokens with optional images for VLM models.
     /// Text-only models ignore the images parameter.
     func generateStream(prompt: String, images: [CGImage], maxTokens: Int) -> AsyncThrowingStream<String, Error>
-    /// Streams tokens with raw audio data for multimodal backends (e.g. LiteRT + Gemma 4).
+    /// Streams tokens with raw audio data for multimodal backends.
     /// Backends that don't support audio ignore it and generate from the text prompt only.
     func generateStream(prompt: String, audio: Data, maxTokens: Int) -> AsyncThrowingStream<String, Error>
     func warmup() async throws

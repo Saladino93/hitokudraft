@@ -1,14 +1,13 @@
 import Foundation
 
 enum STTBackend: String, Hashable, Sendable {
-    case fluidAudio      // CoreML Parakeet TDT (ANE)
-    case mlxAudio        // Transformer models via mlx-audio-swift (Metal GPU)
+    case fluidAudio      // CoreML models via FluidAudio (ANE)
     case whisperKit      // Whisper models via WhisperKit (CoreML/ANE)
 }
 
 struct STTModelOption: Identifiable, Hashable {
     let name: String
-    let path: String          // HuggingFace repo ID (mlxAudio) or empty (fluidAudio)
+    let path: String          // HuggingFace repo ID or empty (fluidAudio default)
     let backend: STTBackend
     let description: String
     let estimatedMemoryGB: Double
@@ -67,20 +66,11 @@ enum STTModelRegistry {
             languageRestriction: nil
         ),
         STTModelOption(
-            name: "Qwen3-ASR 0.6B (6-bit)",
-            path: "mlx-community/Qwen3-ASR-0.6B-6bit",
-            backend: .mlxAudio,
-            description: "Lightweight streaming ASR (multilingual)",
-            estimatedMemoryGB: 0.8,
-            supportsNativeStreaming: true,
-            languageRestriction: nil
-        ),
-        STTModelOption(
-            name: "Qwen3-ASR 1.7B",
-            path: "mlx-community/Qwen3-ASR-1.7B-bf16",
-            backend: .mlxAudio,
-            description: "High-quality streaming ASR (multilingual)",
-            estimatedMemoryGB: 3.4,
+            name: "Qwen3-ASR 0.6B",
+            path: "qwen3-asr",
+            backend: .fluidAudio,
+            description: "Multilingual streaming ASR (30+ languages)",
+            estimatedMemoryGB: 0.7,
             supportsNativeStreaming: true,
             languageRestriction: nil
         ),

@@ -9,12 +9,10 @@ let package = Package(
         .library(name: "HitokuInference", targets: ["HitokuInference"]),
         // MLX backend — wraps MLXLLM / MLXVLM via ModelContainer
         .library(name: "MLXBackend", targets: ["MLXBackend"]),
-        // LiteRT-LM backend — wraps C API for native multimodal inference
-        .library(name: "LiteRTBackend", targets: ["LiteRTBackend"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/ml-explore/mlx-swift-lm", revision: "6bb84aa"),
-        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMinor(from: "0.30.6")),
+        .package(url: "https://github.com/adrgrondin/mlx-swift-lm", revision: "c21a372"),
+        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMinor(from: "0.31.3")),
     ],
     targets: [
         .target(
@@ -32,21 +30,6 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
             ],
             path: "Sources/MLXBackend"
-        ),
-        // C module wrapping the LiteRT-LM engine.h header
-        .systemLibrary(
-            name: "CLiteRTEngine",
-            path: "Sources/CLiteRTEngine",
-            pkgConfig: nil,
-            providers: nil
-        ),
-        .target(
-            name: "LiteRTBackend",
-            dependencies: [
-                "HitokuInference",
-                "CLiteRTEngine",
-            ],
-            path: "Sources/LiteRTBackend"
         ),
         .testTarget(
             name: "HitokuInferenceTests",

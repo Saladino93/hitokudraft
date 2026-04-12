@@ -204,9 +204,9 @@ struct Gemma4ModelFamily: ModelFamily {
 
     func systemPrompt(screenAware: Bool) -> String {
         if screenAware {
-            return Prompts.screenAwareVoiceCleanSystemPrompt + "\nUse on-screen context and any provided visuals/audio to produce a complete answer."
+            return Prompts.screenAwareVoiceCleanSystemPrompt + "\nUse on-screen context and any provided visuals to produce a complete answer."
         } else {
-            return Prompts.voiceCleanSystemPrompt + "\nUse audio cues to understand intent; avoid terse responses."
+            return Prompts.voiceCleanSystemPrompt
         }
     }
 
@@ -241,8 +241,7 @@ struct Gemma4ModelFamily: ModelFamily {
     let disableThinking = false
 
     // Gemma 4 thinking blocks consume ~100-200 tokens before the real response.
-    // Budget must account for this overhead. Repetition detection (20-chunk window
-    // in LiteRTInferenceBackend) prevents runaway loops independently.
+    // Budget must account for this overhead.
     let draftMaxTokens: Int = 800
 
     func editMaxTokens(for text: String) -> Int {

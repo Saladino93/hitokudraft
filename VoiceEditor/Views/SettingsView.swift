@@ -570,8 +570,6 @@ struct SettingsView: View {
                             Toggle("Allow vision (sees screenshots, slower)", isOn: $visionEnabled)
                                 .toggleStyle(.checkbox)
                                 .onChange(of: visionEnabled) {
-                                    // LiteRT models have built-in vision — no reload needed.
-                                    guard modelManager.selectedModel.backendType != .liteRT else { return }
                                     // Force reload: same model path but different factory (VLM vs text-only).
                                     coordinator.modelManager.loadedModelPath = nil
                                     // Go through the coordinator so in-flight loads are cancelled,

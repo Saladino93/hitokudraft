@@ -34,16 +34,9 @@ public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
     public var isLoaded: Bool { container != nil }
 
     public func loadModel(at path: String, config: BackendConfig) async throws {
-        self.config = config
-
-        let isVLM = config.extra["isVLM"] as? Bool ?? false
-        let factory: any ModelFactory = isVLM
-            ? VLMModelFactory.shared
-            : LLMModelFactory.shared
-
-        let modelConfig = ModelConfiguration(id: path)
-        let loaded = try await factory.loadContainer(configuration: modelConfig)
-        self.container = loaded
+        // ModelManager loads containers directly and passes them via init.
+        // This method exists for InferenceBackend protocol conformance.
+        fatalError("Use init(container:config:) instead — direct loading not supported in 3.x API")
     }
 
     public func unload() {
@@ -113,7 +106,12 @@ public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
             messages.append(.user(effectivePrompt))
         }
 
-        let userInput = UserInput(chat: messages, additionalContext: templateContext)
+        var userInput = UserInput(chat: messages, additionalContext: templateContext)
+        // Workaround: UserInput.init doesn't fire didSet on .images, so VLM processors
+        // that check input.images.isEmpty miss them. Set explicitly after init.
+        if let images = request.images, !images.isEmpty {
+            userInput.images = images.map { .ciImage(CIImage(cgImage: $0)) }
+        }
         return try await container.prepare(input: userInput)
     }
 

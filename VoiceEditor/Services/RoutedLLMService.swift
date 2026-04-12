@@ -49,7 +49,7 @@ final class RoutedLLMService: LLMService, @unchecked Sendable {
         return router.generate(request: request)
     }
 
-    /// Combined audio + images for full multimodal (LiteRT: hear voice + see screen).
+    /// Combined audio + images for full multimodal input.
     func generateStream(prompt: String, audio: Data, images: [CGImage], maxTokens: Int) -> AsyncThrowingStream<String, Error> {
         var request = makeRequest(prompt: prompt, maxTokens: maxTokens, temperature: family.temperature)
         request.audio = audio
@@ -65,10 +65,6 @@ final class RoutedLLMService: LLMService, @unchecked Sendable {
     }
 
     func warmup() async throws {
-        // LiteRT engine warms up during loadModel (GPU shader compilation).
-        // Sending a dummy generate would create/destroy a conversation just to discard output.
-        // Only do warmup for MLX backends where it primes the model cache.
-        guard !supportsAudioInput else { return }
         _ = try await generate(prompt: "Hello", maxTokens: 1)
     }
 

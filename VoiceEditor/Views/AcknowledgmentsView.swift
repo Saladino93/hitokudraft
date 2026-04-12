@@ -52,14 +52,7 @@ struct AcknowledgmentsView: View {
                     name: "HitokuInference",
                     source: "Local vendored copy",
                     license: "Proprietary (part of this project)",
-                    usedFor: "Unified inference routing across MLX and LiteRT backends, multimodal input (text, audio, image)"
-                )
-
-                LibraryCard(
-                    name: "LiteRT-LM",
-                    source: "ai.google.dev/edge/litert",
-                    license: "Apache 2.0 — Google",
-                    usedFor: "On-device multimodal inference engine for Gemma 4 models (bundled dylibs)"
+                    usedFor: "Unified inference routing via MLX, multimodal input (text, audio, image)"
                 )
 
                 LibraryCard(
@@ -81,13 +74,6 @@ struct AcknowledgmentsView: View {
                     source: "github.com/sindresorhus/KeyboardShortcuts",
                     license: "MIT — Copyright © Sindre Sorhus",
                     usedFor: "Global hotkey registration (voice edit, dictation, grammar fix)"
-                )
-
-                LibraryCard(
-                    name: "mlx-audio-swift — v0.1.1",
-                    source: "github.com/Blaizzy/mlx-audio-swift",
-                    license: "MIT",
-                    usedFor: "Audio speech-to-text (MLXAudio, MLXAudioSTT) for on-device transcription"
                 )
 
                 LibraryCard(
@@ -170,13 +156,6 @@ struct AcknowledgmentsView: View {
                     license: "Apache 2.0 — Commercial use permitted",
                     by: "Alibaba Cloud (Qwen Team)",
                     note: "Native streaming speech recognition with multilingual support"
-                )
-
-                ModelCard(
-                    name: "Google Gemma 4 E2B / E4B (LiteRT)",
-                    license: "Gemma Terms of Use — Commercial use permitted",
-                    by: "Google DeepMind",
-                    note: "Native multimodal inference (audio + vision) via LiteRT. Requires acceptance of Google's Terms of Use."
                 )
 
                 ModelCard(

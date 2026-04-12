@@ -62,7 +62,6 @@ final class ActionCoordinator {
         guard let audioCapture else { return }
         let llm = getLLM()
         guard llm != nil else { return }  // Action Mode requires LLM for routing
-        // STT can be nil when LiteRT is active (Gemma handles audio natively)
         let stt = getSTT()
 
         // Phase 1: Listen
@@ -80,31 +79,16 @@ final class ActionCoordinator {
             return
         }
 
-        // Phase 2: Transcribe (STT if available, otherwise Gemma via audio-direct)
+        // Phase 2: Transcribe
         onStateChange?(.transcribing)
         let transcript: String
-        if let stt {
-            do {
-                transcript = try await stt.transcribe(samples: samples)
-            } catch {
-                onStateChange?(.idle)
-                return
-            }
-        } else if let routedLLM = llm as? RoutedLLMService, routedLLM.supportsAudioInput {
-            // LiteRT path: Gemma transcribes the audio natively
-            do {
-                let audioData = AudioEncoder.wavData(from: samples)
-                var raw = ""
-                for try await chunk in routedLLM.generateStream(
-                    prompt: "Transcribe this audio exactly as spoken. Output only the transcription.",
-                    audio: audioData, maxTokens: 200
-                ) { raw += chunk }
-                transcript = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            } catch {
-                onStateChange?(.idle)
-                return
-            }
-        } else {
+        guard let stt else {
+            onStateChange?(.idle)
+            return
+        }
+        do {
+            transcript = try await stt.transcribe(samples: samples)
+        } catch {
             onStateChange?(.idle)
             return
         }

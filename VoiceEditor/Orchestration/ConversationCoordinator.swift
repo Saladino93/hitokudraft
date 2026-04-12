@@ -4,7 +4,6 @@ import NaturalLanguage
 import UserNotifications
 import FluidAudio
 import HitokuInference
-import MLXAudioSTT
 import MLXLMCommon
 import os
 import SwiftUI
@@ -183,9 +182,8 @@ final class ConversationCoordinator: ObservableObject {
             }
         }
 
-        // Phase 1: STT — always load (needed for dictation even with LiteRT/Gemma 4)
-        // If the user has "None" selected (e.g. from a previous Gemma-only session),
-        // switch to Parakeet so dictation works out of the box.
+        // Phase 1: STT — always load (needed for dictation and voice edit).
+        // If the user has "None" selected, switch to Parakeet so dictation works out of the box.
         if modelManager.selectedSTTModel.isNone {
             modelManager.selectedSTTModel = STTModelRegistry.defaultModel
         }
@@ -315,7 +313,7 @@ final class ConversationCoordinator: ObservableObject {
         modelManager.cancelSTTOffload()
         Task { await TTSService.shared.stop() }
 
-        // Ensure STT ready (skip for LiteRT)
+        // Ensure STT ready
         do { try await ensureSTTReady() } catch {
             state = .error(error.localizedDescription)
             resetErrorAfterDelay()
@@ -338,9 +336,7 @@ final class ConversationCoordinator: ObservableObject {
             }
         }
 
-        // STT can be nil when LiteRT is active (Gemma handles audio natively)
-        let needsSTT = modelManager.selectedModel.backendType != .liteRT
-        guard !needsSTT || stt != nil else {
+        guard stt != nil else {
             state = .error(VoiceEditorError.modelsNotLoaded.localizedDescription)
             resetErrorAfterDelay()
             return
@@ -374,24 +370,13 @@ final class ConversationCoordinator: ObservableObject {
                 // Streaming transcription loop — shows live text while recording
                 // Path A (legacy): 300ms re-transcription poll
                 // Path B (native): Qwen3-ASR StreamingInferenceSession
-                // LiteRT handles audio natively — no live STT transcription needed
-                let lastTranscription: String
-                if let stt {
-                    lastTranscription = await runStreamingTranscription(
-                        session: session,
-                        stt: stt,
-                        onTextUpdate: { [weak self] text in
-                            self?.liveTranscriptionText = text
-                        }
-                    )
-                } else {
-                    // No STT (LiteRT audio-direct) — wait for silence detection manually.
-                    // runStreamingTranscription normally does this polling loop; replicate it here.
-                    while !Task.isCancelled && !session.isSilenceDetected {
-                        try await Task.sleep(for: .milliseconds(100))
+                let lastTranscription = await runStreamingTranscription(
+                    session: session,
+                    stt: stt!,
+                    onTextUpdate: { [weak self] text in
+                        self?.liveTranscriptionText = text
                     }
-                    lastTranscription = ""
-                }
+                )
 
                 // Check cancellation after recording phase
                 guard !Task.isCancelled else {
@@ -419,18 +404,10 @@ final class ConversationCoordinator: ObservableObject {
                     throw VoiceEditorError.emptyTranscription
                 }
 
-                // Audio-direct path: when the active backend supports native audio input
-                // (e.g. LiteRT + Gemma 4 E2B), skip STT entirely and send raw audio to the LLM.
-                let audioDirectMode = (llm as? RoutedLLMService)?.supportsAudioInput == true
-
                 // For native streaming, the session already finalized the text.
                 // For legacy polling, do a final transcription on the complete buffer.
                 let command: String
-                if audioDirectMode {
-                    // No STT needed — the model will hear the voice instruction directly.
-                    // Use a placeholder; the actual instruction is in the audio data.
-                    command = "[voice instruction]"
-                } else if modelManager.selectedSTTModel.supportsNativeStreaming && !lastTranscription.isEmpty {
+                if modelManager.selectedSTTModel.supportsNativeStreaming && !lastTranscription.isEmpty {
                     command = lastTranscription
                 } else {
                     state = .transcribing
@@ -468,10 +445,8 @@ final class ConversationCoordinator: ObservableObject {
                     let maxTokens: Int
 
                     // Build effective instruction — prepend previous result for follow-up commands.
-                    // Skip multi-turn for audio-direct: the model hears the instruction in the audio,
-                    // so "[voice instruction]" placeholder must not be wrapped in follow-up context.
                     let effectiveInstruction: String
-                    if !audioDirectMode, let ctx = lastEditContext, !ctx.isExpired, selectedText.isEmpty {
+                    if let ctx = lastEditContext, !ctx.isExpired, selectedText.isEmpty {
                         effectiveInstruction = """
                         Previous result: \(ctx.result)
                         Follow-up: \(trimmedCommand)
@@ -511,7 +486,6 @@ final class ConversationCoordinator: ObservableObject {
                     }
 
                     // Pass screenshot to VLM models — only when "Allow vision" is enabled.
-                    // This applies to both MLX (Qwen3.5) and LiteRT (Gemma 4).
                     let visionEnabled = UserDefaults.standard.bool(forKey: "visionEnabled")
                     let vlmImages: [CGImage] = {
                         guard visionEnabled, modelManager.selectedModel.isVLM,
@@ -522,18 +496,7 @@ final class ConversationCoordinator: ObservableObject {
                     var raw = ""
                     raw.reserveCapacity(4096)
 
-                    // Choose stream: audio-direct (LiteRT) or text-based (MLX).
-                    let generationStream: AsyncThrowingStream<String, Error>
-                    if audioDirectMode, let routedLLM = llm as? RoutedLLMService {
-                        // Gemma 4: send audio (voice instruction) + images (screen) together
-                        let audioData = AudioEncoder.wavData(from: samples)
-                        generationStream = routedLLM.generateStream(
-                            prompt: prompt, audio: audioData, images: vlmImages, maxTokens: maxTokens)
-                    } else {
-                        generationStream = llm.generateStream(prompt: prompt, images: vlmImages, maxTokens: maxTokens)
-                    }
-
-                    for try await chunk in generationStream {
+                    for try await chunk in llm.generateStream(prompt: prompt, images: vlmImages, maxTokens: maxTokens) {
                         raw += chunk
                         // Show tokens in overlay — but hide tool call tags from the user.
                         // If a <tool_call> is in progress, show a status message instead.
@@ -923,10 +886,6 @@ final class ConversationCoordinator: ObservableObject {
         case .fluidAudio:
             guard let models = modelManager.asrModels else { return nil }
             return try await FluidAudioSTT(models: models)
-        case .mlxAudio:
-            let path = modelManager.selectedSTTModel.path
-            guard !path.isEmpty else { return nil }
-            return try await MLXAudioSTTService(modelPath: path, cacheDirectory: modelCacheDirectory)
         case .whisperKit:
             let modelName = modelManager.selectedSTTModel.path
             return try await WhisperKitSTTService(modelName: modelName)

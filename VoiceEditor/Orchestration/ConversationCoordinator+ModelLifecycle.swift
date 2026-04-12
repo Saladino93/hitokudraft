@@ -177,11 +177,6 @@ extension ConversationCoordinator {
 
     /// Reloads STT from disk if it was offloaded. No-op if already loaded.
     func ensureSTTReady() async throws {
-        // LiteRT models handle audio natively — no separate STT needed
-        if modelManager.selectedModel.backendType == .liteRT {
-            modelManager.sttReady = true
-            return
-        }
         guard stt == nil else { return }
         modelManager.sttLoading = true
         defer { modelManager.sttLoading = false }

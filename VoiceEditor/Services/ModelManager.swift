@@ -6,8 +6,9 @@ import MLXLLM
 import MLXVLM
 import MLXLMCommon
 import HitokuInference
-import LiteRTBackend
 import MLXBackend
+import HuggingFace
+import Tokenizers
 
 @MainActor
 final class ModelManager: ObservableObject {
@@ -59,7 +60,7 @@ final class ModelManager: ObservableObject {
     var llmDisabled: Bool { selectedModel.isNone }
 
     /// Path of the last successfully-loaded LLM — prevents redundant reloads.
-    /// Path of the last loaded model. Set to nil to force a reload on next `loadModel()`.
+    /// Set to nil to force a reload on next `loadModel()`.
     var loadedModelPath: String?
 
     /// Path of the model that was loaded before the current one.
@@ -117,9 +118,8 @@ final class ModelManager: ObservableObject {
     }
 
     /// Reset the independent 2-minute STT inactivity timer.
-    /// Call after any pipeline that used STT (dictation, voice edit with separate STT).
-    /// When Gemma 4 loads STT on-demand for dictation, this lets STT (~460 MB)
-    /// free independently from the LLM, which has its own 5-minute timer.
+    /// Call after any pipeline that used STT (dictation, voice edit).
+    /// STT (~460 MB) frees independently from the LLM, which has its own 5-minute timer.
     func keepSTTAlive() {
         guard autoOffloadEnabled else { return }
         sttIdleOffloadTask?.cancel()
@@ -179,8 +179,6 @@ final class ModelManager: ObservableObject {
         let router = inferenceRouter
         let keys = router.registeredKeys
         if !keys.isEmpty {
-            // Run unload off MainActor (LiteRT engineDelete can take seconds)
-            // but await completion before proceeding.
             await Task.detached {
                 for key in keys { router.remove(key) }
             }.value
@@ -192,37 +190,14 @@ final class ModelManager: ObservableObject {
         loadedModelPath = nil
         statusMessage = "Loading \(model.name)..."
 
-        switch model.backendType {
-        case .mlx:
-            try await loadMLXModel(model)
-        case .liteRT:
-            do {
-                try await loadLiteRTModel(model)
-            } catch {
-                print("[ModelManager] LiteRT loading FAILED: \(error)")
-                // Graceful fallback: if LiteRT fails (missing dylibs, bad model, etc.),
-                // fall back to the smart MLX default so the app remains functional.
-                statusMessage = "LiteRT unavailable, falling back to MLX..."
-                let fallback = ModelRegistry.smartDefault
-                if !fallback.isNone {
-                    try await loadMLXModel(fallback)
-                    // Update loadedModelPath to the fallback, not the failed LiteRT model
-                    self.llmReady = true
-                    self.loadedModelPath = fallback.path
-                    statusMessage = ""
-                    return
-                } else {
-                    throw error
-                }
-            }
-        }
+        try await loadMLXModel(model)
 
         self.llmReady = true
         self.loadedModelPath = model.path
         statusMessage = ""
     }
 
-    // MARK: - MLX Loading (existing path)
+    // MARK: - MLX Loading
 
     private func loadMLXModel(_ model: ModelOption) async throws {
         let visionEnabled = UserDefaults.standard.bool(forKey: "visionEnabled")
@@ -231,6 +206,8 @@ final class ModelManager: ObservableObject {
             ? VLMModelFactory.shared
             : LLMModelFactory.shared
         let container = try await factory.loadContainer(
+            from: HubDownloaderBridge(),
+            using: HubTokenizerLoaderBridge(),
             configuration: model.configuration
         ) { [weak self] progress in
             Task { @MainActor in
@@ -253,86 +230,6 @@ final class ModelManager: ObservableObject {
         let mlxBackend = MLXInferenceBackend(container: container, config: backendConfig)
         inferenceRouter.register(mlxBackend, as: "mlx")
         inferenceRouter.preferred = "mlx"
-    }
-
-    // MARK: - LiteRT Loading
-
-    private func loadLiteRTModel(_ model: ModelOption) async throws {
-        guard let filename = model.liteRTFilename else {
-            throw LiteRTLoadError.missingFilename
-        }
-
-        // Download .litertlm from HuggingFace if not cached
-        let cacheDir = Self.modelsCacheRoot.appendingPathComponent(model.path)
-        let modelFile = cacheDir.appendingPathComponent(filename)
-
-        if !FileManager.default.fileExists(atPath: modelFile.path) {
-            statusMessage = "Downloading \(model.name)..."
-            try await downloadLiteRTModel(repo: model.path, filename: filename, to: cacheDir)
-        }
-
-        statusMessage = "Loading \(model.name)..."
-
-        // Configure cache dir for LiteRT (speeds up subsequent loads)
-        let liteRTCacheDir = cacheDir.appendingPathComponent("cache").path
-        try? FileManager.default.createDirectory(atPath: liteRTCacheDir, withIntermediateDirectories: true)
-
-        let config = BackendConfig(extra: [
-            "backend": "gpu",
-            "cacheDir": liteRTCacheDir,
-        ])
-
-        let backend = LiteRTInferenceBackend()
-        print("[ModelManager] LiteRT runtime available: \(backend.isRuntimeAvailable)")
-        guard backend.isRuntimeAvailable else {
-            print("[ModelManager] LiteRT runtime NOT available — dylibs missing")
-            throw LiteRTLoadError.runtimeNotAvailable
-        }
-
-        // LiteRT engine creation is a heavy synchronous C call (~1-2s).
-        // Run it off the MainActor to avoid watchdog termination.
-        let modelPath = modelFile.path
-        print("[ModelManager] Loading LiteRT engine at: \(modelPath)")
-        try await Task.detached {
-            try await backend.loadModel(at: modelPath, config: config)
-        }.value
-        print("[ModelManager] LiteRT engine loaded: \(backend.isLoaded)")
-
-        inferenceRouter.register(backend, as: "litert")
-        inferenceRouter.preferred = "litert"
-
-        // Unload STT models — Gemma handles audio natively, saves ~460MB
-        asrModels = nil
-        sttReady = true  // Show green — Gemma IS the STT
-        print("[ModelManager] LiteRT registered, STT unloaded (Gemma handles audio)")
-    }
-
-    /// Downloads a single file from a HuggingFace repo to the given directory.
-    private func downloadLiteRTModel(repo: String, filename: String, to directory: URL) async throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let destination = directory.appendingPathComponent(filename)
-
-        let urlString = "https://huggingface.co/\(repo)/resolve/main/\(filename)"
-        guard let url = URL(string: urlString) else {
-            throw LiteRTLoadError.invalidURL
-        }
-
-        // Stream download with progress reporting
-        let delegate = DownloadProgressDelegate { [weak self] fraction in
-            Task { @MainActor in
-                self?.llmProgress = fraction
-            }
-        }
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-
-        let (tempURL, response) = try await session.download(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw LiteRTLoadError.downloadFailed
-        }
-
-        try FileManager.default.moveItem(at: tempURL, to: destination)
     }
 
     /// Reload only the LLM with the currently selected model.
@@ -360,9 +257,6 @@ final class ModelManager: ObservableObject {
             let models = try await AsrModels.downloadAndLoad(to: asrCacheDirectory, version: .v3)
             self.asrModels = models
             self.sttReady = true
-        case .mlxAudio:
-            // Coordinator will handle loading via MLXAudioSTTService init
-            break
         case .whisperKit:
             // Coordinator will handle loading via WhisperKitSTTService init (downloads internally)
             break
@@ -392,50 +286,78 @@ final class ModelManager: ObservableObject {
     }
 }
 
-// MARK: - LiteRT Errors
+// MARK: - MLX 3.x Bridge (replaces MLXHuggingFace macros)
 
-enum LiteRTLoadError: LocalizedError {
-    case missingFilename
-    case runtimeNotAvailable
-    case invalidURL
-    case downloadFailed
+/// Bridges HuggingFace Hub client to MLXLMCommon.Downloader protocol.
+private struct HubDownloaderBridge: MLXLMCommon.Downloader {
+    private let hub = HubClient()
 
-    var errorDescription: String? {
-        switch self {
-        case .missingFilename: return "LiteRT model has no filename configured."
-        case .runtimeNotAvailable: return "LiteRT runtime not available. Ensure dylibs are in app Frameworks/."
-        case .invalidURL: return "Invalid HuggingFace download URL."
-        case .downloadFailed: return "Failed to download LiteRT model."
+    func download(
+        id: String,
+        revision: String?,
+        matching patterns: [String],
+        useLatest: Bool,
+        progressHandler: @Sendable @escaping (Progress) -> Void
+    ) async throws -> URL {
+        guard let repoID = HuggingFace.Repo.ID(rawValue: id) else {
+            throw URLError(.badURL)
         }
+        return try await hub.downloadSnapshot(
+            of: repoID,
+            revision: revision ?? "main",
+            matching: patterns,
+            progressHandler: { @MainActor progress in progressHandler(progress) }
+        )
     }
 }
 
-// MARK: - Download Progress
+/// Bridges swift-transformers AutoTokenizer to MLXLMCommon.TokenizerLoader protocol.
+private struct HubTokenizerLoaderBridge: MLXLMCommon.TokenizerLoader {
+    func load(from directory: URL) async throws -> any MLXLMCommon.Tokenizer {
+        let upstream = try await AutoTokenizer.from(modelFolder: directory)
+        return TokenizerBridge(upstream)
+    }
+}
 
-/// URLSession delegate that reports download progress via a closure.
-private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
-    private let onProgress: (Double) -> Void
+/// Adapts `Tokenizers.Tokenizer` (swift-transformers) to `MLXLMCommon.Tokenizer`.
+/// The two protocols have slightly different method signatures (e.g. `decode(tokens:)` vs `decode(tokenIds:)`).
+private struct TokenizerBridge: MLXLMCommon.Tokenizer {
+    private let upstream: any Tokenizers.Tokenizer
 
-    init(onProgress: @escaping (Double) -> Void) {
-        self.onProgress = onProgress
+    init(_ upstream: any Tokenizers.Tokenizer) {
+        self.upstream = upstream
     }
 
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didWriteData bytesWritten: Int64,
-        totalBytesWritten: Int64,
-        totalBytesExpectedToWrite: Int64
-    ) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    func encode(text: String, addSpecialTokens: Bool) -> [Int] {
+        upstream.encode(text: text, addSpecialTokens: addSpecialTokens)
     }
 
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didFinishDownloadingTo location: URL
-    ) {
-        // Handled by the async download(from:) return value
+    func decode(tokenIds: [Int], skipSpecialTokens: Bool) -> String {
+        upstream.decode(tokens: tokenIds, skipSpecialTokens: skipSpecialTokens)
+    }
+
+    func convertTokenToId(_ token: String) -> Int? {
+        upstream.convertTokenToId(token)
+    }
+
+    func convertIdToToken(_ id: Int) -> String? {
+        upstream.convertIdToToken(id)
+    }
+
+    var bosToken: String? { upstream.bosToken }
+    var eosToken: String? { upstream.eosToken }
+    var unknownToken: String? { upstream.unknownToken }
+
+    func applyChatTemplate(
+        messages: [[String: any Sendable]],
+        tools: [[String: any Sendable]]?,
+        additionalContext: [String: any Sendable]?
+    ) throws -> [Int] {
+        do {
+            return try upstream.applyChatTemplate(
+                messages: messages, tools: tools, additionalContext: additionalContext)
+        } catch Tokenizers.TokenizerError.missingChatTemplate {
+            throw MLXLMCommon.TokenizerError.missingChatTemplate
+        }
     }
 }

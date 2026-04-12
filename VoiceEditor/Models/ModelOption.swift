@@ -1,18 +1,9 @@
 import Foundation
 import MLXLMCommon
 
-/// Which inference framework loads and runs this model.
-enum InferenceBackendType: String, Codable, Hashable {
-    case mlx       // MLX via ModelContainer (existing)
-    case liteRT    // LiteRT-LM via C API + dylibs
-}
-
 struct ModelOption: Identifiable, Hashable, Codable {
     let name: String       // display name in UI
     let path: String       // HuggingFace repo ID or absolute local path
-    var backendType: InferenceBackendType = .mlx
-    /// HuggingFace filename to download for LiteRT models (e.g. "gemma-4-E2B-it.litertlm").
-    var liteRTFilename: String?
     var extraEOSTokens: Set<String> = []
     /// Qwen3-style models default to "thinking" mode, consuming most of the token
     /// budget on a <think> block. Set true to append `/no_think` to prompts.
@@ -47,12 +38,11 @@ struct ModelOption: Identifiable, Hashable, Codable {
     var isNone: Bool { path == "__none__" }
 
     /// True when the model should be loaded via VLMModelFactory (vision path).
-    /// Qwen3.5 is natively multimodal — all sizes are VLMs. Other families use
-    /// explicit "-VL" or "-vlm" suffix convention.
+    /// Qwen3.5 and Gemma 4 are natively multimodal — all sizes are VLMs.
+    /// Other families use explicit "-VL" or "-vlm" suffix convention.
     var isVLM: Bool {
         let lower = path.lowercased()
         if lower.contains("qwen3.5") { return true }
-        // Gemma 4 via LiteRT is natively multimodal (audio + vision + text)
         if lower.contains("gemma-4") || lower.contains("gemma4") { return true }
         return lower.contains("-vl-") || lower.contains("-vlm")
             || lower.hasSuffix("-vl")
@@ -84,14 +74,12 @@ struct ModelOption: Identifiable, Hashable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, path, backendType, liteRTFilename, extraEOSTokens, disableThinking, useVoiceCleanPrompt, description, estimatedMemoryGB
+        case name, path, extraEOSTokens, disableThinking, useVoiceCleanPrompt, description, estimatedMemoryGB
     }
 
     init(
         name: String,
         path: String,
-        backendType: InferenceBackendType = .mlx,
-        liteRTFilename: String? = nil,
         extraEOSTokens: Set<String> = [],
         disableThinking: Bool = false,
         useVoiceCleanPrompt: Bool = false,
@@ -100,8 +88,6 @@ struct ModelOption: Identifiable, Hashable, Codable {
     ) {
         self.name = name
         self.path = path
-        self.backendType = backendType
-        self.liteRTFilename = liteRTFilename
         self.extraEOSTokens = extraEOSTokens
         self.disableThinking = disableThinking
         self.useVoiceCleanPrompt = useVoiceCleanPrompt
@@ -129,8 +115,8 @@ struct ModelOption: Identifiable, Hashable, Codable {
                 name: name, path: path,
                 useVoiceCleanPrompt: true
             )
-        // } else if lower.contains("gemma-4") {  // pending mlx-swift support
-        //     return ModelOption(name: name, path: path, extraEOSTokens: ["<end_of_turn>"])
+        } else if lower.contains("gemma-4") || lower.contains("gemma4") {
+            return ModelOption(name: name, path: path, extraEOSTokens: ["<end_of_turn>"])
         } else {
             return ModelOption(name: name, path: path)
         }
@@ -140,8 +126,6 @@ struct ModelOption: Identifiable, Hashable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decode(String.self, forKey: .name)
         path = try container.decode(String.self, forKey: .path)
-        backendType = try container.decodeIfPresent(InferenceBackendType.self, forKey: .backendType) ?? .mlx
-        liteRTFilename = try container.decodeIfPresent(String.self, forKey: .liteRTFilename)
         extraEOSTokens = try container.decodeIfPresent(Set<String>.self, forKey: .extraEOSTokens) ?? []
         disableThinking = try container.decodeIfPresent(Bool.self, forKey: .disableThinking) ?? false
         useVoiceCleanPrompt = try container.decodeIfPresent(Bool.self, forKey: .useVoiceCleanPrompt) ?? false
@@ -194,6 +178,8 @@ enum ModelRegistry {
                             models.append(bundled)
                         }
                     }
+                    // Remove stale LiteRT models that were migrated to MLX
+                    models.removeAll { $0.path.contains("litert-community") }
                     // Backfill unknown sizes from disk
                     for i in models.indices where models[i].estimatedMemoryGB == 0 {
                         let measured = measureModelOnDisk(models[i])
@@ -224,18 +210,16 @@ enum ModelRegistry {
             estimatedMemoryGB: 2.5
         ),
         ModelOption(
-            name: "Gemma 4 E2B",
-            path: "litert-community/gemma-4-E2B-it-litert-lm",
-            backendType: .liteRT,
-            liteRTFilename: "gemma-4-E2B-it.litertlm",
+            name: "Gemma 4 E2B 4-bit",
+            path: "mlx-community/gemma-4-e2b-it-4bit",
+            extraEOSTokens: ["<end_of_turn>"],
             description: "model.desc.native_audio_vision",
             estimatedMemoryGB: 2.6
         ),
         ModelOption(
-            name: "Gemma 4 E4B",
-            path: "litert-community/gemma-4-E4B-it-litert-lm",
-            backendType: .liteRT,
-            liteRTFilename: "gemma-4-E4B-it.litertlm",
+            name: "Gemma 4 E4B 4-bit",
+            path: "mlx-community/gemma-4-e4b-it-4bit",
+            extraEOSTokens: ["<end_of_turn>"],
             description: "model.desc.larger_multimodal",
             estimatedMemoryGB: 3.7
         ),
@@ -258,7 +242,7 @@ enum ModelRegistry {
         case 16...:
             preferred = "Qwen3.5-9B"
         case 8...:
-            preferred = "gemma-4-E2B"
+            preferred = "gemma-4-e2b"
         default:
             preferred = "Qwen3.5-0.8B"
         }
