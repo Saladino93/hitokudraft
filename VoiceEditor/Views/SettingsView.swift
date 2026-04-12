@@ -571,6 +571,8 @@ struct SettingsView: View {
                             Toggle("Allow vision (sees screenshots, slower)", isOn: $visionEnabled)
                                 .toggleStyle(.checkbox)
                                 .onChange(of: visionEnabled) {
+                                    // LiteRT models have built-in vision — no reload needed.
+                                    guard modelManager.selectedModel.backendType != .liteRT else { return }
                                     coordinator.modelManager.loadedModelPath = nil
                                     Task { try? await coordinator.modelManager.reloadLLM() }
                                 }
