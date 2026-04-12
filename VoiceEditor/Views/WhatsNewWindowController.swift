@@ -63,29 +63,29 @@ private struct WhatsNewBullet {
 
 private let whatsNewBullets: [WhatsNewBullet] = [
     WhatsNewBullet(
-        symbol: "note.text.badge.plus",
-        title: "Notes, Timer & Email Actions",
-        detail: "Action Mode now supports three new commands: create Apple Notes, set countdown timers with macOS notifications, and compose emails in your default mail client."
+        symbol: "waveform.circle",
+        title: "Redesigned Overlay",
+        detail: "Four visual states — Listening, Generating, Speaking, and Done — with animated waveform bars, pulsing dots, sentence-level TTS highlighting, and action buttons. Six themes available."
     ),
     WhatsNewBullet(
-        symbol: "curlybraces",
-        title: "Code Syntax Highlighting",
-        detail: "LLM responses containing code blocks are rendered with Atom One Dark syntax coloring — Python, Swift, JavaScript, Go, Rust, and 10 more languages."
+        symbol: "cpu",
+        title: "Gemma 4 Multimodal",
+        detail: "Native audio + vision inference via LiteRT. Speak directly to the model without a separate speech-to-text step. Gemma 4 E2B (2.6 GB) and E4B (3.7 GB)."
     ),
     WhatsNewBullet(
-        symbol: "function",
-        title: "LaTeX Math Rendering",
-        detail: "Inline and display math ($…$, $$…$$, \\[…\\]) is rendered natively using SwiftMath — no WebKit, no browser overhead."
+        symbol: "speaker.wave.2",
+        title: "Voice Readback & TTS",
+        detail: "Results are read aloud in non-editable contexts. Two TTS engines: Kokoro (multi-voice, speed control) and PocketTTS. Streaming synthesis with sentence highlighting."
     ),
     WhatsNewBullet(
-        symbol: "rectangle.and.text.magnifyingglass",
-        title: "Overlay Display Mode",
-        detail: "When the focused element cannot accept text (PDF viewer, Finder, Terminal), the LLM result appears in the overlay for 20 seconds instead of pasting into the void."
+        symbol: "globe",
+        title: "Web Search & Browser Context",
+        detail: "The AI can search DuckDuckGo, read web pages, and extract full-page text from Safari, Chrome, Arc, Brave, and Edge."
     ),
     WhatsNewBullet(
-        symbol: "waveform.badge.checkmark",
-        title: "Polish Dictation",
-        detail: "An optional post-processing pass removes filler words (um, uh, euh, äh…) and adds punctuation after each dictation recording stops."
+        symbol: "calendar",
+        title: "Calendar Tools",
+        detail: "Ask about your schedule via voice: \"Am I free tomorrow?\", \"What's on my calendar today?\". Works with both Ctrl+A and Ctrl+Z."
     ),
 ]
 
