@@ -8,6 +8,10 @@ Hold to talk. Ask it for email drafting, or understanding a PDF, or set up a cal
 
 Download here https://hitoku.me/draft/ or compile yourself.
 
+> **⚠️ Gemma 4 (LiteRT) — Memory Warning**
+>
+> Gemma 4 models run via Google's LiteRT engine with a WebGPU backend. On Apple Silicon, the WebGPU runtime can allocate significantly more GPU memory than the model weights alone — we've observed up to 10x the model size in Metal buffer allocations during inference. On machines with 16 GB or less, this may cause system instability. We recommend using **Gemma 4 E2B** (smaller) over E4B, keeping prompts short, and monitoring Activity Monitor. There is also a known upstream crash in the WebGPU deallocation path (`dawn::SlabAllocatorImpl`) that is inside Google's prebuilt dylibs and cannot be fixed downstream. See [LiteRT issue #5706](https://github.com/google-ai-edge/LiteRT/issues/5706). We are actively working on migrating Gemma 4 to MLX for stable, predictable memory usage.
+
 ## Features
 
 - **Context Awareness** — Reads surrounding screen context (active app, selected text, document content) to produce better results.
