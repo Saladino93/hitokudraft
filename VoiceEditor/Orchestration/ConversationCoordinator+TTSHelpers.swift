@@ -22,8 +22,7 @@ extension ConversationCoordinator {
         t = t.replacingOccurrences(of: "<|channel>", with: "")
         t = t.replacingOccurrences(of: "<channel|>", with: "")
         t = t.replacingOccurrences(of: "<end_of_turn>", with: "")
-        // Convert numbers to words so Kokoro can pronounce them.
-        t = Self.convertNumbersToWords(t)
+        // Number-to-words conversion is now handled centrally in TTSService.prepareForSpeech().
         return t
     }
 

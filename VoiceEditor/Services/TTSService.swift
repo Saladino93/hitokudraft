@@ -182,7 +182,7 @@ actor TTSService {
     /// Sentences play serially in the order they are enqueued.
     func enqueue(text: String, voice: String, speed: Float, backend: TtsBackend) {
         configure(backend: backend)
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = Self.prepareForSpeech(text)
         guard !trimmed.isEmpty else { return }
         queuedSentences.append(trimmed)
         guard queueTask == nil else { return }
@@ -300,7 +300,7 @@ actor TTSService {
         queueTask?.cancel()
         queueTask = nil
         configure(backend: backend)
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = Self.prepareForSpeech(text)
         guard !trimmed.isEmpty, let provider else { return }
         do {
             try await ensureInitialized(provider: provider)
@@ -329,6 +329,35 @@ actor TTSService {
 
     /// `true` when the current provider is loaded and ready to synthesize.
     var isReady: Bool { provider?.isAvailable ?? false }
+
+    // MARK: - Text Preparation
+
+    /// Shared number formatter for spelling out numbers.
+    private static let spellOutFormatter: NumberFormatter = {
+        let fmt = NumberFormatter()
+        fmt.numberStyle = .spellOut
+        fmt.locale = Locale(identifier: "en_US")
+        return fmt
+    }()
+
+    /// Trims whitespace and converts digit sequences to words so TTS engines
+    /// can pronounce them naturally ("42" → "forty-two", "3.14" → "three point one four").
+    static func prepareForSpeech(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        let pattern = try! NSRegularExpression(pattern: #"\b\d+(\.\d+)?\b"#)
+        let range = NSRange(trimmed.startIndex..., in: trimmed)
+        var result = trimmed
+        for match in pattern.matches(in: trimmed, range: range).reversed() {
+            guard let swiftRange = Range(match.range, in: result) else { continue }
+            let numStr = String(result[swiftRange])
+            if let number = Double(numStr),
+               let spelled = spellOutFormatter.string(from: NSNumber(value: number)) {
+                result.replaceSubrange(swiftRange, with: spelled)
+            }
+        }
+        return result
+    }
 
     // MARK: - Private
 
