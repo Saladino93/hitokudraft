@@ -276,10 +276,15 @@ final class ConversationCoordinator: ObservableObject {
     func handleVoiceEdit() async {
         captureTargetScreen()
 
-        // Toggle: pressing during recording cancels the voice edit
-        if state == .listening {
+        // Toggle: pressing during recording, generation, or transcription cancels.
+        if state == .listening || state == .generating || state == .transcribing {
             voiceEditTask?.cancel()
             voiceEditTask = nil
+            activeRecordingSession?.stop()
+            activeRecordingSession = nil
+            liveTranscriptionText = ""
+            streamingLLMText = ""
+            Task { await TTSService.shared.stop() }
             state = .idle
             return
         }
