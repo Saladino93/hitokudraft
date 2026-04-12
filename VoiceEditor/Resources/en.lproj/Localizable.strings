@@ -201,7 +201,7 @@
 /* Settings — Voice Readback (TTS) */
 "tts.label" = "Voice readback:";
 "tts.enable_desc" = "Read results aloud when no text field is focused.";
-"tts.backend" = "Engine:";
+"tts.backend" = "TTS Engine:";
 "tts.voice" = "Voice:";
 "tts.speed" = "Speed:";
 "tts.speed_unit" = "%.2f×";

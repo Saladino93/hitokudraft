@@ -48,17 +48,25 @@ struct OverlayTextRenderer: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
+                ScrollView(.vertical, showsIndicators: true) {
                     ghostedText(singleLine: false)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .id("bottom")
+                        .id("textBottom")
                 }
                 .frame(height: textAreaHeight)
                 .clipped()
-                .onChange(of: text) { proxy.scrollTo("bottom", anchor: .bottom) }
+                // Auto-scroll only during TTS playback (follows the highlighted segment).
+                // Does NOT scroll during generation — user reads freely.
+                .onChange(of: speakingSegment) {
+                    if !speakingSegment.isEmpty {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo("textBottom", anchor: .bottom)
+                        }
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -136,25 +144,21 @@ struct OverlayTextRenderer: View {
 
     @ViewBuilder
     private var complexContentView: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(groupedSegments.enumerated()), id: \.offset) { _, group in
-                        switch group {
-                        case .inline(let segs):
-                            buildInlineText(from: segs)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        case .codeBlock(let lang, let code):
-                            OverlayCodeBlockView(language: lang, code: code)
-                        }
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(groupedSegments.enumerated()), id: \.offset) { _, group in
+                    switch group {
+                    case .inline(let segs):
+                        buildInlineText(from: segs)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    case .codeBlock(let lang, let code):
+                        OverlayCodeBlockView(language: lang, code: code)
                     }
                 }
-                .id("complexBottom")
             }
-            .frame(height: max(textAreaHeight, 44))
-            .clipped()
-            .onChange(of: text) { proxy.scrollTo("complexBottom", anchor: .bottom) }
         }
+        .frame(height: max(textAreaHeight, 44))
+        .clipped()
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

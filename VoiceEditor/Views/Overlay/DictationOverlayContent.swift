@@ -106,13 +106,12 @@ struct DictationOverlayContent: View {
             }
 
         case .speaking(let text, let currentSentence, _):
-            SpeakingTextView(
-                fullText: text,
-                currentSentence: currentSentence,
-                theme: theme,
-                maxLines: effectiveMaxLines
+            OverlayTextRenderer(
+                text: text,
+                maxLines: effectiveMaxLines,
+                textAreaHeight: textAreaHeight,
+                speakingSegment: currentSentence
             )
-            .frame(maxWidth: .infinity, alignment: .leading)
 
         case .done(let text):
             OverlayTextRenderer(
@@ -128,23 +127,21 @@ struct DictationOverlayContent: View {
     @ViewBuilder
     private func bottomBar(for state: OverlayState) -> some View {
         switch state {
-        case .speaking(_, _, let progress):
-            SpeakingProgressBar(progress: progress, theme: theme)
-                .padding(.horizontal, 18)
-                .padding(.bottom, 10)
+        case .speaking(let text, _, let progress):
+            VStack(spacing: 6) {
+                SpeakingProgressBar(progress: progress, theme: theme)
+                OverlayActionButtons(text: text, theme: theme) {
+                    viewModel.coordinator?.readAloud(text)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 10)
 
         case .done(let text):
             OverlayActionButtons(text: text, theme: theme) {
-                // Read Aloud
-                let tts = PreferencesStore().ttsSettings
-                Task {
-                    await TTSService.shared.setOnSegmentStart { [weak viewModel] segment in
-                        viewModel?.coordinator?.ttsSpeakingSegment = segment
-                    }
-                    await TTSService.shared.speak(
-                        text: text, voice: tts.voice, speed: tts.speed, backend: tts.backend
-                    )
-                }
+                // Read Aloud — uses sentence-by-sentence streaming for fast first-word playback
+                // and resets the overlay auto-dismiss timer to wait for TTS completion.
+                viewModel.coordinator?.readAloud(text)
             }
             .padding(.horizontal, 18)
             .padding(.bottom, 10)

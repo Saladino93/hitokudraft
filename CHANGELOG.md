@@ -2,6 +2,23 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [1.6.3] — 2026-04-12
+
+### Improved
+- **TTS pre-warm at launch** — TTS provider (Kokoro/PocketTTS) is now initialized at app startup in a background task. The first "Read Aloud" press is instant instead of waiting 1-2s for CoreML compilation.
+- **Fast "Read Aloud"** — Switched from single-utterance synthesis (waited for entire text) to sentence-by-sentence streaming with larger chunks for natural prosody.
+- **Overlay scroll during generation** — Text no longer auto-scrolls; user can read freely. Auto-scrolls only during TTS to follow the highlighted segment. Scroll indicators now visible.
+- **TTS settings always visible** — TTS engine, voice, and speed pickers are always shown in Settings (previously hidden behind toggle). Toggle now only controls auto-readback.
+- **TTS acronym pronunciation** — Acronyms like LLM, SAE, GPU are now spelled out letter-by-letter for natural TTS output.
+- **Speaking state keeps action buttons** — Copy and Read Aloud buttons remain visible during TTS playback alongside the progress bar.
+
+### Fixed
+- **Voice edit not pasting in Apple Mail** — Apple Mail's WebKit compose field reports `AXWebArea` without settable text range. Editability detector now treats all focused `AXWebArea` elements as editable, fixing paste in Mail, Gmail, and Notion.
+- **Editability captured too late** — Editability check now runs at Ctrl+Z press time, before model loading or overlay display can shift AX focus.
+- **Overlay disappearing during TTS** — The 30-second auto-dismiss timer now waits for TTS playback to finish before counting down.
+- **TTS progress bar stuck** — Progress calculation now uses character position instead of sentence counting, giving accurate 0→1 progress.
+- **Vision toggle race condition** — "Allow vision" now routes through `coordinator.switchModel()` for proper state management and task cancellation.
+
 ## [1.6.1] — 2026-04-12
 
 ### Fixed

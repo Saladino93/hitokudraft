@@ -199,7 +199,7 @@
 /* Settings — Voice Readback (TTS) */
 "tts.label" = "Lecture vocale :";
 "tts.enable_desc" = "Lit les résultats à voix haute quand aucun champ de texte n'est actif.";
-"tts.backend" = "Moteur :";
+"tts.backend" = "Moteur TTS :";
 "tts.voice" = "Voix :";
 "tts.speed" = "Vitesse :";
 "tts.speed_unit" = "%.2f×";

@@ -233,6 +233,13 @@ final class ConversationCoordinator: ObservableObject {
         state = .idle
         await drainPendingSwitches()
 
+        // Pre-warm TTS so the first "Read Aloud" or streaming TTS is instant.
+        // CoreML compilation can take 1-2s cold — doing it at launch hides it entirely.
+        Task.detached(priority: .background) {
+            let backend = PreferencesStore().ttsSettings.backend
+            await TTSService.shared.preWarm(backend: backend)
+        }
+
         // Pre-request notification permission so the system dialog appears at a predictable
         // time (app launch), not buried inside an action pipeline where LSUIElement apps
         // may not reliably surface the prompt.
@@ -292,6 +299,11 @@ final class ConversationCoordinator: ObservableObject {
 
         guard state == .idle else { return }
 
+        // Capture editability IMMEDIATELY — before any async work, model loading, or
+        // overlay display that could shift AX focus away from the target app.
+        // Apple Mail, Gmail, Notion etc. use WebKit editors that lose AX focus easily.
+        let targetIsEditable = editabilityDetector.focusedElementIsEditable()
+
         voiceEditSetupInProgress = true
         clearDisplayModeResult()
         modelManager.cancelOffload()
@@ -330,7 +342,7 @@ final class ConversationCoordinator: ObservableObject {
         }
 
         voiceEditSetupInProgress = false
-        voiceEditTask = Task { [weak self] in
+        voiceEditTask = Task { [weak self, targetIsEditable] in
             guard let self else { return }
 
             let screenContext = await contextCapture.capture(
@@ -608,7 +620,7 @@ final class ConversationCoordinator: ObservableObject {
                         }
                     }
 
-                    try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS)
+                    try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS, targetIsEditable: targetIsEditable)
                     lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
                     SoundPlayer.shared.playCompletion()
                     Task.detached {
@@ -624,7 +636,7 @@ final class ConversationCoordinator: ObservableObject {
                     if stt != nil { modelManager.keepSTTAlive() }
                 } else {
                     // STT-only mode (None selected): paste raw transcript directly
-                    try await presentOutput(trimmedCommand, savedClipboard: savedClipboard)
+                    try await presentOutput(trimmedCommand, savedClipboard: savedClipboard, targetIsEditable: targetIsEditable)
                     SoundPlayer.shared.playCompletion()
                     Task.detached {
                         await TranscriptionStore.shared.save(
@@ -792,9 +804,11 @@ final class ConversationCoordinator: ObservableObject {
         _ text: String,
         savedClipboard: TextCaptureService.ClipboardSnapshot?,
         useDisplayMode: Bool = true,
-        ttsStreamedAlready: Bool = false
+        ttsStreamedAlready: Bool = false,
+        targetIsEditable: Bool? = nil
     ) async throws {
-        if !useDisplayMode || editabilityDetector.focusedElementIsEditable() {
+        let isEditable = targetIsEditable ?? editabilityDetector.focusedElementIsEditable()
+        if !useDisplayMode || isEditable {
             // Editable path (or dictation — always paste).
             // If TTS was streamed (display mode detected at generation start) but focus
             // changed to an editable field mid-generation, stop orphaned TTS playback.
@@ -829,9 +843,13 @@ final class ConversationCoordinator: ObservableObject {
                     if ttsStreamedAlready {
                         await TTSService.shared.waitForQueue()
                     } else {
-                        await TTSService.shared.speak(
-                            text: text, voice: ttsVoice, speed: ttsSpeed, backend: ttsBackend
-                        )
+                        // Split into sentences for fast first-word playback.
+                        for sentence in text.splitIntoSentences() {
+                            await TTSService.shared.enqueue(
+                                text: sentence, voice: ttsVoice, speed: ttsSpeed, backend: ttsBackend
+                            )
+                        }
+                        await TTSService.shared.waitForQueue()
                     }
                 }
                 guard !Task.isCancelled else { return }
@@ -840,6 +858,47 @@ final class ConversationCoordinator: ObservableObject {
                 self?.displayModeResult = ""
                 self?.displayModeClearTask = nil
             }
+        }
+    }
+
+    /// Reads text aloud using sentence-by-sentence streaming for low latency.
+    /// Cancels and restarts the overlay auto-dismiss timer so it waits for TTS to finish.
+    func readAloud(_ text: String) {
+        let tts = preferences.ttsSettings
+        let voice = tts.voice
+        let speed = tts.speed
+        let backend = tts.backend
+
+        // Cancel the existing auto-dismiss timer — we'll restart it after TTS finishes.
+        displayModeClearTask?.cancel()
+        displayModeClearTask = nil
+
+        // Split into sentences and enqueue for streaming playback.
+        // First sentence plays while the rest are being synthesized.
+        let sentences = text.splitIntoSentences()
+
+        displayModeClearTask = Task { [weak self] in
+            // Register segment callback for text highlighting in the overlay.
+            await TTSService.shared.setOnSegmentStart { [weak self] segment in
+                self?.ttsSpeakingSegment = segment
+            }
+
+            // Enqueue all sentences — first one starts playing immediately.
+            for sentence in sentences {
+                await TTSService.shared.enqueue(
+                    text: sentence, voice: voice, speed: speed, backend: backend
+                )
+            }
+
+            // Wait for all sentences to finish playing.
+            await TTSService.shared.waitForQueue()
+
+            // Then auto-dismiss after 30s.
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
+            self?.displayModeResult = ""
+            self?.displayModeClearTask = nil
         }
     }
 

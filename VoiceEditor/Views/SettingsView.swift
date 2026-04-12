@@ -64,7 +64,7 @@ struct SettingsView: View {
         case .general: return 510
         case .tools: return 420
         case .appearance: return 473
-        case .model: return ttsEnabled ? 518 : 423
+        case .model: return 518
         case .updates: return 122
         }
     }
@@ -98,7 +98,6 @@ struct SettingsView: View {
         }
         .frame(width: 620, height: currentHeight)
         .animation(.spring(response: 0.3, dampingFraction: 1.0), value: selectedTab)
-        .animation(.spring(response: 0.3, dampingFraction: 1.0), value: ttsEnabled)
         .background(WindowActivator())
     }
 
@@ -573,8 +572,11 @@ struct SettingsView: View {
                                 .onChange(of: visionEnabled) {
                                     // LiteRT models have built-in vision — no reload needed.
                                     guard modelManager.selectedModel.backendType != .liteRT else { return }
+                                    // Force reload: same model path but different factory (VLM vs text-only).
                                     coordinator.modelManager.loadedModelPath = nil
-                                    Task { try? await coordinator.modelManager.reloadLLM() }
+                                    // Go through the coordinator so in-flight loads are cancelled,
+                                    // state is managed, and the LLM service is recreated + warmed up.
+                                    Task { await coordinator.switchModel() }
                                 }
                         }
                     }
@@ -684,7 +686,54 @@ struct SettingsView: View {
 
                 Color.clear.frame(height: 18)
 
-                // ---- Voice Readback (TTS) ----
+                // ---- Voice (TTS) ----
+                GridRow {
+                    Text(L("tts.backend"))
+                    Picker("", selection: $ttsBackend) {
+                        Text("Kokoro").tag("kokoro")
+                        Text("PocketTTS").tag("pocketTts")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 200)
+                    .onChange(of: ttsBackend) {
+                        // Reset voice to the new backend's default female voice.
+                        ttsVoice = ttsBackend == "pocketTts"
+                            ? PocketTTSProvider.defaultVoice
+                            : KokoroTTSProvider.defaultVoice
+                    }
+                }
+
+                Color.clear.frame(height: 6)
+
+                GridRow {
+                    Text(L("tts.voice"))
+                    Picker("", selection: $ttsVoice) {
+                        ForEach(ttsVoicesForBackend, id: \.self) { voice in
+                            Text(ttsVoiceDisplayName(voice)).tag(voice)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 220)
+                }
+
+                Color.clear.frame(height: 6)
+
+                GridRow {
+                    Text(L("tts.speed"))
+                    HStack(spacing: 8) {
+                        Stepper(
+                            String(format: L("tts.speed_unit"), ttsSpeed),
+                            value: $ttsSpeed,
+                            in: 0.5...2.0,
+                            step: 0.25
+                        )
+                        .disabled(ttsBackend == "pocketTts")
+                    }
+                }
+
+                Color.clear.frame(height: 6)
+
                 GridRow {
                     Text(L("tts.label"))
                     HStack(spacing: 10) {
@@ -697,55 +746,6 @@ struct SettingsView: View {
                     }
                 }
 
-                if ttsEnabled {
-                    Color.clear.frame(height: 6)
-
-                    GridRow {
-                        Text(L("tts.backend"))
-                        Picker("", selection: $ttsBackend) {
-                            Text("Kokoro").tag("kokoro")
-                            Text("PocketTTS").tag("pocketTts")
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .frame(maxWidth: 200)
-                        .onChange(of: ttsBackend) {
-                            // Reset voice to the new backend's default female voice.
-                            ttsVoice = ttsBackend == "pocketTts"
-                                ? PocketTTSProvider.defaultVoice
-                                : KokoroTTSProvider.defaultVoice
-                        }
-                    }
-
-                    Color.clear.frame(height: 6)
-
-                    GridRow {
-                        Text(L("tts.voice"))
-                        Picker("", selection: $ttsVoice) {
-                            ForEach(ttsVoicesForBackend, id: \.self) { voice in
-                                Text(ttsVoiceDisplayName(voice)).tag(voice)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(maxWidth: 220)
-                    }
-
-                    Color.clear.frame(height: 6)
-
-                    GridRow {
-                        Text(L("tts.speed"))
-                        HStack(spacing: 8) {
-                            Stepper(
-                                String(format: L("tts.speed_unit"), ttsSpeed),
-                                value: $ttsSpeed,
-                                in: 0.5...2.0,
-                                step: 0.25
-                            )
-                            .disabled(ttsBackend == "pocketTts")
-                        }
-                    }
-                }
-
                 Color.clear.frame(height: 18)
 
                 // ---- System Status ----
@@ -754,7 +754,7 @@ struct SettingsView: View {
                     HStack(spacing: 16) {
                         statusIndicator(label: "LLM", ready: modelManager.llmReady, loading: isLLMLoading, disabled: modelManager.llmDisabled)
                         statusIndicator(label: "STT", ready: modelManager.sttReady)
-                        statusIndicator(label: "TTS", ready: ttsEnabled, disabled: !ttsEnabled)
+                        statusIndicator(label: "TTS", ready: true)
                     }
                 }
 

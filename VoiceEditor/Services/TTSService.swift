@@ -340,15 +340,36 @@ actor TTSService {
         return fmt
     }()
 
-    /// Trims whitespace and converts digit sequences to words so TTS engines
-    /// can pronounce them naturally ("42" → "forty-two", "3.14" → "three point one four").
+    /// Trims whitespace, expands acronyms to spaced letters, and converts digit
+    /// sequences to words so TTS engines can pronounce them naturally.
+    /// "LLM" → "L L M", "42" → "forty-two", "3.14" → "three point one four".
     static func prepareForSpeech(_ text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
-        let pattern = try! NSRegularExpression(pattern: #"\b\d+(\.\d+)?\b"#)
-        let range = NSRange(trimmed.startIndex..., in: trimmed)
+
+        // 1. Expand acronyms: 2-5 uppercase letters (not part of a longer word).
+        //    "LLM" → "L L M", "SAE" → "S A E", "AI" → "A I"
+        //    Excludes words like "The", "OR" that happen to be short caps in titles.
+        let acronymPattern = try! NSRegularExpression(pattern: #"\b([A-Z]{2,5})\b"#)
         var result = trimmed
-        for match in pattern.matches(in: trimmed, range: range).reversed() {
+        let acronymRange = NSRange(result.startIndex..., in: result)
+        for match in acronymPattern.matches(in: result, range: acronymRange).reversed() {
+            guard let swiftRange = Range(match.range, in: result) else { continue }
+            let acronym = String(result[swiftRange])
+            // Skip common short words that happen to be all-caps
+            let skipWords: Set<String> = ["OR", "AN", "AT", "BY", "DO", "GO", "IF",
+                                          "IN", "IS", "IT", "MY", "NO", "OF", "ON",
+                                          "SO", "TO", "UP", "US", "WE", "AM", "AS",
+                                          "BE", "HE", "ME", "OK"]
+            guard !skipWords.contains(acronym) else { continue }
+            let spaced = acronym.map { String($0) }.joined(separator: " ")
+            result.replaceSubrange(swiftRange, with: spaced)
+        }
+
+        // 2. Spell out numbers: "42" → "forty-two"
+        let numberPattern = try! NSRegularExpression(pattern: #"\b\d+(\.\d+)?\b"#)
+        let numRange = NSRange(result.startIndex..., in: result)
+        for match in numberPattern.matches(in: result, range: numRange).reversed() {
             guard let swiftRange = Range(match.range, in: result) else { continue }
             let numStr = String(result[swiftRange])
             if let number = Double(numStr),
@@ -376,5 +397,39 @@ actor TTSService {
         initTask = task
         defer { initTask = nil }
         try await task.value
+    }
+}
+
+// MARK: - Sentence Splitting
+
+extension String {
+    /// Splits text into chunks for TTS streaming.
+    ///
+    /// Strategy: first chunk is short (~1 sentence, ≥30 chars) for fast playback start.
+    /// Subsequent chunks are larger (~2-3 sentences, ≥120 chars) so the TTS model has
+    /// enough context for natural prosody — avoids the robotic per-sentence reset.
+    func splitIntoSentences() -> [String] {
+        var chunks: [String] = []
+        var current = ""
+        let terminators: Set<Character> = [".", "!", "?", "。", "！", "？"]
+        let isFirst = { chunks.isEmpty }
+        // First chunk: low threshold for fast start. Later: larger for natural flow.
+        let minChars = { isFirst() ? 30 : 120 }
+
+        for char in self {
+            current.append(char)
+            if terminators.contains(char) && current.count >= minChars() {
+                let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { chunks.append(trimmed) }
+                current = ""
+            } else if char == "\n" && current.count >= max(minChars(), 50) {
+                let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { chunks.append(trimmed) }
+                current = ""
+            }
+        }
+        let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { chunks.append(trimmed) }
+        return chunks
     }
 }

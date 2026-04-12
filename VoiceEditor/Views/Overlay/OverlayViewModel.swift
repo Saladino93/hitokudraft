@@ -116,11 +116,14 @@ final class OverlayViewModel: ObservableObject {
                 // TTS is actively speaking
                 speakingDebounceTask?.cancel()
                 speakingDebounceTask = nil
-                let sentences = displayResult.components(separatedBy: ". ")
-                let currentIndex = sentences.firstIndex { $0.contains(speakingSegment) } ?? 0
-                let progress = sentences.count > 1
-                    ? Double(currentIndex) / Double(sentences.count - 1)
-                    : 0.0
+                // Progress based on character position of the current segment in the full text.
+                let progress: Double
+                if let range = displayResult.range(of: speakingSegment, options: .literal) {
+                    let endOffset = displayResult.distance(from: displayResult.startIndex, to: range.upperBound)
+                    progress = displayResult.isEmpty ? 0 : Double(endOffset) / Double(displayResult.count)
+                } else {
+                    progress = 0
+                }
                 overlayState = .speaking(
                     text: displayResult,
                     currentSentence: speakingSegment,

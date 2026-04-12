@@ -201,7 +201,7 @@
 /* Settings — Voice Readback (TTS) */
 "tts.label" = "Lettura vocale:";
 "tts.enable_desc" = "Legge i risultati ad alta voce quando nessun campo di testo è attivo.";
-"tts.backend" = "Motore:";
+"tts.backend" = "Motore TTS:";
 "tts.voice" = "Voce:";
 "tts.speed" = "Velocità:";
 "tts.speed_unit" = "%.2f×";

@@ -19,8 +19,8 @@ struct AXEditabilityDetector: EditabilityDetector {
         "AXComboBox",
         "AXSearchField",
         // WebKit-based editors (Apple Mail compose, contenteditable pages in browsers,
-        // Notion, etc.) report role AXWebArea. The compose body receives keyboard focus
-        // and expects Cmd+V paste; treating it as non-editable wrongly shows the overlay.
+        // Notion, etc.) report role AXWebArea. AXWebArea only receives keyboard focus
+        // when the user is interacting with it, so treating it as editable is correct.
         "AXWebArea",
     ]
 
@@ -42,25 +42,11 @@ struct AXEditabilityDetector: EditabilityDetector {
         ) == .success,
            let role = roleRef as? String,
            Self.editableRoles.contains(role) {
-            if role == "AXWebArea" {
-                // AXWebArea matches both read-only articles and web editors (Gmail, Notion).
-                // Refine: only treat as editable if the text range is settable — true for
-                // contentEditable/input elements, false for static article pages.
-                var webSettable: DarwinBoolean = false
-                if AXUIElementIsAttributeSettable(
-                    focused, kAXSelectedTextRangeAttribute as CFString, &webSettable
-                ) == .success && webSettable.boolValue {
-                    return true  // Actual web editor
-                }
-                // Fall through to other checks for read-only web content
-            } else {
-                return true
-            }
+            return true
         }
 
         // Step 3: Selected-text attribute — present on any element that holds a text cursor,
         //         including native text views with non-standard roles.
-        //         Returns .success with an empty string when no text is selected but a cursor exists.
         var selRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             focused, kAXSelectedTextAttribute as CFString, &selRef
