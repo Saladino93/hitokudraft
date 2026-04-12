@@ -27,6 +27,7 @@ For any new service, feature, or significant code change:
 - Clipboard operations must save and restore original contents.
 - Never paste LLM output without running it through output cleaning first.
 - **New services must be backed by a protocol.** Concrete backends implement the protocol; callers depend only on the protocol. Example: `TTSProvider` protocol → `KokoroTTSProvider` / `PocketTTSProvider`. Never expose a concrete type directly to the orchestration layer.
+- **Model loading must free before load.** `ModelManager.loadModel()` is the single entry point for all LLM loading. It unloads all previous backends and nils `modelContainer` before loading the new model — this prevents two models coexisting in memory (OOM on 8/16 GB machines). Never load a model by calling `loadMLXModel()` or `loadLiteRTModel()` directly, and never register a backend on `InferenceRouter` without removing the old one first. Settings UI that triggers a reload (e.g., vision toggle, model picker) must go through `reloadLLM()` → `loadModel()`, not bypass it. LiteRT models have built-in vision — do not reload them when vision settings change.
 
 ## SettingsView conventions
 
