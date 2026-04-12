@@ -81,7 +81,7 @@ struct SettingsView: View {
 
             toolsTab
                 .tag(Tab.tools)
-                .tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
+                .tabItem { Label(L("tab.tools"), systemImage: "wrench.and.screwdriver") }
 
             appearanceTab
                 .padding(.top, 20)
@@ -431,14 +431,14 @@ struct SettingsView: View {
                 Image(systemName: "doc.text")
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Transcription History")
+                    Text(L("tools.history_title"))
                         .font(.subheadline.weight(.medium))
-                    Text("All voice interactions are saved as JSON files.")
+                    Text(L("tools.history_desc"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Reveal in Finder") {
+                Button(L("tools.reveal_in_finder")) {
                     Task {
                         let path = await TranscriptionStore.shared.directoryPath
                         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
@@ -453,9 +453,9 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 Toggle("", isOn: $internetAccessEnabled)
                     .labelsHidden()
-                Text("Allow internet access")
+                Text(L("tools.internet_toggle"))
                     .font(.subheadline)
-                Text("(web search, URL fetch)")
+                Text(L("tools.internet_hint"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -463,17 +463,17 @@ struct SettingsView: View {
             Divider()
 
             // Available tools — compact 2-column grid
-            Text("Available Tools")
+            Text(L("tools.available_title"))
                 .font(.subheadline.weight(.medium))
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                toolCell(icon: "magnifyingglass", name: "Search", subtitle: "DuckDuckGo", internet: true)
-                toolCell(icon: "globe", name: "URL", subtitle: "Fetch page", internet: true)
-                toolCell(icon: "calendar", name: "Calendar", subtitle: "Events", internet: false)
-                toolCell(icon: "timer", name: "Timer", subtitle: "Countdown", internet: false)
-                toolCell(icon: "note.text", name: "Notes", subtitle: "Apple Notes", internet: false)
-                toolCell(icon: "envelope", name: "Email", subtitle: "Compose", internet: false)
-                toolCell(icon: "macwindow", name: "Launch", subtitle: "Open app", internet: false)
+                toolCell(icon: "magnifyingglass", name: L("tools.search"), subtitle: L("tools.search_sub"), internet: true)
+                toolCell(icon: "globe", name: L("tools.url"), subtitle: L("tools.url_sub"), internet: true)
+                toolCell(icon: "calendar", name: L("tools.calendar"), subtitle: L("tools.calendar_sub"), internet: false)
+                toolCell(icon: "timer", name: L("tools.timer"), subtitle: L("tools.timer_sub"), internet: false)
+                toolCell(icon: "note.text", name: L("tools.notes"), subtitle: L("tools.notes_sub"), internet: false)
+                toolCell(icon: "envelope", name: L("tools.email"), subtitle: L("tools.email_sub"), internet: false)
+                toolCell(icon: "macwindow", name: L("tools.launch"), subtitle: L("tools.launch_sub"), internet: false)
             }
         }
         .padding(20)

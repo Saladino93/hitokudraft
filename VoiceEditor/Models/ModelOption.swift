@@ -213,14 +213,14 @@ enum ModelRegistry {
             name: "Qwen3.5 0.8B 4-bit",
             path: "mlx-community/Qwen3.5-0.8B-MLX-4bit",
             extraEOSTokens: ["<|im_end|>"],
-            description: "Tiny multilingual model (fast, lower quality)",
+            description: "model.desc.tiny_multilingual",
             estimatedMemoryGB: 0.5
         ),
         ModelOption(
             name: "Qwen3.5 4B 4-bit",
             path: "mlx-community/Qwen3.5-4B-4bit",
             extraEOSTokens: ["<|im_end|>"],
-            description: "Smart multilingual editing (excellent for its size)",
+            description: "model.desc.smart_multilingual",
             estimatedMemoryGB: 2.5
         ),
         ModelOption(
@@ -228,7 +228,7 @@ enum ModelRegistry {
             path: "litert-community/gemma-4-E2B-it-litert-lm",
             backendType: .liteRT,
             liteRTFilename: "gemma-4-E2B-it.litertlm",
-            description: "Native audio + vision (fastest end-to-end)",
+            description: "model.desc.native_audio_vision",
             estimatedMemoryGB: 2.6
         ),
         ModelOption(
@@ -236,14 +236,14 @@ enum ModelRegistry {
             path: "litert-community/gemma-4-E4B-it-litert-lm",
             backendType: .liteRT,
             liteRTFilename: "gemma-4-E4B-it.litertlm",
-            description: "Larger multimodal model, higher quality (needs 4+ GB RAM)",
+            description: "model.desc.larger_multimodal",
             estimatedMemoryGB: 3.7
         ),
         ModelOption(
             name: "Qwen3.5 9B 4-bit",
             path: "mlx-community/Qwen3.5-9B-4bit",
             extraEOSTokens: ["<|im_end|>"],
-            description: "Best overall quality (top multilingual and reasoning)",
+            description: "model.desc.best_quality",
             estimatedMemoryGB: 6.5
         ),
     ]

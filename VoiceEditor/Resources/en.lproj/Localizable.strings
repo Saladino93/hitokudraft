@@ -205,3 +205,33 @@
 "tts.voice" = "Voice:";
 "tts.speed" = "Speed:";
 "tts.speed_unit" = "%.2f×";
+
+/* Settings — Tools Tab */
+"tab.tools" = "Tools";
+"tools.history_title" = "Transcription History";
+"tools.history_desc" = "All voice interactions are saved as JSON files.";
+"tools.reveal_in_finder" = "Reveal in Finder";
+"tools.internet_toggle" = "Allow internet access";
+"tools.internet_hint" = "(web search, URL fetch)";
+"tools.available_title" = "Available Tools";
+"tools.search" = "Search";
+"tools.search_sub" = "DuckDuckGo";
+"tools.url" = "URL";
+"tools.url_sub" = "Fetch page";
+"tools.calendar" = "Calendar";
+"tools.calendar_sub" = "Events";
+"tools.timer" = "Timer";
+"tools.timer_sub" = "Countdown";
+"tools.notes" = "Notes";
+"tools.notes_sub" = "Apple Notes";
+"tools.email" = "Email";
+"tools.email_sub" = "Compose";
+"tools.launch" = "Launch";
+"tools.launch_sub" = "Open app";
+
+/* Model descriptions — LLM (new) */
+"model.desc.tiny_multilingual" = "Tiny multilingual model (fast, lower quality)";
+"model.desc.smart_multilingual" = "Smart multilingual editing (excellent for its size)";
+"model.desc.native_audio_vision" = "Native audio + vision (fastest end-to-end)";
+"model.desc.larger_multimodal" = "Larger multimodal model, higher quality (needs 4+ GB RAM)";
+"model.desc.best_quality" = "Best overall quality (top multilingual and reasoning)";

@@ -192,6 +192,10 @@
 "license.key_label" = "Licence :";
 "license.apply_button" = "Appliquer";
 
+/* Polish dictation */
+"model.polish_dictation" = "Peaufiner la dictée :";
+"model.polish_dictation_desc" = "Supprime les mots parasites et ajoute la ponctuation après la dictée. Nécessite un LLM chargé.";
+
 /* Settings — Voice Readback (TTS) */
 "tts.label" = "Lecture vocale :";
 "tts.enable_desc" = "Lit les résultats à voix haute quand aucun champ de texte n'est actif.";
@@ -199,3 +203,33 @@
 "tts.voice" = "Voix :";
 "tts.speed" = "Vitesse :";
 "tts.speed_unit" = "%.2f×";
+
+/* Settings — Tools Tab */
+"tab.tools" = "Outils";
+"tools.history_title" = "Historique des transcriptions";
+"tools.history_desc" = "Toutes les interactions vocales sont enregistrées en fichiers JSON.";
+"tools.reveal_in_finder" = "Afficher dans le Finder";
+"tools.internet_toggle" = "Autoriser l'accès internet";
+"tools.internet_hint" = "(recherche web, récupérer URL)";
+"tools.available_title" = "Outils disponibles";
+"tools.search" = "Recherche";
+"tools.search_sub" = "DuckDuckGo";
+"tools.url" = "URL";
+"tools.url_sub" = "Récupérer page";
+"tools.calendar" = "Calendrier";
+"tools.calendar_sub" = "Événements";
+"tools.timer" = "Minuteur";
+"tools.timer_sub" = "Compte à rebours";
+"tools.notes" = "Notes";
+"tools.notes_sub" = "Apple Notes";
+"tools.email" = "Email";
+"tools.email_sub" = "Rédiger";
+"tools.launch" = "Lancer";
+"tools.launch_sub" = "Ouvrir app";
+
+/* Model descriptions — LLM (new) */
+"model.desc.tiny_multilingual" = "Petit modèle multilingue (rapide, qualité moindre)";
+"model.desc.smart_multilingual" = "Édition multilingue intelligente (excellente pour sa taille)";
+"model.desc.native_audio_vision" = "Audio + vision natifs (le plus rapide de bout en bout)";
+"model.desc.larger_multimodal" = "Modèle multimodal plus grand, meilleure qualité (4+ Go RAM)";
+"model.desc.best_quality" = "Meilleure qualité globale (top multilingue et raisonnement)";
