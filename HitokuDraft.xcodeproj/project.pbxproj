@@ -490,7 +490,7 @@
 				ADB2C52C38BD4CC765A3719B /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				E5467354D2271CC0F5CA9AB2 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				6AE6FC8F35AAC1A3BE9B1074 /* XCRemoteSwiftPackageReference "mlx-swift" */,
-				548B7A7D69FF632C1D21B8CD /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				BF6EA73D771740394ACA2529 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
 				25F0C92D6A32DD10EE20A9D2 /* XCRemoteSwiftPackageReference "swift-huggingface" */,
 				B1B1A5EE16E8F85F41E4AE51 /* XCLocalSwiftPackageReference "HitokuInference" */,
 			);
@@ -864,14 +864,6 @@
 				minimumVersion = 0.8.1;
 			};
 		};
-		548B7A7D69FF632C1D21B8CD /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/adrgrondin/mlx-swift-lm";
-			requirement = {
-				kind = revision;
-				revision = c21a372;
-			};
-		};
 		6AE6FC8F35AAC1A3BE9B1074 /* XCRemoteSwiftPackageReference "mlx-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ml-explore/mlx-swift";
@@ -904,6 +896,14 @@
 				revision = 843250b;
 			};
 		};
+		BF6EA73D771740394ACA2529 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = revision;
+				revision = 2dccb380cd26822589af6ec8682132b7149a425b;
+			};
+		};
 		E5467354D2271CC0F5CA9AB2 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
@@ -925,7 +925,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		229DA8B4F046EDD0BE3E18F6 /* MLXLLM */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 548B7A7D69FF632C1D21B8CD /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			package = BF6EA73D771740394ACA2529 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLLM;
 		};
 		23DCF5777FBA9EDE24044C9E /* MLXBackend */ = {
@@ -939,7 +939,7 @@
 		};
 		3FE0FB479B954A98E91E9333 /* MLXVLM */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 548B7A7D69FF632C1D21B8CD /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			package = BF6EA73D771740394ACA2529 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXVLM;
 		};
 		4B83221C4708A63B725D42E0 /* FluidAudio */ = {
@@ -963,7 +963,7 @@
 		};
 		C6C34077F7D56E5C2CEF8C50 /* MLXLMCommon */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 548B7A7D69FF632C1D21B8CD /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			package = BF6EA73D771740394ACA2529 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLMCommon;
 		};
 		C74D25C465C036EF5715081C /* KeyboardShortcuts */ = {

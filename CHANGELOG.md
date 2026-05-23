@@ -2,6 +2,18 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [unreleased]
+
+### Changed
+- **Inference backend migrated to official `ml-explore/mlx-swift-lm`** — swapped the `adrgrondin/mlx-swift-lm` fork (pinned at `c21a372`) for the official upstream at exact commit `2dccb38`. Resolves the `broadcast_shapes` crash that affected Gemma 4 generation on the fork. Qwen 3.5, LFM, and other MLX models are byte-identical before/after: the `isVLM && visionEnabled` factory-selection gate (VLM vs. LLM factory) is preserved so text-only loads remain on the fast `LLMModelFactory` path.
+- **LiteRT backend retired** — Gemma 4 now runs via MLX-VLM instead of LiteRT. App binary ~98 MB smaller. WebGPU 10× memory spike and `dawn::SlabAllocatorImpl` deallocation crash are gone. LiteRT code preserved on the `litert` git branch for reference.
+
+### Internal
+- `HitokuInference/Package.swift`: dependency swapped to `ml-explore/mlx-swift-lm` at exact commit. Policy comment documents bumping procedure.
+- `project.yml`: matching swap, with inline rationale comment.
+- `HitokuDraft.xcodeproj` regenerated via `xcodegen`; SPM workspace state refreshed.
+- Migration runbook: `docs/gemma4-migration.md`.
+
 ## [1.6.3] — 2026-04-12
 
 ### Improved

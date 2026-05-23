@@ -14,8 +14,12 @@ packages:
   HitokuInference:
     path: HitokuInference
   mlx-swift-lm:
-    url: https://github.com/adrgrondin/mlx-swift-lm
-    revision: c21a372
+    # Pinned to official upstream (PR #180 merged — Gemma 4 text + vision).
+    # Do NOT revert to adrgrondin fork: it had a broadcast_shapes crash in the
+    # Gemma 4 repetition-penalty processor that was only fixed upstream.
+    # Bumping: see HitokuInference/Package.swift policy comment.
+    url: https://github.com/ml-explore/mlx-swift-lm
+    revision: 2dccb380cd26822589af6ec8682132b7149a425b
   mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
     minorVersion: 0.31.3

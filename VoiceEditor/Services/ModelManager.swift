@@ -200,6 +200,21 @@ final class ModelManager: ObservableObject {
     // MARK: - MLX Loading
 
     private func loadMLXModel(_ model: ModelOption) async throws {
+        // Factory selection — performance-critical gate.
+        //
+        // Both Qwen 3.5 and Gemma 4 are native-multimodal VLM checkpoints, but
+        // `LLMModelFactory` can load them in text-only mode: its weight
+        // sanitization strips the vision tower during load, yielding a
+        // measurably faster forward pass for prompts without images.
+        //
+        // - useVLM=true  → VLMModelFactory (required when request has images;
+        //                  slower even for text-only prompts).
+        // - useVLM=false → LLMModelFactory (text-only path, faster).
+        //
+        // DO NOT drop the `&& visionEnabled` guard. Users rely on toggling
+        // "Allow vision" off in Settings → Advanced to get the fast path.
+        // This applies equally to Qwen 3.5 and Gemma 4. See docs/CLAUDE.md
+        // "Factory selection is performance-critical" invariant.
         let visionEnabled = UserDefaults.standard.bool(forKey: "visionEnabled")
         let useVLM = model.isVLM && visionEnabled
         let factory: any ModelFactory = useVLM
