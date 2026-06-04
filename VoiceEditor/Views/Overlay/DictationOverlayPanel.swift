@@ -8,6 +8,17 @@ private final class EscapeTapContext: @unchecked Sendable {
     var tap: CFMachPort?
 }
 
+/// A borderless `NSPanel` reports `canBecomeKey == false`, which blocks
+/// scrolling and text selection in the SwiftUI content (button clicks still
+/// work because mouse-down reaches non-key windows). Overriding `canBecomeKey`
+/// restores interaction. Because the panel is also `.nonactivatingPanel`,
+/// taking key status does NOT activate our app or deactivate the user's
+/// frontmost app — so dictation can still paste into that app.
+final class InteractiveOverlayPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 /// A floating, non-activating panel that shows the overlay pill.
 /// Manages NSPanel lifecycle, Esc key interception, and show/hide transitions.
 /// The SwiftUI content is driven entirely by `OverlayViewModel`.
@@ -92,7 +103,7 @@ final class DictationOverlayPanel {
         let width = panelWidth
         let height = panelHeight(forLines: lines, hasBottomBar: hasBottomBar)
 
-        let panel = NSPanel(
+        let panel = InteractiveOverlayPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -104,6 +115,8 @@ final class DictationOverlayPanel {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.isMovableByWindowBackground = true
+        // Needed for SwiftUI `.onHover` tracking to fire on a non-active panel.
+        panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         if let screen = anchoredScreen ?? NSScreen.main {

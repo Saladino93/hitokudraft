@@ -16,19 +16,39 @@
 
 6. ~~**Race condition when toggling "Allow vision"**~~ — **Fixed (2026-04-12).** Vision toggle now routes through `coordinator.switchModel()`.
 
-## LiteRT / Gemma 4 (CRITICAL)
+## LiteRT / Gemma 4
 
-7. **LiteRT WebGPU memory spikes** — LiteRT's WebGPU backend can allocate up to 10x the model weight size in Metal GPU buffers during inference (39 GB observed on 48 GB machine with E4B 3.7 GB model). Inside Google's prebuilt dylibs — not fixable downstream. See [LiteRT issue #5706](https://github.com/google-ai-edge/LiteRT/issues/5706).
+> **2026-06-04 — Migrated to the official LiteRT-LM Swift SDK (v0.13.1).** The
+> hand-rolled `dlopen`/`dlsym` C bridge and the 6 manually-bundled dylibs are
+> gone, replaced by the SwiftPM `LiteRTLM` package (prebuilt, checksummed
+> `CLiteRTLM_mac.xcframework`). Builds clean and the app launches/links against
+> the new engine. **Items 7–8 below need re-measurement on the new engine** —
+> the migration pulls a much newer native build than the old ~0.11-era dylibs.
 
-8. **LiteRT WebGPU deallocation crash** — `dawn::SlabAllocatorImpl::Deallocate` crashes after generation completes. Inside `libLiteRtWebGpuAccelerator.dylib`. Workaround: use MLX models (Qwen3.5).
+7. **LiteRT WebGPU memory spikes (needs re-test on v0.13.1)** — On the old
+   vendored dylibs, the WebGPU backend allocated up to 10× the model weight
+   size in Metal buffers (39 GB observed on 48 GB machine, E4B 3.4 GB model).
+   See [LiteRT issue #5706](https://github.com/google-ai-edge/LiteRT/issues/5706).
+   **Unverified on the official v0.13.1 engine** — pending a Gemma E4B load +
+   dictation run with Activity Monitor / `xctrace`.
+
+8. **LiteRT WebGPU deallocation crash (needs re-test on v0.13.1)** —
+   `dawn::SlabAllocatorImpl::Deallocate` crashed after generation on the old
+   dylibs. Unverified on v0.13.1. Workaround if it recurs: use MLX models (Qwen3.5).
 
 9. **No live transcription with Gemma 4 audio-direct** — By design (only waveform shown).
 
-10. **App size: 146 MB** — LiteRT dylibs add ~98 MB. No official Swift package from Google — dylibs bundled manually.
+10. ~~**App size: 146 MB — LiteRT dylibs add ~98 MB, bundled manually**~~ —
+    **Resolved (2026-06-04).** Dylibs replaced by the official SDK's xcframework,
+    embedded automatically by SwiftPM. No more `Libraries/macos_arm64`, no manual
+    "Embed LiteRT Dylibs" build phase.
 
 ## General
 
-11. **Swift 6 concurrency warnings** — NSLock in LiteRTInferenceBackend async contexts. Works at runtime.
+11. ~~**Swift 6 concurrency warnings — NSLock in LiteRTInferenceBackend**~~ —
+    **Resolved (2026-06-04).** All mutable state moved behind a synchronous
+    `Store` holder; concurrent closures capture the `Sendable` store, not `self`.
+    Backend now compiles warning-free.
 
 12. **WhisperKit missing from Package.swift** — Only affects `swift build` (not Xcode).
 
@@ -58,4 +78,4 @@ When PR #180 is merged and stable, switch `main` to official mlx-swift-lm and sh
 
 ---
 
-*Last updated: 2026-04-12*
+*Last updated: 2026-06-04*

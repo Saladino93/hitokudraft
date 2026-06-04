@@ -89,7 +89,11 @@ final class ConversationCoordinator: ObservableObject {
     var llmLoadTask: Task<Void, Never>?
     var sttLoadTask: Task<Void, Never>?
     /// Scheduled auto-clear for display-mode results; cancelled early by clearDisplayModeResult().
+    /// Owns the TTS playback phase for display-mode answers.
     private var displayModeClearTask: Task<Void, Never>?
+    /// Restartable auto-dismiss countdown, kept separate from `displayModeClearTask` so
+    /// hovering the overlay can pause/reset it without disturbing TTS playback.
+    private var displayDismissTask: Task<Void, Never>?
 
     /// Pending model switches that couldn't run because state wasn't idle.
     var pendingLLMSwitch = false
@@ -369,19 +373,28 @@ final class ConversationCoordinator: ObservableObject {
                 // Streaming transcription loop — shows live text while recording
                 // Path A (legacy): 300ms re-transcription poll
                 // Path B (native): Qwen3-ASR StreamingInferenceSession
-                // LiteRT handles audio natively — no live STT transcription needed
-                let lastTranscription: String
+                //
+                // In audio-direct (Gemma/LiteRT) mode `stt` is nil — Gemma hears the
+                // audio directly. Load a *display-only* STT so the user can still SEE
+                // their words live; the answer is unchanged (audio-direct, below).
+                let displaySTT: (any STTService)?
                 if let stt {
+                    displaySTT = stt
+                } else {
+                    displaySTT = try? await makeSttServiceForFile()
+                }
+
+                let lastTranscription: String
+                if let displaySTT {
                     lastTranscription = await runStreamingTranscription(
                         session: session,
-                        stt: stt,
+                        stt: displaySTT,
                         onTextUpdate: { [weak self] text in
                             self?.liveTranscriptionText = text
                         }
                     )
                 } else {
-                    // No STT (LiteRT audio-direct) — wait for silence detection manually.
-                    // runStreamingTranscription normally does this polling loop; replicate it here.
+                    // No STT available at all — wait for silence detection manually.
                     while !Task.isCancelled && !session.isSilenceDetected {
                         try await Task.sleep(for: .milliseconds(100))
                     }
@@ -807,6 +820,8 @@ final class ConversationCoordinator: ObservableObject {
         ttsStreamedAlready: Bool = false,
         targetIsEditable: Bool? = nil
     ) async throws {
+        // `isEditable` now means "there is a text caret at the focus" (see
+        // AXEditabilityDetector). Caret present → paste there; no caret → display.
         let isEditable = targetIsEditable ?? editabilityDetector.focusedElementIsEditable()
         if !useDisplayMode || isEditable {
             // Editable path (or dictation — always paste).
@@ -853,9 +868,8 @@ final class ConversationCoordinator: ObservableObject {
                     }
                 }
                 guard !Task.isCancelled else { return }
-                try? await Task.sleep(for: .seconds(30))
-                guard !Task.isCancelled else { return }
-                self?.displayModeResult = ""
+                // Start the (hover-pausable) auto-dismiss countdown.
+                self?.scheduleDisplayAutoDismiss()
                 self?.displayModeClearTask = nil
             }
         }
@@ -893,12 +907,51 @@ final class ConversationCoordinator: ObservableObject {
             // Wait for all sentences to finish playing.
             await TTSService.shared.waitForQueue()
 
-            // Then auto-dismiss after 30s.
+            // Then start the (hover-pausable) auto-dismiss countdown.
             guard !Task.isCancelled else { return }
-            try? await Task.sleep(for: .seconds(30))
+            self?.scheduleDisplayAutoDismiss()
+            self?.displayModeClearTask = nil
+        }
+    }
+
+    /// Stops TTS playback but keeps the result visible in the overlay.
+    /// Wired to the overlay speaker→stop toggle so the user can silence playback
+    /// without dismissing the text (unlike `clearDisplayModeResult`, which is Esc).
+    /// Restarts the 30s auto-dismiss timer so the overlay still goes away on its own.
+    func stopReadAloud() {
+        // Cancel the in-flight read-aloud task (sentence enqueue + auto-dismiss wait).
+        displayModeClearTask?.cancel()
+        displayModeClearTask = nil
+        ttsSpeakingSegment = ""
+        Task { await TTSService.shared.stop() }
+
+        // Keep the text on screen, but restart the auto-dismiss countdown.
+        scheduleDisplayAutoDismiss()
+    }
+
+    /// (Re)starts the auto-dismiss countdown for a display-mode answer.
+    /// Centralizes the timer that previously lived inline in three places.
+    func scheduleDisplayAutoDismiss(after seconds: Double = 45) {
+        displayDismissTask?.cancel()
+        guard !displayModeResult.isEmpty else { displayDismissTask = nil; return }
+        displayDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
             self?.displayModeResult = ""
-            self?.displayModeClearTask = nil
+            self?.displayDismissTask = nil
+        }
+    }
+
+    /// Keeps the overlay open while the cursor is over it; resumes the countdown
+    /// when the cursor leaves. Wired to `.onHover` in the overlay content so a
+    /// long answer never vanishes while the user is reading or scrolling it.
+    func keepDisplayResultAlive(_ hovering: Bool) {
+        guard !displayModeResult.isEmpty else { return }
+        if hovering {
+            displayDismissTask?.cancel()
+            displayDismissTask = nil
+        } else {
+            scheduleDisplayAutoDismiss()
         }
     }
 
@@ -906,6 +959,8 @@ final class ConversationCoordinator: ObservableObject {
     func clearDisplayModeResult() {
         displayModeClearTask?.cancel()
         displayModeClearTask = nil
+        displayDismissTask?.cancel()
+        displayDismissTask = nil
         displayModeResult = ""
         ttsSpeakingSegment = ""
         Task { await TTSService.shared.stop() }
@@ -926,6 +981,59 @@ final class ConversationCoordinator: ObservableObject {
             let modelName = modelManager.selectedSTTModel.path
             return try await WhisperKitSTTService(modelName: modelName)
         }
+    }
+
+    /// Like `makeSttService()`, but loads the ASR models from disk first if they
+    /// were offloaded. Used by file transcription, which can run even when the
+    /// selected *LLM* is LiteRT/Gemma (which otherwise handles audio itself and
+    /// leaves no standalone STT loaded). Returns nil only if STT is set to None.
+    func makeSttServiceForFile() async throws -> (any STTService)? {
+        if modelManager.selectedSTTModel.backend == .fluidAudio, modelManager.asrModels == nil {
+            try await modelManager.reloadSTT()
+        }
+        return try await makeSttService()
+    }
+
+    /// Runs the loaded LLM to rewrite `text` per a natural-language `instruction`.
+    /// Used by the Transcribe window's "Edit with Voice" — no screen context, no paste,
+    /// no overlay state changes. Loads the selected LLM from cache if it was offloaded.
+    func editText(_ text: String, instruction: String) async throws -> String {
+        if llm == nil, !modelManager.selectedModel.isNone {
+            try await modelManager.loadModel(modelManager.selectedModel)
+            if modelManager.inferenceRouter.isLoaded { llm = makeLLMService() }
+            modelManager.keepAlive()
+        }
+        guard let llm else { throw VoiceEditorError.modelsNotLoaded }
+        let family = modelManager.selectedModel.family
+        let prompt = family.editPrompt(text: text, instruction: instruction, context: nil)
+        let maxTokens = family.editMaxTokens(for: text)
+        var raw = ""
+        do {
+            for try await chunk in llm.generateStream(prompt: prompt, images: [], maxTokens: maxTokens) {
+                raw += chunk
+            }
+        } catch {
+            let desc = "\(error)"
+            if desc.localizedCaseInsensitiveContains("too long")
+                || desc.localizedCaseInsensitiveContains("INVALID_ARGUMENT")
+                || desc.localizedCaseInsensitiveContains("maximum number of tokens") {
+                throw TextEditError.textTooLong
+            }
+            throw error
+        }
+        modelManager.keepAlive()
+        return OutputCleaner.clean(family.postProcess(raw))
+    }
+
+    /// Records a spoken command (until silence) and transcribes it with the current
+    /// STT. Backs the "Edit with Voice" mic in the Transcribe window.
+    func dictateCommand() async throws -> String {
+        guard let stt = try await makeSttServiceForFile() else {
+            throw FileTranscriptionError.noTranscriptionModel
+        }
+        let samples = try await audioCapture.recordUntilSilence(vadDetector: modelManager.vadDetector)
+        guard !samples.isEmpty else { return "" }
+        return try await stt.transcribe(samples: samples)
     }
 
     var modelCacheDirectory: URL { ModelManager.modelsCacheRoot }

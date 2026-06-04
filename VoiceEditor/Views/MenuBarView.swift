@@ -20,6 +20,10 @@ struct MenuBarMenu: View {
             ActivationPolicyManager.shared.bringWindowsToFront()
         }
 
+        Button("Transcribe File…") {
+            TranscriptionWindowController.shared.show(coordinator: coordinator)
+        }
+
         Button(L("menu.about")) {
             AboutWindowController.shared.show()
         }

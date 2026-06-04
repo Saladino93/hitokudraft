@@ -13,6 +13,11 @@ packages:
     revision: 843250b
   HitokuInference:
     path: HitokuInference
+  LiteRT-LM:
+    url: https://github.com/google-ai-edge/LiteRT-LM
+    # Pinned by revision (v0.13.1 tag commit): the LiteRTLM target uses
+    # .unsafeFlags(-all_load), which SwiftPM disallows for versioned deps.
+    revision: a0afb5a56acd106b23a2b2385b8469834dc268c0
   mlx-swift-lm:
     url: https://github.com/ml-explore/mlx-swift-lm
     revision: 6bb84aa
@@ -93,6 +98,8 @@ targets:
         product: MLXBackend
       - package: HitokuInference
         product: LiteRTBackend
+      - package: LiteRT-LM
+        product: LiteRTLM
       - package: mlx-swift-lm
         product: MLXLLM
       - package: mlx-swift-lm
@@ -113,31 +120,11 @@ targets:
       - package: SwiftMath
         product: SwiftMath
     postBuildScripts:
+      # LiteRT dylibs are no longer embedded by hand — the official SDK's
+      # CLiteRTLM_mac.xcframework is linked + embedded by SwiftPM/Xcode.
       - script: |
-          # Embed LiteRT dylibs into the app bundle for runtime dlopen loading.
-          LITERT_LIBS="${SRCROOT}/HitokuInference/Libraries/macos_arm64"
-          LITERT_PREBUILT="${SRCROOT}/../litert-lm/prebuilt/macos_arm64"
-          FRAMEWORKS_DIR="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
-          MACOS_DIR="${BUILT_PRODUCTS_DIR}/${EXECUTABLE_FOLDER_PATH}"
-          mkdir -p "${FRAMEWORKS_DIR}"
-          # Copy engine + runtime dylibs to Frameworks/
-          for lib in liblitert_lm_engine.dylib libLiteRt.dylib libGemmaModelConstraintProvider.dylib; do
-            if [ -f "${LITERT_LIBS}/${lib}" ]; then
-              cp -f "${LITERT_LIBS}/${lib}" "${FRAMEWORKS_DIR}/"
-              codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" "${FRAMEWORKS_DIR}/${lib}" 2>/dev/null || true
-            fi
-          done
-          # GPU accelerator dylibs must be next to the executable (LiteRT dlopen uses bare filename)
-          for lib in libLiteRtMetalAccelerator.dylib libLiteRtWebGpuAccelerator.dylib libLiteRtTopKWebGpuSampler.dylib; do
-            SRC="${LITERT_LIBS}/${lib}"
-            [ ! -f "${SRC}" ] && SRC="${LITERT_PREBUILT}/${lib}"
-            if [ -f "${SRC}" ]; then
-              cp -f "${SRC}" "${MACOS_DIR}/"
-              codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" "${MACOS_DIR}/${lib}" 2>/dev/null || true
-            fi
-          done
           # Copy licensing.json into Resources if it exists (commercial builds only)
           if [ -f "${SRCROOT}/licensing.json" ]; then
             cp -f "${SRCROOT}/licensing.json" "${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/licensing.json"
           fi
-        name: Embed LiteRT Dylibs
+        name: Copy Licensing

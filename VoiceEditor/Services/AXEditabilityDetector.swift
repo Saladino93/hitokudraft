@@ -2,15 +2,22 @@ import ApplicationServices
 
 /// Accessibility-API-based implementation of `EditabilityDetector`.
 ///
+/// "Editable" here means **there is a real text insertion point (caret)** at the
+/// focused element — the deterministic "is there a cursor?" test. With a caret,
+/// Voice Edit pastes the result; without one (a read-only web page in Safari, an
+/// editor that isn't focused in its text area) it shows the result in the overlay.
+///
 /// Detection strategy (fail-open):
-/// 1. Read `kAXRoleAttribute` from the system-wide focused element and check
-///    against a whitelist of standard editable roles.
-/// 2. Check `kAXSelectedTextAttribute` — present on any element that holds a
-///    text cursor, including native text views that report a non-standard role.
-/// 3. Probe `kAXInsertionPointLineNumberAttribute` — native text views (Terminal).
-/// 4. Check `kAXSelectedTextRangeAttribute` settability — covers remaining cases.
-/// 5. If any AX call fails (permission revoked, element gone), return `true`
-///    so the app falls back to the existing paste behavior.
+/// 1. `kAXSelectedTextRangeAttribute` — the caret/selection range. This is the
+///    primary signal: present in TextEdit, Notes, text fields, and web editors
+///    (Mail/Gmail) that currently hold a caret; absent on a read-only page.
+/// 2. `kAXSelectedTextAttribute` / `kAXInsertionPointLineNumberAttribute` — extra
+///    caret signals for native text views (e.g. Terminal).
+/// 3. Standard editable text roles as a backstop (a focused, empty text field has
+///    a caret even if step 1 is briefly unavailable). `AXWebArea` is deliberately
+///    NOT treated as editable by role — a focused web *page* is not a text cursor.
+/// 4. If the focused element can't be read at all (permission revoked), return
+///    `true` so the app falls back to its prior paste behavior.
 struct AXEditabilityDetector: EditabilityDetector {
 
     private static let editableRoles: Set<String> = [
@@ -18,57 +25,48 @@ struct AXEditabilityDetector: EditabilityDetector {
         "AXTextArea",
         "AXComboBox",
         "AXSearchField",
-        // WebKit-based editors (Apple Mail compose, contenteditable pages in browsers,
-        // Notion, etc.) report role AXWebArea. AXWebArea only receives keyboard focus
-        // when the user is interacting with it, so treating it as editable is correct.
-        "AXWebArea",
     ]
 
     func focusedElementIsEditable() -> Bool {
-        // Step 1: Obtain the system-wide focused element.
         let system = AXUIElementCreateSystemWide()
         var focusedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
             system, kAXFocusedUIElementAttribute as CFString, &focusedRef
         ) == .success, let focusedRef else {
-            return true  // AX unavailable — fail open
+            return true  // AX unavailable — fail open (paste)
         }
         let focused = unsafeBitCast(focusedRef, to: AXUIElement.self)
 
-        // Step 2: Role whitelist check.
+        // Primary: is there a caret / selection range? (the "is there a cursor?" test)
+        var rangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            focused, kAXSelectedTextRangeAttribute as CFString, &rangeRef
+        ) == .success, rangeRef != nil {
+            return true
+        }
+
+        // Extra caret signals for native text views with non-standard roles.
+        var selRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            focused, kAXSelectedTextAttribute as CFString, &selRef
+        ) == .success, selRef != nil {
+            return true
+        }
+        var ipRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            focused, kAXInsertionPointLineNumberAttribute as CFString, &ipRef
+        ) == .success, ipRef != nil {
+            return true
+        }
+
+        // Backstop: standard editable text roles (focused text field always has a caret).
+        // AXWebArea intentionally excluded — caught above only when it actually holds a caret.
         var roleRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(
             focused, kAXRoleAttribute as CFString, &roleRef
         ) == .success,
            let role = roleRef as? String,
            Self.editableRoles.contains(role) {
-            return true
-        }
-
-        // Step 3: Selected-text attribute — present on any element that holds a text cursor,
-        //         including native text views with non-standard roles.
-        var selRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(
-            focused, kAXSelectedTextAttribute as CFString, &selRef
-        ) == .success {
-            return true
-        }
-
-        // Step 4: Insertion-point probe — fallback for native text views that expose
-        //         kAXInsertionPointLineNumberAttribute (e.g. Terminal input lines).
-        var ipRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(
-            focused, kAXInsertionPointLineNumberAttribute as CFString, &ipRef
-        ) == .success {
-            return true
-        }
-
-        // Step 5: Check if kAXSelectedTextRangeAttribute is settable — editable text
-        //         allows cursor repositioning; non-editable elements do not.
-        var settable: DarwinBoolean = false
-        if AXUIElementIsAttributeSettable(
-            focused, kAXSelectedTextRangeAttribute as CFString, &settable
-        ) == .success && settable.boolValue {
             return true
         }
 

@@ -53,6 +53,11 @@ struct DictationOverlayContent: View {
                     .stroke(borderColor(for: state), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+            // Keep a display-mode answer open while the cursor is over it,
+            // so it never auto-dismisses while the user reads or scrolls.
+            .onHover { hovering in
+                viewModel.coordinator?.keepDisplayResultAlive(hovering)
+            }
         }
     }
 
@@ -130,19 +135,27 @@ struct DictationOverlayContent: View {
         case .speaking(let text, _, let progress):
             VStack(spacing: 6) {
                 SpeakingProgressBar(progress: progress, theme: theme)
-                OverlayActionButtons(text: text, theme: theme) {
-                    viewModel.coordinator?.readAloud(text)
-                }
+                OverlayActionButtons(
+                    text: text,
+                    theme: theme,
+                    isSpeaking: true,
+                    onReadAloud: { viewModel.coordinator?.readAloud(text) },
+                    onStop: { viewModel.coordinator?.stopReadAloud() }
+                )
             }
             .padding(.horizontal, 18)
             .padding(.bottom, 10)
 
         case .done(let text):
-            OverlayActionButtons(text: text, theme: theme) {
-                // Read Aloud — uses sentence-by-sentence streaming for fast first-word playback
-                // and resets the overlay auto-dismiss timer to wait for TTS completion.
-                viewModel.coordinator?.readAloud(text)
-            }
+            // Read Aloud — uses sentence-by-sentence streaming for fast first-word playback
+            // and resets the overlay auto-dismiss timer to wait for TTS completion.
+            OverlayActionButtons(
+                text: text,
+                theme: theme,
+                isSpeaking: false,
+                onReadAloud: { viewModel.coordinator?.readAloud(text) },
+                onStop: { viewModel.coordinator?.stopReadAloud() }
+            )
             .padding(.horizontal, 18)
             .padding(.bottom, 10)
             .transition(.opacity.animation(.easeInOut(duration: 0.3)))

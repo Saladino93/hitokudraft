@@ -637,6 +637,9 @@ struct SettingsView: View {
                         Text(L("model.polish_dictation_desc"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            // Allow the description to wrap to a second line instead of
+                            // truncating ("…Requires loaded L…"). Language-agnostic.
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 

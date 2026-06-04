@@ -1,11 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Action buttons for the Done state: Copy, Read Aloud.
+/// Action buttons for the Done / Speaking states: Copy, and a Read Aloud ↔ Stop toggle.
+/// While TTS is playing (`isSpeaking`), the speaker button becomes a Stop button so the
+/// user can silence playback without dismissing the overlay.
 struct OverlayActionButtons: View {
     let text: String
     let theme: DictationTheme
+    let isSpeaking: Bool
     let onReadAloud: () -> Void
+    let onStop: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -14,8 +18,14 @@ struct OverlayActionButtons: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
-            OverlayIconButton(icon: "speaker.wave.2", tooltip: "Read Aloud") {
-                onReadAloud()
+            if isSpeaking {
+                OverlayIconButton(icon: "stop.fill", tooltip: "Stop") {
+                    onStop()
+                }
+            } else {
+                OverlayIconButton(icon: "speaker.wave.2", tooltip: "Read Aloud") {
+                    onReadAloud()
+                }
             }
         }
     }

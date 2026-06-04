@@ -2,6 +2,101 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [1.6.4] — 2026-06-04
+
+### Added
+- **File transcription from the menu bar.** New "Transcribe File…" menu item opens
+  a window where you drag-and-drop or browse to audio/video files, transcribe them
+  with the currently-loaded STT model, watch a live percentage, and Copy/Save the
+  text (`.txt`). Esc closes the window.
+  - **Multiple files**: add a batch, transcribe them all sequentially, and select
+    any file in the list to view its transcript. Per-file status + progress.
+  - **Edit with Voice**: a bottom bar lets the loaded LLM rewrite the selected
+    transcript from a typed or dictated command ("bullet points", "fix punctuation",
+    "translate to French"). Backed by new `ConversationCoordinator.editText(_:instruction:)`
+    and `dictateCommand()`; window widened ~20% (460→552) for the editor. New `AudioFileDecoder` (any audio → 16 kHz
+  mono via `AVAudioConverter`, block-streamed for long files), `FileTranscriptionModel`
+  (30 s chunking, per-chunk error tolerance, live result), `FileTranscriptionView`,
+  and `TranscriptionWindowController`. Reuses the existing `STTService` path — no
+  changes to the dictation pipeline.
+  - _Limitations (v1):_ audio files only (not video tracks), plain-text output (no
+    timestamps/SRT), fixed 30 s chunk boundaries; UI strings English-only pending
+    localization.
+
+### Fixed
+- **Voice Edit (Ctrl+Z) showed no transcript with Gemma/LiteRT.** In audio-direct
+  mode the model hears the audio and STT was skipped entirely, so the user never saw
+  their words. A display-only STT is now loaded during recording so the live
+  transcript shows (the answer still comes from audio-direct — no quality change).
+- **"Edit with Voice" failed on long transcripts** with a raw native error
+  ("INVALID_ARGUMENT: Input token ids are too long"). Raised the LiteRT context window
+  4096 → 8192 (Gemma 4 supports far more; modest KV-cache cost), and map the
+  over-limit case to a readable message suggesting a shorter file or a length-reducing
+  edit.
+- **Polish dictation description was truncated** ("…Requires loaded L…"). The Settings
+  row now wraps to a second line (`.fixedSize`) — language-agnostic, so it reads in
+  full in all locales.
+- **Voice Edit (Ctrl+Z) answer behaved differently per app — pasted in Safari/VSCode,
+  displayed in Firefox.** The detector treated any focused `AXWebArea` as editable, so
+  a read-only web *page* counted as a paste target and the answer was pasted (overlay
+  closed) instead of shown. Detection is now caret-based (`AXSelectedTextRange`): if
+  there's a real text insertion point, paste there; otherwise show in the overlay.
+  Deterministic and app-independent — no intent guessing.
+- **File transcription failed to open MP3s ("Could not open the audio file").**
+  Replaced the `AVAudioFile`-based decoder (unreliable for compressed formats) with
+  `AVAssetReader`, which robustly decodes MP3/M4A/AAC/WAV/AIFF/FLAC (and video audio
+  tracks) and resamples to 16 kHz mono itself.
+- **File transcription reported "no model" even with STT active.** ASR models had
+  been offloaded from RAM; `makeSttServiceForFile()` now reloads the currently-selected
+  STT from local cache on demand (no download). The "pick a model" message only shows
+  when STT is set to None.
+- **Can't scroll the overlay during/after generation.** The overlay panel is
+  borderless, so `canBecomeKey` was `false` — button clicks worked but scroll
+  and text selection didn't. Introduced `InteractiveOverlayPanel` (NSPanel
+  subclass overriding `canBecomeKey`); it stays `.nonactivatingPanel`, so the
+  user's frontmost app keeps focus for pasting. Also set `acceptsMouseMovedEvents`
+  so hover tracking fires.
+- **Display-mode answer (Ctrl+Z "explain") closed itself while being read.** The
+  hard 30s auto-dismiss fired even mid-read. The countdown is now a separate,
+  restartable timer (`displayDismissTask`) that **pauses while the cursor is over
+  the overlay** (`.onHover` → `keepDisplayResultAlive`) and resumes on exit;
+  base timeout raised 30s → 45s. The three duplicated inline timers were unified
+  into `scheduleDisplayAutoDismiss(after:)`.
+
+### Added
+- **Stop TTS playback from the overlay.** The Read Aloud speaker button now
+  toggles to a Stop button (`stop.fill`) while TTS is playing — tapping it
+  silences playback immediately while keeping the text on screen (the 30s
+  auto-dismiss restarts). Previously, once Read Aloud started there was no way
+  to stop it short of Esc (which also dismissed the overlay). New coordinator
+  method `stopReadAloud()`; `OverlayActionButtons` gains an `isSpeaking` toggle.
+
+### Changed
+- **LiteRT now uses Google's official LiteRT-LM Swift SDK (v0.13.1).** Replaced
+  the hand-rolled `dlopen`/`dlsym` C bridge with the SwiftPM `LiteRTLM` package.
+  The backend (`LiteRTInferenceBackend`) is rewritten against the SDK's actor-
+  isolated `Engine` + `Conversation` API: native `AsyncThrowingStream` streaming,
+  `Content.text/.imageData/.audioData` for multimodal input, and `Engine`-managed
+  lifecycle. The `InferenceBackend` protocol seam is unchanged, so the rest of
+  the app (RoutedLLMService, ModelManager) is untouched.
+
+### Removed
+- `CLiteRTEngine` system-library target (`engine.h` + module map).
+- `LiteRTEngine.swift` — the `dlopen` loader and 17 hand-typed C function pointers.
+- `HitokuInference/Libraries/macos_arm64/` and the "Embed LiteRT Dylibs" build
+  phase. The official SDK's `CLiteRTLM_mac.xcframework` is embedded by SwiftPM
+  (–98 MB of manually-bundled dylibs).
+- Manual JSON message building, temp-file media passing, and the `Unmanaged`
+  `StreamContext` retain/release dance — all subsumed by the SDK.
+
+### Notes
+- Package pinned by revision (`a0afb5a`, v0.13.1 tag): the SDK's `LiteRTLM`
+  target uses `.unsafeFlags(-all_load)`, which SwiftPM forbids for versioned deps.
+- Resolution requires `GIT_LFS_SKIP_SMUDGE=1` (the SDK repo's `prebuilt/` LFS
+  blobs are unrelated to the macOS xcframework and one is missing upstream).
+- **Pending:** runtime verification of Gemma E4B generation + Metal memory on the
+  new engine (old vendored dylibs hit a 10× WebGPU allocation; see KNOWN_ISSUES).
+
 ## [1.6.3] — 2026-04-12
 
 ### Improved
