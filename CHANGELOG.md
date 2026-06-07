@@ -4,6 +4,12 @@ All notable changes to Hitoku Draft are documented in this file.
 
 ## [Unreleased]
 
+## [1.6.6] - 2026-06-07
+
+### Fixed
+- **Help tab layout.** The "How to use" content was clipped at the top in some window
+  sizes. Removed the redundant heading so all rows and the footer fit cleanly.
+
 ## [1.6.5] - 2026-06-07
 
 ### Added

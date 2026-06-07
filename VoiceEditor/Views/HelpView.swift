@@ -5,10 +5,6 @@ import SwiftUI
 struct HelpView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("How to use Hitoku Draft")
-                .font(.system(size: 16, weight: .semibold))
-                .padding(.bottom, 2)
-
             helpRow(
                 icon: "mic.fill",
                 title: "Dictate",
@@ -55,6 +51,8 @@ struct HelpView: View {
                 .padding(.bottom, 40)
         }
         .padding(20)
+        // Push the first row (Dictate) down ~5% now that the heading is gone.
+        .padding(.top, 26)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
