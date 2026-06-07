@@ -63,29 +63,34 @@ private struct WhatsNewBullet {
 
 private let whatsNewBullets: [WhatsNewBullet] = [
     WhatsNewBullet(
-        symbol: "waveform.circle",
-        title: "Redesigned Overlay",
-        detail: "Four visual states — Listening, Generating, Speaking, and Done — with animated waveform bars, pulsing dots, sentence-level TTS highlighting, and action buttons. Six themes available."
+        symbol: "waveform",
+        title: "Transcribe audio and video files",
+        detail: "Open Transcribe File from the menu bar, drop in one or many recordings, and get clean text on your Mac. Switch between files and refine any transcript with your voice."
+    ),
+    WhatsNewBullet(
+        symbol: "questionmark.circle",
+        title: "How to use guide",
+        detail: "A new Help tab in Settings walks through dictation, voice editing, tool use, file transcription, and privacy."
     ),
     WhatsNewBullet(
         symbol: "cpu",
-        title: "Gemma 4 Multimodal",
-        detail: "Native audio + vision inference via LiteRT. Speak directly to the model without a separate speech-to-text step. Gemma 4 E2B (2.6 GB) and E4B (3.7 GB)."
+        title: "More model choices",
+        detail: "A larger Gemma 4 option for Macs with plenty of memory (text and audio), plus the ability to add more on-device community models from Settings."
     ),
     WhatsNewBullet(
-        symbol: "speaker.wave.2",
-        title: "Voice Readback & TTS",
-        detail: "Results are read aloud in non-editable contexts. Two TTS engines: Kokoro (multi-voice, speed control) and PocketTTS. Streaming synthesis with sentence highlighting."
+        symbol: "textformat",
+        title: "Formatted answers",
+        detail: "Answers in the overlay now show formatting such as bold and italics."
     ),
     WhatsNewBullet(
         symbol: "globe",
-        title: "Web Search & Browser Context",
-        detail: "The AI can search DuckDuckGo, read web pages, and extract full-page text from Safari, Chrome, Arc, Brave, and Edge."
+        title: "Clearer web answers",
+        detail: "Web answers list their sources, and no longer get stuck while generating."
     ),
     WhatsNewBullet(
-        symbol: "calendar",
-        title: "Calendar Tools",
-        detail: "Ask about your schedule via voice: \"Am I free tomorrow?\", \"What's on my calendar today?\". Works with both Ctrl+A and Ctrl+Z."
+        symbol: "checkmark.circle",
+        title: "Reliable answers on screen",
+        detail: "Asking a question with nothing selected now keeps the answer on screen. It stays while you read and closes shortly after."
     ),
 ]
 

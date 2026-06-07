@@ -4,6 +4,8 @@ All notable changes to Hitoku Draft are documented in this file.
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-06-07
+
 ### Added
 - **Formatted overlay answers.** Answers shown in the overlay now render inline
   Markdown: **bold**, *italic*, `inline code`, and ~~strikethrough~~. This applies to
@@ -42,6 +44,9 @@ All notable changes to Hitoku Draft are documented in this file.
   never echo or paste the screen. Audio-direct remains only as the no-STT fallback, where
   a single call includes a system-prompt gate that outputs NOOP (and does nothing) if no
   clear instruction was spoken. See `docs/SPEECH_AND_AI_DESIGN.md`.
+- **In-app "What's New" refreshed for this release.** The upgrade screen now lists the
+  current features (file transcription, Help guide, model choices, formatted answers, web
+  sources, on-screen answer reliability) instead of stale older highlights.
 
 ### Fixed
 - **Asking with no text field selected no longer loses the answer.** On the desktop or in
