@@ -39,6 +39,11 @@ actor TranscriptionStore {
     }
 
     /// A single recorded interaction.
+    ///
+    /// The `context*` fields capture exactly what the model was given before it
+    /// answered, so a log is falsifiable: you can see whether a bad answer came
+    /// from a bad screen read, the wrong model, or the model itself. (Optional, so
+    /// older logs without them still decode.)
     struct Record: Codable {
         let timestamp: Date
         let mode: InteractionMode
@@ -46,6 +51,30 @@ actor TranscriptionStore {
         let llmResponse: String?
         let activeApp: String?
         let modelName: String?
+        /// Backend that answered: "mlx" or "litert".
+        var modelBackend: String?
+        /// Context mode at capture time: "off" / "standard" / "advanced".
+        var contextMode: String?
+        /// Where the captured text came from: "accessibility" / "ocr" / "titleOnly" / "none".
+        var contextSource: String?
+        /// The exact screen-context text block injected into the prompt (what the model saw).
+        var contextText: String?
+        /// Whether a screenshot was sent to the model (vision).
+        var hadScreenshot: Bool?
+
+        // Latency split, in milliseconds. Lets a log show where the time went.
+        /// Screen context capture.
+        var latencyContextMs: Int?
+        /// Final speech transcription after you stop talking (excludes talk time).
+        var latencySttMs: Int?
+        /// Time to the model's first token.
+        var latencyFirstTokenMs: Int?
+        /// Full model generation.
+        var latencyModelMs: Int?
+        /// Pasting or showing the result.
+        var latencyInsertMs: Int?
+        /// Hotkey press to result on screen (includes the time you spent talking).
+        var latencyTotalMs: Int?
     }
 
     /// Save a voice interaction to disk.
@@ -54,7 +83,18 @@ actor TranscriptionStore {
         transcription: String,
         llmResponse: String? = nil,
         activeApp: String? = nil,
-        modelName: String? = nil
+        modelName: String? = nil,
+        modelBackend: String? = nil,
+        contextMode: String? = nil,
+        contextSource: String? = nil,
+        contextText: String? = nil,
+        hadScreenshot: Bool? = nil,
+        latencyContextMs: Int? = nil,
+        latencySttMs: Int? = nil,
+        latencyFirstTokenMs: Int? = nil,
+        latencyModelMs: Int? = nil,
+        latencyInsertMs: Int? = nil,
+        latencyTotalMs: Int? = nil
     ) {
         let record = Record(
             timestamp: Date(),
@@ -62,7 +102,18 @@ actor TranscriptionStore {
             transcription: transcription,
             llmResponse: llmResponse,
             activeApp: activeApp,
-            modelName: modelName
+            modelName: modelName,
+            modelBackend: modelBackend,
+            contextMode: contextMode,
+            contextSource: contextSource,
+            contextText: contextText,
+            hadScreenshot: hadScreenshot,
+            latencyContextMs: latencyContextMs,
+            latencySttMs: latencySttMs,
+            latencyFirstTokenMs: latencyFirstTokenMs,
+            latencyModelMs: latencyModelMs,
+            latencyInsertMs: latencyInsertMs,
+            latencyTotalMs: latencyTotalMs
         )
 
         do {

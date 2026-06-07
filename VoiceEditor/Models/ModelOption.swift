@@ -51,6 +51,10 @@ struct ModelOption: Identifiable, Hashable, Codable {
     /// explicit "-VL" or "-vlm" suffix convention.
     var isVLM: Bool {
         let lower = path.lowercased()
+        // The litert-community 12B export ships without a vision encoder (audio + text
+        // only). Requesting vision for it fails conversation creation with
+        // "TF_LITE_VISION_ENCODER not found", so it is not a VLM here.
+        if lower.contains("gemma-4-12b") { return false }
         if lower.contains("qwen3.5") { return true }
         // Gemma 4 via LiteRT is natively multimodal (audio + vision + text)
         if lower.contains("gemma-4") || lower.contains("gemma4") { return true }
@@ -113,6 +117,12 @@ struct ModelOption: Identifiable, Hashable, Codable {
     /// Qwen3 models get `disableThinking` + extra EOS; LFM models get voice-clean prompt.
     static func autoConfigured(name: String, path: String) -> ModelOption {
         let lower = path.lowercased()
+        // LiteRT-LM repos ship a `.litertlm` file loaded by the LiteRT backend.
+        // The exact filename is resolved from the HuggingFace API at download time
+        // (see downloadAndAddCustomModel), since a repo can have multiple variants.
+        if lower.contains("litert") {
+            return ModelOption(name: name, path: path, backendType: .liteRT)
+        }
         if lower.contains("qwen3.5") {
             return ModelOption(
                 name: name, path: path,
@@ -245,6 +255,14 @@ enum ModelRegistry {
             extraEOSTokens: ["<|im_end|>"],
             description: "model.desc.best_quality",
             estimatedMemoryGB: 6.5
+        ),
+        ModelOption(
+            name: "Gemma 4 12B",
+            path: "litert-community/gemma-4-12B-it-litert-lm",
+            backendType: .liteRT,
+            liteRTFilename: "gemma-4-12B-it.litertlm",
+            description: "model.desc.flagship_multimodal",
+            estimatedMemoryGB: 9
         ),
     ]
 

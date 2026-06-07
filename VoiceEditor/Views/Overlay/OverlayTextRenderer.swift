@@ -91,7 +91,10 @@ struct OverlayTextRenderer: View {
         let (solid, ghost) = ghostSplit(from: text)
         let view: Text
         if ghost.isEmpty || !isGhosting {
-            view = Text(text).foregroundStyle(.white.opacity(0.92))
+            // Final/displayed state (not streaming): render inline Markdown so **bold**,
+            // *italic*, `code` and ~~strike~~ format. During streaming we keep raw text
+            // because ghosting/highlighting slice the string by character range.
+            view = Self.inlineMarkdown(text).foregroundStyle(.white.opacity(0.92))
         } else {
             view = Text(solid).foregroundStyle(.white.opacity(0.92))
                 + Text(ghost).foregroundStyle(.white.opacity(singleLine ? 0.45 : 0.5))
@@ -100,6 +103,21 @@ struct OverlayTextRenderer: View {
         return view
             .font(baseFont)
             .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+    }
+
+    /// Renders inline Markdown (bold, italic, inline code, strikethrough, links) from a
+    /// plain string into a `Text`. Whitespace and newlines are preserved so the overlay's
+    /// line breaks survive. Block syntax (headings, lists) is left as-is by this option.
+    /// Falls back to a plain `Text` if parsing fails. The caller applies font and color,
+    /// which the bold/italic intents render relative to.
+    static func inlineMarkdown(_ s: String) -> Text {
+        if let attr = try? AttributedString(
+            markdown: s,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            return Text(attr)
+        }
+        return Text(s)
     }
 
     private func ghostSplit(from text: String) -> (String, String) {
@@ -166,7 +184,7 @@ struct OverlayTextRenderer: View {
         segs.reduce(Text("")) { acc, seg in
             switch seg {
             case .plain(let s):
-                return acc + Text(s)
+                return acc + Self.inlineMarkdown(s)
                     .font(.system(size: 15, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.92))
             case .math(let expr):

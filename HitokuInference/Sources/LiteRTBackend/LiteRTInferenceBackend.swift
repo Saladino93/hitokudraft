@@ -46,9 +46,13 @@ extension LiteRTInferenceBackend: InferenceBackend {
 
         // Backend selection (defaults match the previous C-API behavior:
         // GPU/Metal for text + vision, CPU for the audio front-end).
+        // "none" => the model has no encoder for that modality; pass nil so the engine
+        // does not require it (e.g. the 12B build has no vision encoder).
         let backend = Self.parseBackend(config.extra["backend"] as? String ?? "gpu")
-        let visionBackend = Self.parseBackend(config.extra["visionBackend"] as? String ?? "gpu")
-        let audioBackend = Self.parseBackend(config.extra["audioBackend"] as? String ?? "cpu")
+        let visionRaw = config.extra["visionBackend"] as? String ?? "gpu"
+        let visionBackend: Backend? = (visionRaw == "none") ? nil : Self.parseBackend(visionRaw)
+        let audioRaw = config.extra["audioBackend"] as? String ?? "cpu"
+        let audioBackend: Backend? = (audioRaw == "none") ? nil : Self.parseBackend(audioRaw)
         let cacheDir = config.extra["cacheDir"] as? String
         // Total sequence budget (prompt + generated output), set once at engine
         // creation. 8192 gives headroom for editing long transcripts; Gemma 4
@@ -112,18 +116,44 @@ extension LiteRTInferenceBackend: InferenceBackend {
 
                     // Fresh conversation per call — prevents context accumulation
                     // that degrades quality after many interactions.
-                    let conversation = try await engine.createConversation(with: convConfig)
+                    let conversation: Conversation
+                    do {
+                        conversation = try await engine.createConversation(with: convConfig)
+                    } catch {
+                        // Surface the underlying SDK reason instead of the generic
+                        // "Failed to create conversation" so failures are diagnosable.
+                        let detail = "\(error)"
+                        print("[LiteRT] createConversation failed: \(detail)")
+                        continuation.finish(throwing: LiteRTError.generationError("create conversation — \(detail)"))
+                        return
+                    }
                     store.setActiveConversation(conversation)
                     defer { store.setActiveConversation(nil) }
 
                     let message = Self.buildMessage(from: request)
 
+                    // The SDK has no per-call output cap (only the engine-wide context),
+                    // so honor request.maxTokens here. Without this, a model that fails to
+                    // emit a stop token keeps generating toward the full context window,
+                    // which looks like a multi-minute hang. ~5 chars per token is a rough
+                    // budget; we cancel the conversation when we hit it so the engine stops.
+                    let maxChars = max(64, request.maxTokens) * 5
+                    var emittedChars = 0
+
                     var window = RepetitionWindow()
                     for try await chunk in conversation.sendMessageStream(message) {
                         let text = chunk.toString
                         guard !text.isEmpty else { continue }
-                        if window.isDegenerate(text) { break }
+                        if window.isDegenerate(text) {
+                            try? conversation.cancel()
+                            break
+                        }
                         continuation.yield(text)
+                        emittedChars += text.count
+                        if emittedChars >= maxChars {
+                            try? conversation.cancel()
+                            break
+                        }
                     }
                     continuation.finish()
                 } catch is CancellationError {

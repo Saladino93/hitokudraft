@@ -19,6 +19,21 @@ struct FileTranscriptionView: View {
                 fileList
             }
 
+            if !model.items.isEmpty && model.canUseLLM {
+                Picker("Transcribe with", selection: $model.useLLM) {
+                    Text("Speech model").tag(false)
+                    Text("AI model (Gemma)").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(model.isRunning)
+                if model.useLLM {
+                    Text("Gemma transcribes directly. Better for mixed languages, slower than a speech model.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             controls
 
             if model.isRunning || !model.statusText.isEmpty {

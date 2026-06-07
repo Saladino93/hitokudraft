@@ -2,6 +2,79 @@
 
 All notable changes to Hitoku Draft are documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Formatted overlay answers.** Answers shown in the overlay now render inline
+  Markdown: **bold**, *italic*, `inline code`, and ~~strikethrough~~. This applies to
+  the final displayed answer; text stays plain while it is still being generated or read
+  aloud. (Headings and bullet lists are not styled yet.)
+- **Context logging in interaction logs.** Each saved Voice Edit log now records
+  exactly what the model was given before it answered: the screen-context text block
+  (what it actually read), the context source (accessibility / ocr / title / none),
+  the context mode, whether a screenshot was sent, and the model name plus backend.
+  This makes a log falsifiable: you can see whether a wrong answer came from a bad
+  screen read, the wrong model, or the model itself.
+- **Latency split in interaction logs.** Voice Edit logs now also record per-phase
+  timings in milliseconds: context capture, final speech transcription, time to first
+  token, full model generation, insertion, and total. Shows exactly where the time went.
+- **Transcribe files with the AI model (Gemma).** The Transcribe window can now use
+  Gemma instead of a dedicated speech model, which is better for mixed and many
+  languages (slower). Selectable when the chosen LLM supports audio. New
+  `LLMTranscriptionSTT` wraps the LLM as a transcriber so the chunked flow is unchanged.
+- **Help tab in Settings.** A "How to use" tab explains the main actions (dictate,
+  edit/ask with voice, tool use, transcribe files, screen awareness, models, privacy).
+  Shortcuts are read live from the user's bindings, so it stays correct after rebinding.
+- **Gemma 4 12B built-in model.** Added as a featured LiteRT option (text + audio, no
+  vision encoder in this build; ~10 GB RAM). Descriptions localized in all four languages.
+- **Custom LiteRT-LM models from HuggingFace.** The Settings "Model Path" field now
+  accepts `litert-community/…` repos (e.g. `litert-community/gemma-4-12B-it-litert-lm`),
+  not just `mlx-community/…`. A repo path containing "litert" is auto-configured for the
+  LiteRT backend, and the specific `.litertlm` filename is resolved from the HuggingFace
+  API at download time (preferring the native build over the `-web` variant). New
+  `ModelManager.resolveLiteRTFilename(repo:)`; `downloadAndAddCustomModel` resolves it
+  before loading and errors clearly if the repo has no `.litertlm`.
+
+### Changed
+- **Voice commands (Ctrl+Z / Ctrl+A) now route as text when a speech model is loaded.**
+  Previously, with a Gemma model, the command was sent as raw audio (audio-direct). Now
+  the speech model transcribes the command and Gemma receives explicit text, so it can
+  never echo or paste the screen. Audio-direct remains only as the no-STT fallback, where
+  a single call includes a system-prompt gate that outputs NOOP (and does nothing) if no
+  clear instruction was spoken. See `docs/SPEECH_AND_AI_DESIGN.md`.
+
+### Fixed
+- **Asking with no text field selected no longer loses the answer.** On the desktop or in
+  Finder, the focus detector could mistake a non-text container for a text cursor and try
+  to paste the answer into nothing, so it vanished. It now correctly recognizes there is no
+  cursor and shows the answer in the overlay instead. The shown answer stays put and
+  auto-closes ~40 seconds after you stop interacting with it (hovering or focusing the
+  overlay pauses that countdown); Esc dismisses it anytime.
+- **Gemma 4 12B failed to start with "Failed to create conversation."** The 12B LiteRT
+  build ships without a vision encoder (audio + text only), but the app requested a vision
+  backend, which the engine rejected with "TF_LITE_VISION_ENCODER not found". Vision is now
+  requested only for models that actually ship a vision encoder; 12B runs as audio + text.
+  Underlying LiteRT errors are also surfaced now instead of the generic message.
+- **Web search and other Gemma actions could hang on "Generating" indefinitely.** The
+  LiteRT backend ignored the per-request token limit (the SDK only has an engine-wide
+  context cap), so a model that did not emit a stop token kept generating toward the full
+  context window, which looked like a multi-minute freeze. Output is now capped at the
+  requested limit and the conversation is cancelled when it is reached. Affects all Gemma
+  generation paths.
+- **Web search now always shows its sources** (titled list with host), so the answer is
+  verifiable.
+- **Voice Edit on the desktop (no app focused) closed instead of showing the answer.**
+  With nothing focused, the editability check failed open to "paste", so the result was
+  pasted into nowhere and the overlay closed. Now, when accessibility is granted and
+  there is no focused element, the answer is shown in the overlay as expected.
+- **Help tab shortcuts now update live** when you rebind them in the General tab.
+- **Voice Edit could echo and paste your screen on an unclear utterance.** In
+  audio-direct mode, a noise or mumble that wasn't a real command let the model
+  describe the screenshot and paste that. Now the command is gated: a transcript with
+  fewer than two words (speech-model path) or a NOOP response (no-STT path) does nothing.
+- **Clearer "None" speech-model description.** Reworded to explain that voice commands
+  use an audio-capable LLM (Gemma 4) and dictation loads a speech model on demand.
+
 ## [1.6.4] — 2026-06-04
 
 ### Added

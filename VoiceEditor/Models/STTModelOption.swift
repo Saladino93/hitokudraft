@@ -31,7 +31,7 @@ enum STTModelRegistry {
         name: "None",
         path: "__none_stt__",
         backend: .fluidAudio,
-        description: "No STT loaded (requires audio-capable LLM like Gemma 4)",
+        description: "No dedicated speech model. Voice commands use an audio-capable LLM (Gemma 4); dictation loads a speech model on demand.",
         estimatedMemoryGB: 0,
         supportsNativeStreaming: false,
         languageRestriction: nil

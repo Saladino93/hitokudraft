@@ -27,6 +27,10 @@ final class FileTranscriptionModel: ObservableObject {
     @Published var isRunning = false
     @Published var statusText = ""
 
+    // Transcriber choice: dedicated STT (default) or the AI model (Gemma, better
+    // for mixed/many languages, slower). Only offered when the selected LLM has audio.
+    @Published var useLLM = false
+
     // Edit-with-Voice bar state.
     @Published var showEditBar = false
     @Published var editCommand = ""
@@ -48,6 +52,8 @@ final class FileTranscriptionModel: ObservableObject {
     var selectedItem: Item? { items.first { $0.id == selectedID } }
     var pendingCount: Int { items.filter { $0.phase == .pending || $0.phase == .failed }.count }
     var hasResult: Bool { !(selectedItem?.resultText.isEmpty ?? true) }
+    /// Whether the "transcribe with AI model (Gemma)" choice should be offered.
+    var canUseLLM: Bool { coordinator?.selectedLLMSupportsAudio ?? false }
 
     /// Two-way binding to the selected file's transcript (editable + LLM-rewritable).
     var selectedResult: Binding<String> {
@@ -111,8 +117,17 @@ final class FileTranscriptionModel: ObservableObject {
 
     private func runAll(coordinator: ConversationCoordinator) async {
         do {
-            guard let stt = try await coordinator.makeSttServiceForFile() else {
-                throw FileTranscriptionError.noTranscriptionModel
+            let stt: any STTService
+            if useLLM {
+                guard let llmSTT = try await coordinator.makeLLMTranscriptionSTT() else {
+                    throw FileTranscriptionError.noTranscriptionModel
+                }
+                stt = llmSTT
+            } else {
+                guard let dedicated = try await coordinator.makeSttServiceForFile() else {
+                    throw FileTranscriptionError.noTranscriptionModel
+                }
+                stt = dedicated
             }
             for item in items where item.phase == .pending || item.phase == .failed {
                 try Task.checkCancellation()

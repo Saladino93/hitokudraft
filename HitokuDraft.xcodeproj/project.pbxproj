@@ -38,6 +38,7 @@
 		488FB9E237286AB35AC3F8CA /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = 3FE0FB479B954A98E91E9333 /* MLXVLM */; };
 		489DAD789C62D133FC488BAE /* LicenseActivationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E71AD531E87ECE5D414E73F3 /* LicenseActivationView.swift */; };
 		49D9EEC1F4A6FB6282BF12E3 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = 25385D4FC85485329F210EF4 /* MLX */; };
+		4EA3E83E12CA282F21CDF569 /* LLMTranscriptionSTT.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24AA44298590EBB7FBCC27FF /* LLMTranscriptionSTT.swift */; };
 		5040514FC37224C45CFB1C2D /* TTSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFFE90D51D1E43701DAD5000 /* TTSService.swift */; };
 		50EE883247B235E80D385B55 /* DictationOverlayContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62421D945F19CDF4ECD2CA4E /* DictationOverlayContent.swift */; };
 		51A1D42781966BF13B164322 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B497A20BD9590DF55EC76C9E /* LicenseManager.swift */; };
@@ -69,6 +70,7 @@
 		8EF50EB0255180CDB86875D0 /* ListeningIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F5C719CE43A11055DA3047 /* ListeningIndicator.swift */; };
 		8FD5A41A59534CF6CA54B2CD /* NoteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D779DEE496D6D03E45AAC683 /* NoteService.swift */; };
 		928DD49C83D426FA7F6005FC /* EmailService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0312C5835647D51B488692A0 /* EmailService.swift */; };
+		931D38672E70EFD2E7757FC7 /* HelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9CA4DDBA474E429CDD4BD8 /* HelpView.swift */; };
 		9378DFBC91DDFD761B48D0AB /* WhisperKitSTTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F7CCC2AF02A6D919A97324B /* WhisperKitSTTService.swift */; };
 		98894069BB1ED02C97A048F4 /* ModelFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94070896E3164FEBA649FCDF /* ModelFamily.swift */; };
 		99E713D5E8D9B227E64FCD5E /* WebSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B884CF3CF73754E9DF136D /* WebSearchService.swift */; };
@@ -125,6 +127,7 @@
 		1B8BDD26ED55CAD75C31DEA9 /* ThreadSafeAudioBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadSafeAudioBuffer.swift; sourceTree = "<group>"; };
 		2076F23BB6BA3EDD97C5BB3E /* AXEditabilityDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXEditabilityDetector.swift; sourceTree = "<group>"; };
 		2256562C2847472EB1D91716 /* DraftDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftDetector.swift; sourceTree = "<group>"; };
+		24AA44298590EBB7FBCC27FF /* LLMTranscriptionSTT.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMTranscriptionSTT.swift; sourceTree = "<group>"; };
 		27343CEB87BA2CEB18DC56BF /* TimerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimerService.swift; sourceTree = "<group>"; };
 		27AE83045AEA2AF62D5E5AE3 /* ActionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionCoordinator.swift; sourceTree = "<group>"; };
 		2D36668894D68F29E5CA2160 /* ContextCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextCaptureService.swift; sourceTree = "<group>"; };
@@ -200,6 +203,7 @@
 		CC0329EFB99608A06EC330AA /* VoiceActivityDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceActivityDetector.swift; sourceTree = "<group>"; };
 		CD37D6D09CC68E266D3B61DC /* TranscriptionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionPipeline.swift; sourceTree = "<group>"; };
 		CEABB6BDF721770905E0EC2D /* LicenseWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseWindowController.swift; sourceTree = "<group>"; };
+		CF9CA4DDBA474E429CDD4BD8 /* HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpView.swift; sourceTree = "<group>"; };
 		D077154B112377828AF3450D /* OverlayTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayTextRenderer.swift; sourceTree = "<group>"; };
 		D6D63F86DBC8DFF469F0E0A1 /* Prompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Prompts.swift; sourceTree = "<group>"; };
 		D779DEE496D6D03E45AAC683 /* NoteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteService.swift; sourceTree = "<group>"; };
@@ -304,6 +308,7 @@
 				46B863E6B166A97030E7490B /* CodeHighlighter.swift */,
 				B2F39A49546B2AAFB9D37B71 /* DownloadProgressView.swift */,
 				2EDE3E2C19D7FC722D7899B2 /* FileTranscriptionView.swift */,
+				CF9CA4DDBA474E429CDD4BD8 /* HelpView.swift */,
 				E71AD531E87ECE5D414E73F3 /* LicenseActivationView.swift */,
 				CEABB6BDF721770905E0EC2D /* LicenseWindowController.swift */,
 				C66342DA44DDF53E2901812D /* MathView.swift */,
@@ -361,6 +366,7 @@
 				87D0A1DA4C61A022ADE84FE7 /* HotkeyManager.swift */,
 				B497A20BD9590DF55EC76C9E /* LicenseManager.swift */,
 				4F22FC7AA8AECA4B8DCA84AD /* LLMService.swift */,
+				24AA44298590EBB7FBCC27FF /* LLMTranscriptionSTT.swift */,
 				4FCC18A9DC690AE945FDB73E /* MLXAudioSTTService.swift */,
 				762C923DC22830F298EC2B9D /* MLXLLMService.swift */,
 				B6FCACC176424D651D42720A /* ModelManager.swift */,
@@ -607,10 +613,12 @@
 				661C5F027821F4E59BA55C31 /* FileTranscriptionView.swift in Sources */,
 				AA597185C11D8A6AA7A47F70 /* FluidAudioSTT.swift in Sources */,
 				3F37F606FB76EB35073A4E83 /* GeneratingIndicator.swift in Sources */,
+				931D38672E70EFD2E7757FC7 /* HelpView.swift in Sources */,
 				127B191CC55BB25BA99385BE /* HotkeyManager.swift in Sources */,
 				83423C46651FAB7594F58C21 /* Instructions.swift in Sources */,
 				A0726172279B92507A310EED /* KeyboardShortcuts+Names.swift in Sources */,
 				51A3F2BBB5AB2C210848E489 /* LLMService.swift in Sources */,
+				4EA3E83E12CA282F21CDF569 /* LLMTranscriptionSTT.swift in Sources */,
 				DB4DF4B1062648B2444635C8 /* LanguageDetector.swift in Sources */,
 				489DAD789C62D133FC488BAE /* LicenseActivationView.swift in Sources */,
 				51A1D42781966BF13B164322 /* LicenseManager.swift in Sources */,

@@ -224,11 +224,13 @@ final class ActionCoordinator {
             """
             let answer = try await llm.generate(prompt: summarizePrompt, maxTokens: 300)
             let cleaned = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Append source list so [1], [2] references are meaningful.
+            // Always show the sources so the answer is verifiable, with title and host.
             let sources = results.enumerated().map { i, r in
-                "[\(i + 1)] \(r.url?.host ?? r.title)"
+                let host = r.url?.host ?? ""
+                return host.isEmpty ? "[\(i + 1)] \(r.title)" : "[\(i + 1)] \(r.title) (\(host))"
             }.joined(separator: "\n")
-            onDisplayResult?(cleaned + "\n\n" + sources)
+            let body = cleaned.isEmpty ? "" : cleaned + "\n\n"
+            onDisplayResult?(body + "Sources:\n" + sources)
 
         case .calendarQuery(let q):
             guard let llm = getLLM() else {

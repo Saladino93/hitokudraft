@@ -277,9 +277,21 @@ final class ModelManager: ObservableObject {
         let liteRTCacheDir = cacheDir.appendingPathComponent("cache").path
         try? FileManager.default.createDirectory(atPath: liteRTCacheDir, withIntermediateDirectories: true)
 
+        // Context window scales down for larger models: the KV cache for the full
+        // window is allocated when the conversation is created, and an 8192 window on
+        // a 12B model is too large to allocate (causes "Failed to create conversation").
+        // Smaller models keep the larger window for longer edits.
+        let maxNumTokens = model.estimatedMemoryGB >= 8 ? 4096 : 8192
+
+        // Only request a vision backend for models that actually ship a vision encoder.
+        // The 12B build is audio + text only; requesting vision fails conversation creation.
+        let visionBackend = model.isVLM ? "gpu" : "none"
+
         let config = BackendConfig(extra: [
             "backend": "gpu",
+            "visionBackend": visionBackend,
             "cacheDir": liteRTCacheDir,
+            "maxNumTokens": maxNumTokens,
         ])
 
         let backend = LiteRTInferenceBackend()
@@ -333,6 +345,24 @@ final class ModelManager: ObservableObject {
         }
 
         try FileManager.default.moveItem(at: tempURL, to: destination)
+    }
+
+    /// Resolves the `.litertlm` filename inside a LiteRT-LM HuggingFace repo via the
+    /// HF API. Prefers the native build over the `-web` (WASM) variant. Returns nil
+    /// if the repo can't be read or has no `.litertlm` file (i.e. not a LiteRT repo).
+    static func resolveLiteRTFilename(repo: String) async -> String? {
+        guard let url = URL(string: "https://huggingface.co/api/models/\(repo)") else { return nil }
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let siblings = json["siblings"] as? [[String: Any]] else {
+            return nil
+        }
+        let files = siblings
+            .compactMap { $0["rfilename"] as? String }
+            .filter { $0.hasSuffix(".litertlm") }
+        // Prefer the native variant; the "-web" build targets WASM/WebGPU in browsers.
+        return files.first { !$0.contains("-web") } ?? files.first
     }
 
     /// Reload only the LLM with the currently selected model.

@@ -3,6 +3,7 @@
 "tab.theme" = "Theme";
 "tab.model" = "Models";
 "tab.updates" = "Updates";
+"tab.help" = "Help";
 
 /* Settings — Permissions */
 "permission.accessibility" = "Accessibility:";
@@ -51,7 +52,7 @@
 "model.model_path" = "Model Path:";
 "model.browse" = "Browse…";
 "model.local_hint" = "Select a local MLX model directory.";
-"model.hf_hint" = "Enter a HuggingFace repo (mlx-community/model-name).";
+"model.hf_hint" = "Enter a HuggingFace repo: mlx-community/… or litert-community/… (LiteRT).";
 "model.system_status" = "System Status:";
 "model.cache_directory" = "Cache Directory:";
 "model.show_in_finder" = "Show in Finder";
@@ -234,4 +235,5 @@
 "model.desc.smart_multilingual" = "Smart multilingual editing (excellent for its size)";
 "model.desc.native_audio_vision" = "Native audio + vision (fastest end-to-end)";
 "model.desc.larger_multimodal" = "Larger multimodal model, higher quality (needs 4+ GB RAM)";
+"model.desc.flagship_multimodal" = "Largest multimodal model, top quality (needs ~10 GB RAM)";
 "model.desc.best_quality" = "Best overall quality (top multilingual and reasoning)";

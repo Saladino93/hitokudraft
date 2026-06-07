@@ -349,10 +349,20 @@ final class ConversationCoordinator: ObservableObject {
         voiceEditTask = Task { [weak self, targetIsEditable] in
             guard let self else { return }
 
+            // Latency split (see docs/SPEECH_AND_AI_DESIGN.md). Instants captured at each
+            // phase boundary; deltas are computed and logged after insertion.
+            let tStart = Date()
+            var tRecordStop: Date?
+            var tCommandReady: Date?
+            var tFirstToken: Date?
+            var tGenDone: Date?
+            var tInserted: Date?
+
             let screenContext = await contextCapture.capture(
                 mode: contextAwareMode,
                 documentBudget: modelManager.selectedModel.documentContextBudget
             )
+            let tContextDone = Date()
             var savedClipboard: TextCaptureService.ClipboardSnapshot?
 
             do {
@@ -413,6 +423,7 @@ final class ConversationCoordinator: ObservableObject {
                 }
 
                 session.stop()
+                tRecordStop = Date()
                 activeRecordingSession = nil
                 liveTranscriptionText = ""
 
@@ -427,27 +438,28 @@ final class ConversationCoordinator: ObservableObject {
                     throw VoiceEditorError.emptyTranscription
                 }
 
-                // Audio-direct path: when the active backend supports native audio input
-                // (e.g. LiteRT + Gemma 4 E2B), skip STT entirely and send raw audio to the LLM.
-                let audioDirectMode = (llm as? RoutedLLMService)?.supportsAudioInput == true
+                // Command routing (see docs/SPEECH_AND_AI_DESIGN.md):
+                //  - Case B: audio-capable model AND no STT loaded -> audio-direct.
+                //    The model hears the audio; the NOOP system-prompt gate (added to
+                //    `prompt` below) refuses empty commands.
+                //  - Case A: otherwise -> text path. Use the STT transcript as the
+                //    command, gated by the word-count check below. This applies even to
+                //    Gemma when an STT is loaded, so the model receives explicit text and
+                //    can never echo the screen.
+                let audioDirectMode = (llm as? RoutedLLMService)?.supportsAudioInput == true && displaySTT == nil
 
-                // For native streaming, the session already finalized the text.
-                // For legacy polling, do a final transcription on the complete buffer.
                 let command: String
                 if audioDirectMode {
-                    // No STT needed — the model will hear the voice instruction directly.
-                    // Use a placeholder; the actual instruction is in the audio data.
+                    // The model will hear the voice instruction directly from the audio.
                     command = "[voice instruction]"
-                } else if modelManager.selectedSTTModel.supportsNativeStreaming && !lastTranscription.isEmpty {
+                } else if !lastTranscription.isEmpty {
+                    // Transcript already produced live by the display STT during recording.
                     command = lastTranscription
-                } else {
+                } else if let displaySTT {
                     state = .transcribing
-                    do {
-                        command = try await stt!.transcribe(samples: samples)
-                    } catch {
-                        Self.log.error("Final transcription failed, falling back to streaming result: \(error.localizedDescription, privacy: .public)")
-                        command = lastTranscription
-                    }
+                    command = (try? await displaySTT.transcribe(samples: samples)) ?? ""
+                } else {
+                    command = ""
                 }
 
                 let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -461,6 +473,7 @@ final class ConversationCoordinator: ObservableObject {
                     Self.log.warning("Transcription too short (\(wordCount) word): '\(trimmedCommand)' — likely noise")
                     throw VoiceEditorError.emptyTranscription
                 }
+                tCommandReady = Date()
 
                 let draftMode = selectedText.isEmpty || DraftDetector.isDraftCommand(trimmedCommand)
 
@@ -472,7 +485,7 @@ final class ConversationCoordinator: ObservableObject {
                     state = .generating
 
                     let family = modelManager.selectedModel.family
-                    let prompt: String
+                    var prompt: String
                     let maxTokens: Int
 
                     // Build effective instruction — prepend previous result for follow-up commands.
@@ -494,6 +507,15 @@ final class ConversationCoordinator: ObservableObject {
                     } else {
                         prompt = family.editPrompt(text: selectedText, instruction: effectiveInstruction, context: screenContext)
                         maxTokens = family.editMaxTokens(for: selectedText)
+                    }
+
+                    // No-STT fallback gate (Case B in docs/SPEECH_AND_AI_DESIGN.md):
+                    // with no STT there is no transcript to check, so in this single
+                    // call we instruct the model to refuse an empty command. The output
+                    // is checked for the NOOP sentinel below; if seen, we do nothing.
+                    let noSTTAudioGate = audioDirectMode && displaySTT == nil
+                    if noSTTAudioGate {
+                        prompt += "\n\nIf the audio contains no clear spoken instruction, reply with exactly NOOP and nothing else. Never describe or transcribe the screen."
                     }
 
                     // TTS is disabled during voice edit — the result is pasted or shown
@@ -542,6 +564,7 @@ final class ConversationCoordinator: ObservableObject {
                     }
 
                     for try await chunk in generationStream {
+                        if tFirstToken == nil { tFirstToken = Date() }
                         raw += chunk
                         // Show tokens in overlay — but hide tool call tags from the user.
                         // If a <tool_call> is in progress, show a status message instead.
@@ -613,6 +636,20 @@ final class ConversationCoordinator: ObservableObject {
                         // Strip any residual tool call tags that slipped through
                         cleaned = await toolExecutor.stripToolCallTags(from: cleaned)
                     }
+                    tGenDone = Date()
+
+                    // No-STT gate result: the model signalled there was no real command
+                    // (NOOP sentinel, or empty output). Do nothing — never paste/display.
+                    if noSTTAudioGate {
+                        let sentinel = cleaned.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+                        if sentinel.isEmpty || sentinel.hasPrefix("NOOP") {
+                            if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
+                            streamingLLMText = ""
+                            state = .idle
+                            voiceEditTask = nil
+                            return
+                        }
+                    }
 
                     guard !cleaned.isEmpty else {
                         throw VoiceEditorError.emptyOutput
@@ -634,15 +671,47 @@ final class ConversationCoordinator: ObservableObject {
                     }
 
                     try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS, targetIsEditable: targetIsEditable)
+                    tInserted = Date()
                     lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
                     SoundPlayer.shared.playCompletion()
+                    // Capture the exact context the model saw (Sendable values only) so the
+                    // log is falsifiable. See docs/SPEECH_AND_AI_DESIGN.md.
+                    let logApp = NSWorkspace.shared.frontmostApplication?.localizedName
+                    let logModelName = modelManager.selectedModel.name
+                    let logBackend = modelManager.selectedModel.backendType == .liteRT ? "litert" : "mlx"
+                    let logCtxMode = contextAwareMode.rawValue
+                    let logCtxSource = screenContext.source.rawValue
+                    let logCtxText = screenContext.promptBlock
+                    let logHadShot = !vlmImages.isEmpty
+                    // Latency split (milliseconds). nil for any phase that did not run.
+                    func ms(_ a: Date?, _ b: Date?) -> Int? {
+                        guard let a, let b else { return nil }
+                        return Int(b.timeIntervalSince(a) * 1000)
+                    }
+                    let latContext = ms(tStart, tContextDone)
+                    let latStt = ms(tRecordStop, tCommandReady)
+                    let latFirstToken = ms(tCommandReady, tFirstToken)
+                    let latModel = ms(tCommandReady, tGenDone)
+                    let latInsert = ms(tGenDone, tInserted)
+                    let latTotal = ms(tStart, tInserted)
                     Task.detached {
                         await TranscriptionStore.shared.save(
                             mode: .voiceEdit,
                             transcription: trimmedCommand,
                             llmResponse: cleaned,
-                            activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
-                            modelName: self.modelManager.selectedModel.name
+                            activeApp: logApp,
+                            modelName: logModelName,
+                            modelBackend: logBackend,
+                            contextMode: logCtxMode,
+                            contextSource: logCtxSource,
+                            contextText: logCtxText,
+                            hadScreenshot: logHadShot,
+                            latencyContextMs: latContext,
+                            latencySttMs: latStt,
+                            latencyFirstTokenMs: latFirstToken,
+                            latencyModelMs: latModel,
+                            latencyInsertMs: latInsert,
+                            latencyTotalMs: latTotal
                         )
                     }
                     modelManager.keepAlive()
@@ -931,7 +1000,12 @@ final class ConversationCoordinator: ObservableObject {
 
     /// (Re)starts the auto-dismiss countdown for a display-mode answer.
     /// Centralizes the timer that previously lived inline in three places.
-    func scheduleDisplayAutoDismiss(after seconds: Double = 45) {
+    /// Display-mode results (shown when there is no text cursor to paste into) stay on
+    /// screen, then auto-close after `seconds` once the user is no longer attending to
+    /// the overlay. The countdown is paused while the overlay is hovered or focused
+    /// (see keepDisplayResultAlive), so a shown answer never vanishes while it is being
+    /// read. Esc dismisses it anytime.
+    func scheduleDisplayAutoDismiss(after seconds: Double = 40) {
         displayDismissTask?.cancel()
         guard !displayModeResult.isEmpty else { displayDismissTask = nil; return }
         displayDismissTask = Task { [weak self] in
@@ -1034,6 +1108,26 @@ final class ConversationCoordinator: ObservableObject {
         let samples = try await audioCapture.recordUntilSilence(vadDetector: modelManager.vadDetector)
         guard !samples.isEmpty else { return "" }
         return try await stt.transcribe(samples: samples)
+    }
+
+    /// Whether the *selected* LLM can transcribe audio (Gemma 4 family). Used to
+    /// offer "transcribe with the AI model" in the Transcribe window. Works without
+    /// the model being loaded (checks the backend type).
+    var selectedLLMSupportsAudio: Bool {
+        modelManager.selectedModel.backendType == .liteRT
+    }
+
+    /// Returns an LLM-backed transcriber (Gemma) for file transcription, loading
+    /// the model from cache if it was offloaded. Returns nil if the loaded model
+    /// can't actually accept audio.
+    func makeLLMTranscriptionSTT() async throws -> (any STTService)? {
+        if llm == nil, !modelManager.selectedModel.isNone {
+            try await modelManager.loadModel(modelManager.selectedModel)
+            if modelManager.inferenceRouter.isLoaded { llm = makeLLMService() }
+            modelManager.keepAlive()
+        }
+        guard let routed = llm as? RoutedLLMService, routed.supportsAudioInput else { return nil }
+        return LLMTranscriptionSTT(llm: routed)
     }
 
     var modelCacheDirectory: URL { ModelManager.modelsCacheRoot }

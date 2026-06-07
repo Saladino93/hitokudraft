@@ -3,6 +3,7 @@
 "tab.theme" = "Thème";
 "tab.model" = "Modèles";
 "tab.updates" = "Mises à jour";
+"tab.help" = "Aide";
 
 /* Settings — Permissions */
 "permission.accessibility" = "Accessibilité :";
@@ -232,4 +233,5 @@
 "model.desc.smart_multilingual" = "Édition multilingue intelligente (excellente pour sa taille)";
 "model.desc.native_audio_vision" = "Audio + vision natifs (le plus rapide de bout en bout)";
 "model.desc.larger_multimodal" = "Modèle multimodal plus grand, meilleure qualité (4+ Go RAM)";
+"model.desc.flagship_multimodal" = "Le plus grand modèle multimodal, qualité maximale (~10 Go RAM)";
 "model.desc.best_quality" = "Meilleure qualité globale (top multilingue et raisonnement)";

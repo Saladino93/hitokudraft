@@ -155,6 +155,21 @@ extension ConversationCoordinator {
             llmLoadTask = nil
         }
 
+        // LiteRT-LM repos (e.g. litert-community/…) need the specific `.litertlm`
+        // filename, which the custom path field doesn't capture. Resolve it from
+        // the HuggingFace API before loading.
+        var model = model
+        if model.backendType == .liteRT, model.liteRTFilename == nil {
+            state = .downloading(progress: 0)
+            modelManager.statusMessage = "Looking up \(model.path)…"
+            guard let filename = await ModelManager.resolveLiteRTFilename(repo: model.path) else {
+                state = .error("No .litertlm file found in \(model.path). Make sure it's a LiteRT-LM repo (e.g. litert-community/…).")
+                resetErrorAfterDelay()
+                return
+            }
+            model.liteRTFilename = filename
+        }
+
         state = .downloading(progress: 0)
 
         llmLoadTask = Task { [weak self] in

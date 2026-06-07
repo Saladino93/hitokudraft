@@ -34,7 +34,7 @@ struct SettingsView: View {
     @AppStorage("internetAccessEnabled") private var internetAccessEnabled: Bool = false
 
     // MARK: - Navigation State
-    private enum Tab { case license, general, tools, appearance, model, updates }
+    private enum Tab { case license, general, tools, appearance, model, help, updates }
     @State private var selectedTab: Tab = .general
 
     // MARK: - Custom Model State
@@ -65,6 +65,7 @@ struct SettingsView: View {
         case .tools: return 420
         case .appearance: return 473
         case .model: return 518
+        case .help: return 540
         case .updates: return 122
         }
     }
@@ -87,6 +88,10 @@ struct SettingsView: View {
                 .padding(.top, 20)
                 .tag(Tab.appearance)
                 .tabItem { Label(L("tab.theme"), systemImage: "paintbrush") }
+
+            HelpView()
+                .tag(Tab.help)
+                .tabItem { Label(L("tab.help"), systemImage: "questionmark.circle") }
 
             LicenseActivationView(licenseManager: coordinator.licenseManager)
                 .tag(Tab.license)
