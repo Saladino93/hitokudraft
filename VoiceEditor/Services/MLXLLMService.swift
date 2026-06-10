@@ -69,7 +69,9 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
 
     func generateStream(prompt: String, maxTokens: Int) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task { [self] in
+            // Capture stored properties by value — not self — so a dropped stream
+            // doesn't keep the service (and its ModelContainer) alive.
+            let task = Task { [modelContainer, family, systemPrompt] in
                 do {
                     let effectivePrompt = family.disableThinking ? prompt + " /no_think" : prompt
                     let userInput = UserInput(chat: [
@@ -91,6 +93,7 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
                     var recentChunks: [String] = []
                     recentChunks.reserveCapacity(21)
                     for await generation in stream {
+                        try Task.checkCancellation()
                         if let chunk = generation.chunk {
                             recentChunks.append(chunk)
                             if recentChunks.count > 20 { recentChunks.removeFirst() }
@@ -103,6 +106,7 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -112,7 +116,7 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
             return generateStream(prompt: prompt, maxTokens: maxTokens)
         }
         return AsyncThrowingStream { continuation in
-            Task { [self] in
+            let task = Task { [modelContainer, family, systemPrompt] in
                 do {
                     let effectivePrompt = family.disableThinking ? prompt + " /no_think" : prompt
                     let vlmImages = images.map { UserInput.Image.ciImage(CIImage(cgImage: $0)) }
@@ -135,6 +139,7 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
                     var recentChunks: [String] = []
                     recentChunks.reserveCapacity(21)
                     for await generation in stream {
+                        try Task.checkCancellation()
                         if let chunk = generation.chunk {
                             recentChunks.append(chunk)
                             if recentChunks.count > 20 { recentChunks.removeFirst() }
@@ -147,6 +152,7 @@ final class MLXLLMService: LLMService, @unchecked Sendable {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 

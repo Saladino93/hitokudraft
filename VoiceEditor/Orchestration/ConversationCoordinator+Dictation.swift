@@ -174,13 +174,17 @@ extension ConversationCoordinator {
             try await presentOutput(finalText, savedClipboard: savedClipboardOpt, useDisplayMode: false)
 
             SoundPlayer.shared.playCompletion()
+            // Capture main-actor state before detaching — NSWorkspace and
+            // modelManager must not be touched off the main actor.
+            let logApp = NSWorkspace.shared.frontmostApplication?.localizedName
+            let logModelName = modelManager.selectedModel.name
             Task.detached {
                 await TranscriptionStore.shared.save(
                     mode: .dictation,
                     transcription: trimmed,
                     llmResponse: finalText != trimmed ? finalText : nil,
-                    activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
-                    modelName: self.modelManager.selectedModel.name
+                    activeApp: logApp,
+                    modelName: logModelName
                 )
             }
             modelManager.keepAlive()
