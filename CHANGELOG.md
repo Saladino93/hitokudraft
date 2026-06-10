@@ -4,6 +4,29 @@ All notable changes to Hitoku Draft are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **Internal architecture cleanup.** The app's central orchestration code was split
+  into focused modules (overlay result display, model loading/switching), with no
+  user-visible behavior change. Improves reliability of future updates.
+- **More efficient UI updates.** The app's interface state management was modernized
+  so views refresh only when something they actually display changes, instead of on
+  every internal state change. Reduces redundant redraw work across the menu bar,
+  Settings window, overlay, and Transcribe window.
+- **Smoother streaming display.** The overlay now does much less repeated work while
+  an answer streams in or is read aloud: text is parsed for math/code once per change
+  instead of on every redraw, read-aloud progress is computed incrementally, and
+  syntax-highlighting patterns are compiled once. Long answers and code blocks render
+  noticeably smoother, and read-aloud progress no longer jumps backwards when the
+  same sentence appears twice in an answer.
+
+### Fixed
+- **Memory and stability hardening.** Cancelling an AI generation mid-stream now
+  releases the model promptly instead of holding it until the generation would have
+  finished on its own — reduces memory pressure when switching models or retrying
+  quickly on 8 GB machines. Also fixed several internal thread-safety issues in the
+  model routing and logging paths, and reduced needless allocations in the overlay's
+  audio-level animation.
+
 ## [1.6.6] - 2026-06-07
 
 ### Fixed

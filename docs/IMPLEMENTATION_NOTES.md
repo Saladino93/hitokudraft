@@ -150,6 +150,73 @@ Memory.cacheLimit = 20 * 1024 * 1024  // NOT GPU.set(cacheLimit:) which is depre
 
 ---
 
+## 2026-06-09 — Concurrency & Memory-Safety Hardening (audit batch 1)
+
+Five fixes from the full-codebase audit (architecture / memory / concurrency / performance / modernization). Build verified clean.
+
+1. **`MLXLLMService.generateStream` (both overloads)** — `Task { [self] }` kept the service + `ModelContainer` alive after a consumer cancelled the stream (double-model residency during model switch). Now captures `[modelContainer, family, systemPrompt]` by value, checks `Task.checkCancellation()` per chunk, and wires `continuation.onTermination = { task.cancel() }` so dropping the stream cancels generation.
+2. **`InferenceRouter`** — was `@unchecked Sendable` with an unsynchronized `backends` dictionary + `preferred` var, mutated on MainActor and read from detached/generation tasks. All state access now goes through an `NSLock`; backend calls (`unload`, `loadModel`, `generate`) happen on a snapshot outside the lock to avoid holding it across slow work.
+3. **`Task.detached` logging blocks** (dictation, grammar fix, STT-only voice edit) — read `modelManager.selectedModel.name` and `NSWorkspace.shared.frontmostApplication` (both MainActor-bound) off-actor. Values are now captured into locals before detaching, matching the voice-edit path's existing pattern. These would be compile errors under Swift 6 strict concurrency.
+4. **`OverlayViewModel.startPolling`** — 30 Hz timer allocated a throwaway `Task { @MainActor }` per tick; the timer already fires on the main run loop, so it now uses `MainActor.assumeIsolated`.
+5. **`ConversationCoordinator.init` setup trampoline** — inner `Task { await self.setup() }` strongly captured self; now optional-chained through the weak capture.
+
+**Known pre-existing warnings (left for the Swift 6 batch):** dead `willStreamTTS` branch in `ConversationCoordinator.swift:660`, and `currentSegmentText` sendable-capture warning in `TTSService.swift:233/254`.
+
+**Remaining audit batches (agreed order):** hot-path perf (memoize `parseSegments`, per-chunk TTS cleaning, TTS progress offset cache), `@Observable` migration, `ConversationCoordinator` split, Swift 6 strict concurrency.
+
+---
+
+## 2026-06-10 — ConversationCoordinator Split (audit batch 4)
+
+The coordinator shrank from 1,265 to 1,035 lines by extracting two self-contained domains into controllers. **Zero call-site changes** — the coordinator keeps its public API as thin forwarders, so views, OverlayViewModel, FileTranscriptionModel, and SettingsView are untouched.
+
+**`Orchestration/DisplayResultController.swift` (~175 lines, @Observable)** — owns the display-mode result text (`result`), TTS speaking-segment highlight (`speakingSegment`), the TTS-playback task, and the hover-pausable auto-dismiss countdown. Methods: `show`, `readAloud`, `stopReadAloud`, `scheduleAutoDismiss`, `keepAlive`, `clear`. Depends only on `PreferencesStore` (stateless UserDefaults wrapper — owns its own copy) + `TTSService.shared`. Never touches AppState. Coordinator forwards `displayModeResult`/`ttsSpeakingSegment` as computed properties — observation tracking follows the read into the controller's tracked properties, so OverlayViewModel works unchanged.
+
+**`Orchestration/ModelSessionController.swift` (~440 lines, plain @MainActor — nothing UI-tracked lives here)** — owns the live `stt`/`llm`/`toolExecutor` instances, load/switch tasks, pending-switch flags, all of the old +ModelLifecycle extension, the service factories (`makeSttService`, `makeLLMService`, tool wiring, tool-definitions prompt), and the offload→service-niling ObservationLoop. AppState stays single-source in the coordinator: the controller drives it via injected `getState`/`setState`/`getContextAwareMode`/`scheduleErrorReset` closures (the ActionCoordinator pattern), wired in the coordinator's init.
+
+**Init restructure:** `modelManager` is now assigned in init via a local (`let manager = ModelManager()`) so `models` can be a non-optional `let` constructed in phase 1; the closures are wired right after (escaping-self captures are legal once stored properties are set). `models` is internal, not private, so the +ModelLifecycle forwarder extension (separate file) can reach it.
+
+**What stayed in the coordinator (deliberately, per CLAUDE.md "single orchestration center"):** voice-edit/dictation/grammar-fix pipelines, `presentOutput` routing decision (paste vs display; sets `.pasting`/`.idle`), `editText`/`dictateCommand` (Transcribe-window pipelines), setup, hotkeys, `cancelActiveOperation`, `resetErrorAfterDelay`.
+
+**Pre-existing warning noted (not from this batch):** `OutputCleaner.swift:130` — `var lines` never mutated.
+
+---
+
+## 2026-06-09 — @Observable Migration (audit batch 3)
+
+All six ObservableObject classes migrated to the Observation framework (macOS 14+): `ConversationCoordinator`, `ModelManager`, `PermissionsCoordinator`, `LicenseManager`, `OverlayViewModel`, `FileTranscriptionModel`. Views now re-render only when a property they actually read changes.
+
+**Class changes:** dropped `: ObservableObject` for `@Observable`, removed all `@Published`, marked internals (Tasks, caches, weak refs, callbacks, timers) `@ObservationIgnored`. Two gotchas encountered:
+- `@Observable` makes stored properties computed, so a nonisolated `deinit` can no longer touch them — `ModelManager.memoryPressureSource` and `PermissionsCoordinator.pollTimer` must stay `@ObservationIgnored` (plain storage) for their deinit cleanup to compile.
+- `@ObservationIgnored` must not be applied to `let` constants (they're never tracked anyway).
+
+**Observation pipelines replaced (Combine `$property` publishers no longer exist):**
+- New `Utilities/ObservationLoop.swift` — re-arming `withObservationTracking` wrapper. Key semantic: onChange fires on *willSet* and is one-shot, so the handler is deferred one main-actor turn (reads post-change values — same reason the old Combine code used `.receive(on: RunLoop.main)`) and re-armed. Rapid mutations coalesce; the handler must be idempotent and read current state.
+- `OverlayViewModel.observe`: six sinks → one tracked read set + unified `handleCoordinatorChange()` carrying the old per-sink side effects (lastTranscription capture, display-mode line calc gated by `lastDisplayResult`, polling start/stop gated by session identity). Re-subscription handled via `observationGeneration` counter.
+- `ConversationCoordinator`: `objectWillChange` forwarding from permissions/modelManager/licenseManager deleted (obsolete — views track nested objects directly); `$sttReady`/`$llmReady` sinks → ObservationLoop.
+- `DictationOverlayPanel`: `viewModel.$overlayState.sink` → `onOverlayStateChange` callback fired from `overlayState.didSet` (panel is AppKit, needs every assignment synchronously; Combine fully removed from the file). Callback is set *before* `viewModel.observe(coordinator)` so the initial derive can drive the panel.
+
+**View changes:** `VoiceEditorApp` `@StateObject`→`@State`; `SettingsView` modelManager and `FileTranscriptionView` model → `@Bindable` (they bind `$modelManager.selectedModel`, `$model.editCommand`, etc.); MenuBarMenu / LicenseActivationView / DictationOverlayContent / WaveformBarsView → plain `var`.
+
+**Manual test points after this migration:** overlay state flow (listen → generate → speak → done, Esc dismissal), audio-level waveform during recording, Settings model picker + auto-offload toggle, license activation flow, model offload clearing (wait 5 min idle → menu bar should show models unloaded), Transcribe window edit bar.
+
+---
+
+## 2026-06-09 — Hot-Path Performance (audit batch 2)
+
+Per-token and per-redraw costs in the streaming overlay path. Build verified clean, no new warnings.
+
+1. **`OverlayTextRenderer`** — `segments` was `parseSegments(text)` recomputed on every body evaluation (≥2× per render via `hasComplexContent` + `groupedSegments`, and on every TTS re-render with unchanged text). Now memoized in a bounded 8-entry `SegmentCache` dictionary; struct marked `@MainActor` so the cache needs no lock. Per-token full reparse still happens once as text grows — incremental parsing deferred (would need parser state threading).
+2. **`cleanChunkForTTS`** — added a fast-path guard: chunks containing neither `<` nor `` ` `` (the vast majority) skip all 11 `replacingOccurrences` scans. Deliberately did NOT remove per-chunk cleaning — tags split across the final flush path must still never reach TTS.
+3. **`OverlayViewModel.deriveState`** — TTS progress (`range(of:)` + `distance`) was recomputed on every published change. Now memoized per (text, segment) with a monotonic search anchor; also fixes repeated sentences matching the first occurrence (progress snapped backwards).
+4. **`CodeHighlighter`** — result cache already existed, but streaming code blocks miss it every token; regex compilation (~10 patterns/language) now cached per language in `compiledCache`.
+5. **Formatter caching** — `ISO8601DateFormatter`/`DateFormatter` instantiation removed from `buildToolDefinitionsPrompt` (now `ConversationCoordinator.isoDateTimeFormatter`), `ActionRouter.buildPrompt`, and all four CalendarTools helpers (one immutable formatter per format string — `DateFormatter` is only thread-safe if never mutated).
+6. **Tool re-generation loop** — `raw.reserveCapacity(4096)` after the `raw = ""` reset (initial loop already had it; audit's claim that it was missing on the first loop was stale).
+
+**Audit corrections:** initial `reserveCapacity` already existed at ConversationCoordinator.swift:553; CodeHighlighter already had a bounded *result* cache (the gap was compiled-pattern caching only).
+
+---
+
 ## Post-Initial Changes
 
 ### cleanModelOutput — Robust LLM Artifact Stripping
