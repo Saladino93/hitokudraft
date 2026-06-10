@@ -1,99 +1,117 @@
 import AppKit
-import Combine
 import SwiftUI
+import Observation
 
 /// Drives the overlay pill by deriving `OverlayState` from the coordinator's
-/// published properties. Views observe this ViewModel — never the coordinator directly.
+/// observable properties. Views observe this ViewModel — never the coordinator directly.
 @MainActor
-final class OverlayViewModel: ObservableObject {
+@Observable
+final class OverlayViewModel {
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
     /// The current overlay state. `nil` = overlay is hidden.
-    @Published var overlayState: OverlayState?
+    /// The didSet drives DictationOverlayPanel (an AppKit controller, not a View).
+    var overlayState: OverlayState? {
+        didSet { onOverlayStateChange?(overlayState) }
+    }
 
     /// Normalized audio level [0, 1] for waveform animation.
-    @Published var audioLevel: CGFloat = 0
+    var audioLevel: CGFloat = 0
 
     /// True when displaying a non-editable result (enables Esc dismissal + copy button).
-    @Published var isDisplayMode = false
+    var isDisplayMode = false
 
     /// Number of lines needed for display-mode content (3–10).
-    @Published var displayModeMaxLines: Int = 3
+    var displayModeMaxLines: Int = 3
 
     // Waveform animation is driven by WaveformBarsView's own timer (not here)
     // to avoid re-rendering the entire overlay 30 times per second.
 
     // MARK: - Internal
 
-    weak var coordinator: ConversationCoordinator?
-    private var cancellables = Set<AnyCancellable>()
-    private var pollingTimer: Timer?
-    private weak var audioSession: AudioCaptureService.ContinuousSession?
-    private var lastTranscription = ""
+    /// AppKit hook for panel show/hide/resize — set by DictationOverlayPanel.observe.
+    @ObservationIgnored var onOverlayStateChange: ((OverlayState?) -> Void)?
+
+    @ObservationIgnored weak var coordinator: ConversationCoordinator?
+    @ObservationIgnored private var pollingTimer: Timer?
+    @ObservationIgnored private weak var audioSession: AudioCaptureService.ContinuousSession?
+    @ObservationIgnored private var lastTranscription = ""
+    /// Last seen displayModeResult — gates the line-count recalculation.
+    @ObservationIgnored private var lastDisplayResult = ""
+    /// Invalidates a previous observation loop when observe() is called again.
+    @ObservationIgnored private var observationGeneration = 0
     /// Debounce timer for speaking → done transition (prevents flashing between TTS sentences).
-    private var speakingDebounceTask: Task<Void, Never>?
+    @ObservationIgnored private var speakingDebounceTask: Task<Void, Never>?
+
+    // MARK: - TTS progress cache
+    // deriveState() runs on every published change; without a memo the O(n) substring
+    // search re-runs per change. The anchor keeps the search monotonic so repeated
+    // sentences advance instead of snapping back to the first occurrence.
+    @ObservationIgnored private var progressText = ""
+    @ObservationIgnored private var progressSegment = ""
+    @ObservationIgnored private var progressValue: Double = 0
+    @ObservationIgnored private var progressAnchor: String.Index?
 
     // MARK: - Observe Coordinator
 
     func observe(_ coordinator: ConversationCoordinator) {
         self.coordinator = coordinator
-        cancellables.removeAll()
+        observationGeneration &+= 1
+        let generation = observationGeneration
 
-        // IMPORTANT: .receive(on: RunLoop.main) is required because @Published fires
-        // its publisher on willSet — BEFORE the property is updated. Without deferral,
-        // deriveState() reads stale values from coordinator properties, causing the
-        // overlay to be permanently one state behind (e.g. stuck at "Generating...").
+        // IMPORTANT: withObservationTracking's onChange fires on willSet — BEFORE the
+        // property is updated. ObservationLoop defers the handler one main-actor turn
+        // so handleCoordinatorChange() reads post-change values. (The old Combine
+        // pipeline needed .receive(on: RunLoop.main) for the same reason.)
+        handleCoordinatorChange()
+        ObservationLoop.track(
+            isActive: { [weak self] in self?.observationGeneration == generation },
+            reading: { [weak self] in
+                guard let c = self?.coordinator else { return }
+                _ = c.state
+                _ = c.liveTranscriptionText
+                _ = c.streamingLLMText
+                _ = c.displayModeResult
+                _ = c.activeRecordingSession
+                _ = c.ttsSpeakingSegment
+            },
+            onChange: { [weak self] in self?.handleCoordinatorChange() }
+        )
+    }
 
-        coordinator.$state
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.deriveState() }
-            .store(in: &cancellables)
+    /// Unified change handler — the per-publisher side effects from the old Combine
+    /// sinks, made idempotent because observation tracking doesn't say *which*
+    /// property changed.
+    private func handleCoordinatorChange() {
+        guard let coordinator else { return }
 
-        coordinator.$liveTranscriptionText
-            .receive(on: RunLoop.main)
-            .sink { [weak self] text in
-                if !text.isEmpty { self?.lastTranscription = text }
-                self?.deriveState()
+        // Live transcription bookkeeping (was the $liveTranscriptionText sink)
+        let live = coordinator.liveTranscriptionText
+        if !live.isEmpty { lastTranscription = live }
+
+        // Display mode bookkeeping (was the $displayModeResult sink) — gated so
+        // calculateLinesNeeded only runs when the text actually changed.
+        let display = coordinator.displayModeResult
+        if display != lastDisplayResult {
+            lastDisplayResult = display
+            if display.isEmpty {
+                isDisplayMode = false
+                displayModeMaxLines = 3
+            } else {
+                isDisplayMode = true
+                displayModeMaxLines = calculateLinesNeeded(for: display)
             }
-            .store(in: &cancellables)
+        }
 
-        coordinator.$streamingLLMText
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.deriveState() }
-            .store(in: &cancellables)
+        // Recording session → audio-level polling (was the $activeRecordingSession sink)
+        if let session = coordinator.activeRecordingSession {
+            if audioSession !== session { startPolling(session: session) }
+        } else if audioSession != nil || pollingTimer != nil {
+            stopPolling()
+        }
 
-        coordinator.$displayModeResult
-            .receive(on: RunLoop.main)
-            .sink { [weak self] text in
-                guard let self else { return }
-                if text.isEmpty {
-                    self.isDisplayMode = false
-                    self.displayModeMaxLines = 3
-                } else {
-                    self.isDisplayMode = true
-                    self.displayModeMaxLines = self.calculateLinesNeeded(for: text)
-                }
-                self.deriveState()
-            }
-            .store(in: &cancellables)
-
-        coordinator.$activeRecordingSession
-            .receive(on: RunLoop.main)
-            .sink { [weak self] session in
-                guard let self else { return }
-                if let session {
-                    self.startPolling(session: session)
-                } else {
-                    self.stopPolling()
-                }
-            }
-            .store(in: &cancellables)
-
-        coordinator.$ttsSpeakingSegment
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.deriveState() }
-            .store(in: &cancellables)
+        deriveState()
     }
 
     // MARK: - State Derivation
@@ -117,13 +135,7 @@ final class OverlayViewModel: ObservableObject {
                 speakingDebounceTask?.cancel()
                 speakingDebounceTask = nil
                 // Progress based on character position of the current segment in the full text.
-                let progress: Double
-                if let range = displayResult.range(of: speakingSegment, options: .literal) {
-                    let endOffset = displayResult.distance(from: displayResult.startIndex, to: range.upperBound)
-                    progress = displayResult.isEmpty ? 0 : Double(endOffset) / Double(displayResult.count)
-                } else {
-                    progress = 0
-                }
+                let progress = ttsProgress(text: displayResult, segment: speakingSegment)
                 overlayState = .speaking(
                     text: displayResult,
                     currentSentence: speakingSegment,
@@ -190,13 +202,40 @@ final class OverlayViewModel: ObservableObject {
         }
     }
 
+    /// Character-position progress of `segment` within `text`, memoized per
+    /// (text, segment) pair and searched forward from the previous segment's start.
+    private func ttsProgress(text: String, segment: String) -> Double {
+        guard !text.isEmpty else { return 0 }
+        if text == progressText && segment == progressSegment { return progressValue }
+        if text != progressText {
+            progressText = text
+            progressAnchor = nil
+        }
+        progressSegment = segment
+        let start = progressAnchor ?? text.startIndex
+        // Search from the current anchor first; fall back to a full scan in case
+        // TTS restarted or segments arrived out of order.
+        let range = text.range(of: segment, options: .literal, range: start..<text.endIndex)
+            ?? text.range(of: segment, options: .literal)
+        if let range {
+            progressAnchor = range.lowerBound
+            let endOffset = text.distance(from: text.startIndex, to: range.upperBound)
+            progressValue = Double(endOffset) / Double(text.count)
+        } else {
+            progressValue = 0
+        }
+        return progressValue
+    }
+
     // MARK: - Audio Level Polling
 
     func startPolling(session: AudioCaptureService.ContinuousSession) {
         stopPolling()
         audioSession = session
+        // Scheduled from the main actor, so the timer fires on the main run loop —
+        // assumeIsolated avoids allocating a throwaway Task 30× per second.
         pollingTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.pollLevel()
             }
         }

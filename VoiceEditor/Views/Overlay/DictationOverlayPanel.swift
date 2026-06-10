@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 
 /// Bridging context for the CGEventTap C callback → @MainActor coordinator.
@@ -26,7 +25,6 @@ final class InteractiveOverlayPanel: NSPanel {
 final class DictationOverlayPanel {
     private var panel: NSPanel?
     private let viewModel = OverlayViewModel()
-    private var cancellables = Set<AnyCancellable>()
     private weak var coordinator: ConversationCoordinator?
 
     /// The screen the overlay was first shown on — stays anchored here.
@@ -45,28 +43,29 @@ final class DictationOverlayPanel {
 
     // MARK: - Public API (same interface as old monolith)
 
-    /// Subscribe to coordinator published properties. Called once from coordinator's init.
+    /// Subscribe to coordinator observable properties. Called once from coordinator's init.
     func observe(_ coordinator: ConversationCoordinator) {
         self.coordinator = coordinator
-        viewModel.observe(coordinator)
 
-        // Single sink for all overlay state changes: show/hide panel + Esc tap
-        viewModel.$overlayState
-            .sink { [weak self] state in
-                guard let self else { return }
-                if let state {
-                    self.showPanel(for: state)
-                    // Install Esc tap for display mode (Done/Speaking)
-                    if case .done = state, !self.escapeTapInstalled {
-                        self.installEscapeTap()
-                    } else if case .speaking = state, !self.escapeTapInstalled {
-                        self.installEscapeTap()
-                    }
-                } else {
-                    self.hide()
+        // Single hook for all overlay state changes: show/hide panel + Esc tap.
+        // (Callback instead of observation tracking — the panel needs every state
+        // assignment, and the didSet hook delivers them synchronously in order.)
+        viewModel.onOverlayStateChange = { [weak self] state in
+            guard let self else { return }
+            if let state {
+                self.showPanel(for: state)
+                // Install Esc tap for display mode (Done/Speaking)
+                if case .done = state, !self.escapeTapInstalled {
+                    self.installEscapeTap()
+                } else if case .speaking = state, !self.escapeTapInstalled {
+                    self.installEscapeTap()
                 }
+            } else {
+                self.hide()
             }
-            .store(in: &cancellables)
+        }
+
+        viewModel.observe(coordinator)
     }
 
     // MARK: - Panel Lifecycle

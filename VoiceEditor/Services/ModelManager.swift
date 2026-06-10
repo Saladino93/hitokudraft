@@ -8,16 +8,18 @@ import MLXLMCommon
 import HitokuInference
 import LiteRTBackend
 import MLXBackend
+import Observation
 
 @MainActor
-final class ModelManager: ObservableObject {
-    @Published var llmProgress: Double = 0
-    @Published var sttReady = false
-    @Published var sttLoading = false
-    @Published var llmReady = false
-    @Published var statusMessage = ""
-    @Published var selectedModel: ModelOption
-    @Published var selectedSTTModel: STTModelOption = {
+@Observable
+final class ModelManager {
+    var llmProgress: Double = 0
+    var sttReady = false
+    var sttLoading = false
+    var llmReady = false
+    var statusMessage = ""
+    var selectedModel: ModelOption
+    var selectedSTTModel: STTModelOption = {
         // Restore persisted STT choice, falling back to RAM-based default
         if let saved = UserDefaults.standard.string(forKey: "selectedSTTModelID"),
            let match = STTModelRegistry.availableModels.first(where: { $0.id == saved }) {
@@ -27,17 +29,17 @@ final class ModelManager: ObservableObject {
     }() {
         didSet { UserDefaults.standard.set(selectedSTTModel.id, forKey: "selectedSTTModelID") }
     }
-    @Published var autoOffloadEnabled: Bool = true
+    var autoOffloadEnabled: Bool = true
 
-    private(set) var modelContainer: ModelContainer?
-    private(set) var asrModels: AsrModels?
-    internal var vadDetector: VoiceActivityDetector?
+    @ObservationIgnored private(set) var modelContainer: ModelContainer?
+    @ObservationIgnored private(set) var asrModels: AsrModels?
+    @ObservationIgnored internal var vadDetector: VoiceActivityDetector?
 
     /// Unified inference router — callers use this instead of ModelContainer directly.
     let inferenceRouter = InferenceRouter()
 
-    private var idleOffloadTask: Task<Void, Never>?
-    private var sttIdleOffloadTask: Task<Void, Never>?
+    @ObservationIgnored private var idleOffloadTask: Task<Void, Never>?
+    @ObservationIgnored private var sttIdleOffloadTask: Task<Void, Never>?
     private static let offloadDelay: TimeInterval = 5 * 60  // 5 minutes for LLM
     private static let sttOffloadDelay: TimeInterval = 2 * 60  // 2 minutes for STT
 
@@ -66,7 +68,9 @@ final class ModelManager: ObservableObject {
     /// Used to restore the previous model when the user deletes the active custom model.
     private(set) var previousModelPath: String?
 
-    private var memoryPressureSource: DispatchSourceMemoryPressure?
+    // @ObservationIgnored keeps this a plain stored property so the nonisolated
+    // deinit can still cancel it (the @Observable macro would make it computed).
+    @ObservationIgnored private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     /// GPU cache limit for MLX intermediate computation buffers (not model weights).
     /// 256MB avoids the eviction thrashing that 20MB caused, while staying light

@@ -4,8 +4,9 @@ import Sparkle
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject var coordinator: ConversationCoordinator
-    @ObservedObject var modelManager: ModelManager
+    var coordinator: ConversationCoordinator
+    // @Bindable: the Model tab binds directly into the manager ($modelManager.selectedModel etc.)
+    @Bindable var modelManager: ModelManager
     let updater: SPUUpdater?
 
     init(coordinator: ConversationCoordinator, updater: SPUUpdater? = nil) {

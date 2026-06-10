@@ -3,7 +3,7 @@ import SwiftUI
 /// Root SwiftUI view for the overlay pill.
 /// Switches between indicator + text based on the current `OverlayState`.
 struct DictationOverlayContent: View {
-    @ObservedObject var viewModel: OverlayViewModel
+    var viewModel: OverlayViewModel
     @AppStorage("overlayWidth") private var overlayWidth: Double = 350
     @AppStorage("overlayLineCount") private var overlayLineCount: Int = 2
     @AppStorage("dictationTheme") private var dictationThemeRaw: String = DictationTheme.default.rawValue

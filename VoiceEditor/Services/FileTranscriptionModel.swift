@@ -8,7 +8,8 @@ import SwiftUI
 /// A failed/low-confidence chunk is skipped rather than aborting, so one noisy
 /// segment can't lose the rest of a file.
 @MainActor
-final class FileTranscriptionModel: ObservableObject {
+@Observable
+final class FileTranscriptionModel {
 
     enum Phase: Equatable { case pending, working, done, failed }
 
@@ -22,23 +23,23 @@ final class FileTranscriptionModel: ObservableObject {
         var name: String { url.lastPathComponent }
     }
 
-    @Published var items: [Item] = []
-    @Published var selectedID: Item.ID?
-    @Published var isRunning = false
-    @Published var statusText = ""
+    var items: [Item] = []
+    var selectedID: Item.ID?
+    var isRunning = false
+    var statusText = ""
 
     // Transcriber choice: dedicated STT (default) or the AI model (Gemma, better
     // for mixed/many languages, slower). Only offered when the selected LLM has audio.
-    @Published var useLLM = false
+    var useLLM = false
 
     // Edit-with-Voice bar state.
-    @Published var showEditBar = false
-    @Published var editCommand = ""
-    @Published var isEditing = false
-    @Published var isDictating = false
+    var showEditBar = false
+    var editCommand = ""
+    var isEditing = false
+    var isDictating = false
 
-    private weak var coordinator: ConversationCoordinator?
-    private var task: Task<Void, Never>?
+    @ObservationIgnored private weak var coordinator: ConversationCoordinator?
+    @ObservationIgnored private var task: Task<Void, Never>?
 
     private static let chunkSamples = 30 * 16_000   // 30 s @ 16 kHz
     private static let minSamples = 16_000          // backend requires ≥ 1 s

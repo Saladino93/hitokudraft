@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// Multi-file transcription window: drop/browse several files, transcribe them,
 /// select any file to view its transcript, then optionally edit it with the LLM.
 struct FileTranscriptionView: View {
-    @ObservedObject var model: FileTranscriptionModel
+    @Bindable var model: FileTranscriptionModel
     @State private var isTargeted = false
 
     var body: some View {

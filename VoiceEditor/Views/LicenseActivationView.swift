@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LicenseActivationView: View {
-    @ObservedObject var licenseManager: LicenseManager
+    var licenseManager: LicenseManager
     @State private var licenseKey = ""
 
     var body: some View {

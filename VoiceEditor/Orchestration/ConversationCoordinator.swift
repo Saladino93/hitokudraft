@@ -10,9 +10,10 @@ import os
 import SwiftUI
 
 @MainActor
-final class ConversationCoordinator: ObservableObject {
+@Observable
+final class ConversationCoordinator {
     static let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pipeline")
-    @Published var state: AppState = .idle
+    var state: AppState = .idle
 
     /// True while any pipeline is active (listening, transcribing, generating, pasting).
     /// Used to show the Cancel button in the menu bar.
@@ -24,7 +25,11 @@ final class ConversationCoordinator: ObservableObject {
     }
 
     let permissions = PermissionsCoordinator()
-    let modelManager = ModelManager()
+    let modelManager: ModelManager
+    /// Model session (services, load/switch lifecycle) — see ModelSessionController.
+    /// Internal (not private) so the +ModelLifecycle forwarder extension can reach it;
+    /// pipelines should go through the coordinator forwarders, not this directly.
+    let models: ModelSessionController
     let licenseManager = LicenseManager()
 
     let textCapture = TextCaptureService()
@@ -33,48 +38,67 @@ final class ConversationCoordinator: ObservableObject {
     let editabilityDetector: any EditabilityDetector
     let preferences = PreferencesStore()
 
+    /// Display-mode (overlay result) state machine — see DisplayResultController.
+    /// Forwarders below keep the coordinator's public API unchanged.
+    private let display = DisplayResultController()
+
     /// Non-empty when the last result was displayed in the overlay instead of pasted
-    /// (focused element was not editable). Auto-cleared after 20 seconds.
-    @Published var displayModeResult: String = ""
+    /// (focused element was not editable). Auto-cleared after the dismiss countdown.
+    var displayModeResult: String {
+        get { display.result }
+        set { display.result = newValue }
+    }
     /// The TTS segment currently being spoken — used by the overlay to highlight text.
-    @Published var ttsSpeakingSegment: String = ""
-    var stt: (any STTService)?
-    var llm: (any LLMService)?
-    private var hotkeyManager: HotkeyManager?
-    private var cancellables = Set<AnyCancellable>()
-    var dictationSession: AudioCaptureService.ContinuousSession?
-    var streamingTask: Task<Void, Never>?
-    var voiceEditTask: Task<Void, Never>?
-    var grammarFixTask: Task<Void, Never>?
+    var ttsSpeakingSegment: String {
+        get { display.speakingSegment }
+        set { display.speakingSegment = newValue }
+    }
+    var stt: (any STTService)? {
+        get { models.stt }
+        set { models.stt = newValue }
+    }
+    var llm: (any LLMService)? {
+        get { models.llm }
+        set { models.llm = newValue }
+    }
+    @ObservationIgnored private var hotkeyManager: HotkeyManager?
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored var dictationSession: AudioCaptureService.ContinuousSession?
+    @ObservationIgnored var streamingTask: Task<Void, Never>?
+    @ObservationIgnored var voiceEditTask: Task<Void, Never>?
+    @ObservationIgnored var grammarFixTask: Task<Void, Never>?
     private let dictationOverlay = DictationOverlayPanel()
     /// Action Mode module. Setting this to nil (or deleting Actions/) fully disables the feature.
-    private var actionCoordinator: ActionCoordinator?
+    @ObservationIgnored private var actionCoordinator: ActionCoordinator?
     /// Tool executor for web search/fetch during LLM generation. Created lazily when internet access is enabled.
-    var toolExecutor: ToolExecutor?
+    var toolExecutor: ToolExecutor? {
+        get { models.toolExecutor }
+        set { models.toolExecutor = newValue }
+    }
 
     /// Live transcription text for the overlay (updated during streaming; empty = show status label).
-    @Published var liveTranscriptionText: String = ""
+    var liveTranscriptionText: String = ""
     /// Accumulating LLM output shown in the overlay during generation; cleared before paste.
-    @Published var streamingLLMText: String = ""
+    var streamingLLMText: String = ""
     /// The active recording session — non-nil while the mic is recording.
-    /// DictationOverlayPanel subscribes to this to start/stop level polling.
-    @Published var activeRecordingSession: AudioCaptureService.ContinuousSession?
+    /// DictationOverlayPanel observes this to start/stop level polling.
+    var activeRecordingSession: AudioCaptureService.ContinuousSession?
 
-    @Published var contextAwareMode: ContextAwareMode =
+    var contextAwareMode: ContextAwareMode =
         ContextAwareMode(rawValue: UserDefaults.standard.string(forKey: "contextAwareMode") ?? "off") ?? .off
 
     /// When true, raw dictation transcripts are passed through a lightweight LLM pass
     /// that removes filler words and adds punctuation — without changing actual words.
     /// Only takes effect when an LLM is loaded (not the None sentinel).
-    @Published var polishDictation: Bool =
+    var polishDictation: Bool =
         UserDefaults.standard.bool(forKey: "polishDictation")
 
     /// Tracks the current internet access setting to detect changes and rebuild LLM service.
-    var internetAccessEnabled: Bool =
+    @ObservationIgnored var internetAccessEnabled: Bool =
         UserDefaults.standard.bool(forKey: "internetAccessEnabled")
     /// Last finalized text from a native streaming session (Qwen3-ASR).
     /// Set by `runStreamingTranscription` for `stopDictation()` to use.
-    var lastStreamingTranscription: String?
+    @ObservationIgnored var lastStreamingTranscription: String?
 
     /// Stores the last successful voice-edit result for follow-up commands.
     private struct EditContext {
@@ -83,21 +107,26 @@ final class ConversationCoordinator: ObservableObject {
         let timestamp: Date
         var isExpired: Bool { Date().timeIntervalSince(timestamp) > 300 }
     }
-    private var lastEditContext: EditContext?
+    @ObservationIgnored private var lastEditContext: EditContext?
 
     /// Cancellable model-loading tasks so a new switch can abort an in-flight download.
-    var llmLoadTask: Task<Void, Never>?
-    var sttLoadTask: Task<Void, Never>?
-    /// Scheduled auto-clear for display-mode results; cancelled early by clearDisplayModeResult().
-    /// Owns the TTS playback phase for display-mode answers.
-    private var displayModeClearTask: Task<Void, Never>?
-    /// Restartable auto-dismiss countdown, kept separate from `displayModeClearTask` so
-    /// hovering the overlay can pause/reset it without disturbing TTS playback.
-    private var displayDismissTask: Task<Void, Never>?
-
+    var llmLoadTask: Task<Void, Never>? {
+        get { models.llmLoadTask }
+        set { models.llmLoadTask = newValue }
+    }
+    var sttLoadTask: Task<Void, Never>? {
+        get { models.sttLoadTask }
+        set { models.sttLoadTask = newValue }
+    }
     /// Pending model switches that couldn't run because state wasn't idle.
-    var pendingLLMSwitch = false
-    var pendingSTTSwitch = false
+    var pendingLLMSwitch: Bool {
+        get { models.pendingLLMSwitch }
+        set { models.pendingLLMSwitch = newValue }
+    }
+    var pendingSTTSwitch: Bool {
+        get { models.pendingSTTSwitch }
+        set { models.pendingSTTSwitch = newValue }
+    }
 
     var menuBarIcon: Image {
         switch state {
@@ -115,21 +144,16 @@ final class ConversationCoordinator: ObservableObject {
 
     init(editabilityDetector: any EditabilityDetector = AXEditabilityDetector()) {
         self.editabilityDetector = editabilityDetector
-        // Forward child ObservableObject changes so SwiftUI re-renders
-        permissions.objectWillChange.sink { [weak self] in
-            guard let self else { return }
-            self.objectWillChange.send()
-        }.store(in: &cancellables)
+        let manager = ModelManager()
+        self.modelManager = manager
+        self.models = ModelSessionController(modelManager: manager, preferences: PreferencesStore())
 
-        modelManager.objectWillChange.sink { [weak self] in
-            guard let self else { return }
-            self.objectWillChange.send()
-        }.store(in: &cancellables)
-
-        licenseManager.objectWillChange.sink { [weak self] in
-            guard let self else { return }
-            self.objectWillChange.send()
-        }.store(in: &cancellables)
+        // AppState bridge: the model session drives pipeline state through the
+        // coordinator so AppState stays single-source (same pattern as ActionCoordinator).
+        models.getState = { [weak self] in self?.state ?? .idle }
+        models.setState = { [weak self] in self?.state = $0 }
+        models.getContextAwareMode = { [weak self] in self?.contextAwareMode ?? .off }
+        models.scheduleErrorReset = { [weak self] in self?.resetErrorAfterDelay() }
 
         // Re-try hotkey registration when accessibility is granted later
         permissions.onAccessibilityGranted = { [weak self] in
@@ -155,20 +179,15 @@ final class ConversationCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // When memory offload clears models, nil out the service objects this coordinator holds
-        modelManager.$sttReady
-            .sink { [weak self] ready in if !ready { self?.stt = nil } }
-            .store(in: &cancellables)
-        modelManager.$llmReady
-            .sink { [weak self] ready in if !ready { self?.llm = nil } }
-            .store(in: &cancellables)
+        // (Offload → service-niling observation moved into ModelSessionController.)
 
         // Overlay observes published state instead of being commanded directly
         dictationOverlay.observe(self)
 
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            Task { await self.setup() }
+            Task { @MainActor in
+                await self?.setup()
+            }
         }
     }
 
@@ -544,7 +563,7 @@ final class ConversationCoordinator: ObservableObject {
                     // This applies to both MLX (Qwen3.5) and LiteRT (Gemma 4).
                     let visionEnabled = UserDefaults.standard.bool(forKey: "visionEnabled")
                     let vlmImages: [CGImage] = {
-                        guard visionEnabled, modelManager.selectedModel.isVLM,
+                        guard visionEnabled, self.modelManager.selectedModel.isVLM,
                               let screenshot = screenContext.screenshot else { return [] }
                         return [screenshot]
                     }()
@@ -624,6 +643,7 @@ final class ConversationCoordinator: ObservableObject {
                             // Re-generate with tool result appended to the original prompt
                             let augmentedPrompt = prompt + "\n\nTool result for \(toolCall.name):\n\(toolResult)\n\nNow answer the user's question using this information. Output ONLY the final answer — no tool calls."
                             raw = ""
+                            raw.reserveCapacity(4096)
                             streamingLLMText = ""
                             for try await chunk in llm.generateStream(prompt: augmentedPrompt, images: vlmImages, maxTokens: maxTokens) {
                                 raw += chunk
@@ -720,11 +740,12 @@ final class ConversationCoordinator: ObservableObject {
                     // STT-only mode (None selected): paste raw transcript directly
                     try await presentOutput(trimmedCommand, savedClipboard: savedClipboard, targetIsEditable: targetIsEditable)
                     SoundPlayer.shared.playCompletion()
+                    let sttLogApp = NSWorkspace.shared.frontmostApplication?.localizedName
                     Task.detached {
                         await TranscriptionStore.shared.save(
                             mode: .voiceEdit,
                             transcription: trimmedCommand,
-                            activeApp: NSWorkspace.shared.frontmostApplication?.localizedName
+                            activeApp: sttLogApp
                         )
                     }
                     if stt != nil { modelManager.keepSTTAlive() }
@@ -837,13 +858,16 @@ final class ConversationCoordinator: ObservableObject {
                 try await presentOutput(cleaned, savedClipboard: savedClipboard, useDisplayMode: false)
 
                 SoundPlayer.shared.playCompletion()
+                // Capture main-actor state before detaching.
+                let logApp = NSWorkspace.shared.frontmostApplication?.localizedName
+                let logModelName = modelManager.selectedModel.name
                 Task.detached {
                     await TranscriptionStore.shared.save(
                         mode: .grammarFix,
                         transcription: selectedText,
                         llmResponse: cleaned,
-                        activeApp: NSWorkspace.shared.frontmostApplication?.localizedName,
-                        modelName: self.modelManager.selectedModel.name
+                        activeApp: logApp,
+                        modelName: logModelName
                     )
                 }
                 modelManager.keepAlive()
@@ -905,167 +929,38 @@ final class ConversationCoordinator: ObservableObject {
             }
         } else {
             // Non-editable path — show LLM result in overlay, restore clipboard immediately.
-            displayModeResult = text
+            // DisplayResultController owns the TTS-then-auto-dismiss sequence.
+            display.show(text, ttsStreamedAlready: ttsStreamedAlready)
             state = .idle
             if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
-            // Capture TTS settings synchronously before entering the Task closure.
-            let tts = preferences.ttsSettings
-            let ttsEnabled = tts.enabled
-            let ttsBackend = tts.backend
-            let ttsVoice = tts.voice
-            let ttsSpeed = tts.speed
-            displayModeClearTask?.cancel()
-            displayModeClearTask = Task { [weak self] in
-                // TTS: if sentences were already streamed into the queue, wait for the
-                // queue to drain. Otherwise synthesize the full text as a single utterance.
-                // The 30s timer only starts after audio finishes (or immediately if TTS off).
-                if ttsEnabled {
-                    // Ensure highlight callback is set for both paths.
-                    await TTSService.shared.setOnSegmentStart { [weak self] segment in
-                        self?.ttsSpeakingSegment = segment
-                    }
-                    if ttsStreamedAlready {
-                        await TTSService.shared.waitForQueue()
-                    } else {
-                        // Split into sentences for fast first-word playback.
-                        for sentence in text.splitIntoSentences() {
-                            await TTSService.shared.enqueue(
-                                text: sentence, voice: ttsVoice, speed: ttsSpeed, backend: ttsBackend
-                            )
-                        }
-                        await TTSService.shared.waitForQueue()
-                    }
-                }
-                guard !Task.isCancelled else { return }
-                // Start the (hover-pausable) auto-dismiss countdown.
-                self?.scheduleDisplayAutoDismiss()
-                self?.displayModeClearTask = nil
-            }
         }
     }
 
-    /// Reads text aloud using sentence-by-sentence streaming for low latency.
-    /// Cancels and restarts the overlay auto-dismiss timer so it waits for TTS to finish.
-    func readAloud(_ text: String) {
-        let tts = preferences.ttsSettings
-        let voice = tts.voice
-        let speed = tts.speed
-        let backend = tts.backend
+    // MARK: - Display-mode forwarders (logic lives in DisplayResultController)
 
-        // Cancel the existing auto-dismiss timer — we'll restart it after TTS finishes.
-        displayModeClearTask?.cancel()
-        displayModeClearTask = nil
+    func readAloud(_ text: String) { display.readAloud(text) }
 
-        // Split into sentences and enqueue for streaming playback.
-        // First sentence plays while the rest are being synthesized.
-        let sentences = text.splitIntoSentences()
+    func stopReadAloud() { display.stopReadAloud() }
 
-        displayModeClearTask = Task { [weak self] in
-            // Register segment callback for text highlighting in the overlay.
-            await TTSService.shared.setOnSegmentStart { [weak self] segment in
-                self?.ttsSpeakingSegment = segment
-            }
-
-            // Enqueue all sentences — first one starts playing immediately.
-            for sentence in sentences {
-                await TTSService.shared.enqueue(
-                    text: sentence, voice: voice, speed: speed, backend: backend
-                )
-            }
-
-            // Wait for all sentences to finish playing.
-            await TTSService.shared.waitForQueue()
-
-            // Then start the (hover-pausable) auto-dismiss countdown.
-            guard !Task.isCancelled else { return }
-            self?.scheduleDisplayAutoDismiss()
-            self?.displayModeClearTask = nil
-        }
-    }
-
-    /// Stops TTS playback but keeps the result visible in the overlay.
-    /// Wired to the overlay speaker→stop toggle so the user can silence playback
-    /// without dismissing the text (unlike `clearDisplayModeResult`, which is Esc).
-    /// Restarts the 30s auto-dismiss timer so the overlay still goes away on its own.
-    func stopReadAloud() {
-        // Cancel the in-flight read-aloud task (sentence enqueue + auto-dismiss wait).
-        displayModeClearTask?.cancel()
-        displayModeClearTask = nil
-        ttsSpeakingSegment = ""
-        Task { await TTSService.shared.stop() }
-
-        // Keep the text on screen, but restart the auto-dismiss countdown.
-        scheduleDisplayAutoDismiss()
-    }
-
-    /// (Re)starts the auto-dismiss countdown for a display-mode answer.
-    /// Centralizes the timer that previously lived inline in three places.
-    /// Display-mode results (shown when there is no text cursor to paste into) stay on
-    /// screen, then auto-close after `seconds` once the user is no longer attending to
-    /// the overlay. The countdown is paused while the overlay is hovered or focused
-    /// (see keepDisplayResultAlive), so a shown answer never vanishes while it is being
-    /// read. Esc dismisses it anytime.
     func scheduleDisplayAutoDismiss(after seconds: Double = 40) {
-        displayDismissTask?.cancel()
-        guard !displayModeResult.isEmpty else { displayDismissTask = nil; return }
-        displayDismissTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled else { return }
-            self?.displayModeResult = ""
-            self?.displayDismissTask = nil
-        }
+        display.scheduleAutoDismiss(after: seconds)
     }
 
-    /// Keeps the overlay open while the cursor is over it; resumes the countdown
-    /// when the cursor leaves. Wired to `.onHover` in the overlay content so a
-    /// long answer never vanishes while the user is reading or scrolling it.
-    func keepDisplayResultAlive(_ hovering: Bool) {
-        guard !displayModeResult.isEmpty else { return }
-        if hovering {
-            displayDismissTask?.cancel()
-            displayDismissTask = nil
-        } else {
-            scheduleDisplayAutoDismiss()
-        }
-    }
+    func keepDisplayResultAlive(_ hovering: Bool) { display.keepAlive(hovering) }
 
     /// Dismisses the display-mode overlay and stops TTS playback (called by Esc key handler).
-    func clearDisplayModeResult() {
-        displayModeClearTask?.cancel()
-        displayModeClearTask = nil
-        displayDismissTask?.cancel()
-        displayDismissTask = nil
-        displayModeResult = ""
-        ttsSpeakingSegment = ""
-        Task { await TTSService.shared.stop() }
-    }
+    func clearDisplayModeResult() { display.clear() }
 
     // MARK: - Helpers
 
+    // Service factories live in ModelSessionController — thin forwarders keep call sites unchanged.
+
     func makeSttService() async throws -> (any STTService)? {
-        switch modelManager.selectedSTTModel.backend {
-        case .fluidAudio:
-            guard let models = modelManager.asrModels else { return nil }
-            return try await FluidAudioSTT(models: models)
-        case .mlxAudio:
-            let path = modelManager.selectedSTTModel.path
-            guard !path.isEmpty else { return nil }
-            return try await MLXAudioSTTService(modelPath: path, cacheDirectory: modelCacheDirectory)
-        case .whisperKit:
-            let modelName = modelManager.selectedSTTModel.path
-            return try await WhisperKitSTTService(modelName: modelName)
-        }
+        try await models.makeSttService()
     }
 
-    /// Like `makeSttService()`, but loads the ASR models from disk first if they
-    /// were offloaded. Used by file transcription, which can run even when the
-    /// selected *LLM* is LiteRT/Gemma (which otherwise handles audio itself and
-    /// leaves no standalone STT loaded). Returns nil only if STT is set to None.
     func makeSttServiceForFile() async throws -> (any STTService)? {
-        if modelManager.selectedSTTModel.backend == .fluidAudio, modelManager.asrModels == nil {
-            try await modelManager.reloadSTT()
-        }
-        return try await makeSttService()
+        try await models.makeSttServiceForFile()
     }
 
     /// Runs the loaded LLM to rewrite `text` per a natural-language `instruction`.
@@ -1117,131 +1012,13 @@ final class ConversationCoordinator: ObservableObject {
         modelManager.selectedModel.backendType == .liteRT
     }
 
-    /// Returns an LLM-backed transcriber (Gemma) for file transcription, loading
-    /// the model from cache if it was offloaded. Returns nil if the loaded model
-    /// can't actually accept audio.
     func makeLLMTranscriptionSTT() async throws -> (any STTService)? {
-        if llm == nil, !modelManager.selectedModel.isNone {
-            try await modelManager.loadModel(modelManager.selectedModel)
-            if modelManager.inferenceRouter.isLoaded { llm = makeLLMService() }
-            modelManager.keepAlive()
-        }
-        guard let routed = llm as? RoutedLLMService, routed.supportsAudioInput else { return nil }
-        return LLMTranscriptionSTT(llm: routed)
+        try await models.makeLLMTranscriptionSTT()
     }
 
-    var modelCacheDirectory: URL { ModelManager.modelsCacheRoot }
+    func rebuildLLMServiceIfNeeded() { models.rebuildLLMServiceIfNeeded() }
 
-    /// Rebuilds the LLM service wrapper when context mode toggles (updates system prompt).
-    /// Cheap operation — no model reload, just creates a new RoutedLLMService with the right prompt.
-    func rebuildLLMServiceIfNeeded() {
-        guard state == .idle, modelManager.inferenceRouter.isLoaded else { return }
-        llm = makeLLMService()
-    }
-
-    func makeLLMService() -> RoutedLLMService {
-        let family = modelManager.selectedModel.family
-        let isScreenAware = contextAwareMode != .off
-        var systemPrompt = family.systemPrompt(screenAware: isScreenAware)
-
-        // Inject tool definitions — calendar tools always available, internet tools gated by preference
-        if family.supportsToolUse {
-            let executor = makeToolExecutor()
-            toolExecutor = executor
-            let toolPrompt = buildToolDefinitionsPrompt()
-            systemPrompt += "\n\n" + toolPrompt
-        } else {
-            toolExecutor = nil
-        }
-
-        return RoutedLLMService(
-            router: modelManager.inferenceRouter,
-            family: family,
-            systemPrompt: systemPrompt
-        )
-    }
-
-    /// Creates a ToolExecutor. Calendar tools are always included;
-    /// internet tools (web search, URL fetch) only when internet access is enabled.
-    func makeToolExecutor() -> ToolExecutor {
-        var tools: [any Tool] = [
-            ListEventsTool(),
-            FindFreeTimeTool(),
-            CheckAvailabilityTool(),
-        ]
-        if preferences.internetAccessEnabled {
-            let searchService = DuckDuckGoSearchService()
-            let fetchService = ReadabilityWebFetcher()
-            tools.insert(WebSearchTool(searchService: searchService), at: 0)
-            tools.insert(FetchURLTool(fetchService: fetchService), at: 1)
-        }
-        return ToolExecutor(tools: tools)
-    }
-
-    /// Builds the tool definitions prompt string synchronously (avoids actor hop).
-    /// Mirrors ToolExecutor.toolDefinitionsPrompt but without requiring an actor hop.
-    func buildToolDefinitionsPrompt() -> String {
-        let isoFmt = ISO8601DateFormatter()
-        isoFmt.formatOptions = [.withInternetDateTime]
-        let nowISO = isoFmt.string(from: Date())
-        let weekday = Calendar.current.weekdaySymbols[
-            Calendar.current.component(.weekday, from: Date()) - 1
-        ]
-
-        let internetEnabled = preferences.internetAccessEnabled
-        var toolDefs = """
-        - **list_events**: List calendar events for a date range.
-          Parameters: {"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}
-        - **find_free_time**: Find free time slots on a given date.
-          Parameters: {"date": "YYYY-MM-DD", "start_hour": "9", "end_hour": "18"}
-        - **check_availability**: Check if a specific time is free.
-          Parameters: {"datetime": "YYYY-MM-DDTHH:mm", "duration_minutes": "60"}
-        """
-        if internetEnabled {
-            toolDefs = """
-            - **web_search**: Search the web for current information.
-              Parameters: {"query": "your search query"}
-            - **fetch_url**: Fetch and read a web page.
-              Parameters: {"url": "https://example.com/page"}
-            """ + "\n" + toolDefs
-        }
-
-        var useRules = """
-        - The user asks about their calendar, schedule, availability, or free time
-        """
-        if internetEnabled {
-            useRules = """
-            - The user asks about current events, news, or time-sensitive information
-            - The user mentions or asks about a specific URL
-            - The user explicitly asks you to search or look something up
-            """ + "\n" + useRules
-        }
-
-        return """
-        Current date and time: \(nowISO) (\(weekday))
-
-        You have access to the following tools to help answer questions:
-
-        \(toolDefs)
-
-        When you need to use a tool, output EXACTLY this format (no other text around it):
-        <tool_call>
-        {"name": "TOOL_NAME", "arguments": {"param": "value"}}
-        </tool_call>
-
-        Use tools when:
-        \(useRules)
-
-        Do NOT use tools for:
-        - Text editing, rewriting, or grammar fixes
-        - Creative writing or drafting
-        - Questions you can confidently answer from your training data
-        - Opening or launching applications
-
-        After receiving tool results, incorporate the information naturally into your response. \
-        Output ONLY the final answer text -- no tool call tags in the final response.
-        """
-    }
+    func makeLLMService() -> RoutedLLMService { models.makeLLMService() }
 
     func resetErrorAfterDelay() {
         Task { [weak self] in

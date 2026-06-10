@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MenuBarMenu: View {
-    @ObservedObject var coordinator: ConversationCoordinator
+    var coordinator: ConversationCoordinator
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {

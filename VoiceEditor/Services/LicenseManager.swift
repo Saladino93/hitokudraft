@@ -2,17 +2,19 @@ import Foundation
 import Security
 import CryptoKit
 import os
+import Observation
 
 @MainActor
-final class LicenseManager: ObservableObject {
+@Observable
+final class LicenseManager {
     private static let log = Logger(subsystem: "com.hitokudraft.license", category: "activation")
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @Published var isActivated: Bool = false
-    @Published var licenseEmail: String?
-    @Published var activationError: String?
-    @Published var isActivating = false
+    var isActivated: Bool = false
+    var licenseEmail: String?
+    var activationError: String?
+    var isActivating = false
 
     // MARK: - Licensing Configuration
 

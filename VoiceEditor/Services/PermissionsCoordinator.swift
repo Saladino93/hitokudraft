@@ -1,17 +1,18 @@
 import AppKit
 import AVFoundation
-import Combine
+import Observation
 
 @MainActor
-final class PermissionsCoordinator: ObservableObject {
-    @Published var accessibilityGranted = false
-    @Published var microphoneGranted = false
-    @Published var screenRecordingGranted = false
+@Observable
+final class PermissionsCoordinator {
+    var accessibilityGranted = false
+    var microphoneGranted = false
+    var screenRecordingGranted = false
 
-    private var pollTimer: Timer?
+    @ObservationIgnored private var pollTimer: Timer?
 
     /// Called when accessibility transitions from false → true.
-    var onAccessibilityGranted: (() -> Void)?
+    @ObservationIgnored var onAccessibilityGranted: (() -> Void)?
 
     var allGranted: Bool {
         accessibilityGranted && microphoneGranted && screenRecordingGranted

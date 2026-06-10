@@ -5,7 +5,7 @@ import UserNotifications
 
 @main
 struct VoiceEditorApp: App {
-    @StateObject private var coordinator = ConversationCoordinator()
+    @State private var coordinator = ConversationCoordinator()
     // @State retains the controller across App struct re-renders (App is a value type)
     @State private var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
