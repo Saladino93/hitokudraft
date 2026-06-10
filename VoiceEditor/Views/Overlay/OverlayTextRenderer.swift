@@ -5,6 +5,7 @@ import SwiftUI
 /// - Plain text with ghosting (solid committed part + dim in-progress tail)
 /// - TTS sentence highlighting (current segment bright, rest dimmed)
 /// - Complex content: LaTeX math + syntax-highlighted code blocks
+@MainActor
 struct OverlayTextRenderer: View {
     let text: String
     let maxLines: Int
@@ -12,7 +13,22 @@ struct OverlayTextRenderer: View {
     var speakingSegment: String = ""
     var isGhosting: Bool = false
 
-    private var segments: [TextSegment] { parseSegments(text) }
+    /// Memoized parse: `body` reads `segments` more than once per evaluation, and during
+    /// TTS playback the view re-renders many times with unchanged text. Re-parsing the
+    /// full text each time is O(n²) over a streamed generation. Bounded — overlay text
+    /// is transient.
+    private enum SegmentCache {
+        static var cache: [String: [TextSegment]] = [:]
+        static func segments(for text: String) -> [TextSegment] {
+            if let hit = cache[text] { return hit }
+            let parsed = parseSegments(text)
+            if cache.count >= 8 { cache.removeAll() }
+            cache[text] = parsed
+            return parsed
+        }
+    }
+
+    private var segments: [TextSegment] { SegmentCache.segments(for: text) }
 
     private var hasComplexContent: Bool {
         segments.contains {

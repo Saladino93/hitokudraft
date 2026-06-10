@@ -133,34 +133,52 @@ struct CheckAvailabilityTool: Tool {
 
 // MARK: - Helpers
 
-private func parseDate(_ s: String?) -> Date? {
-    guard let s else { return nil }
+// DateFormatter construction is expensive — cache one per format. Cached formatters
+// are never mutated after init (DateFormatter is only thread-safe when immutable),
+// which is why parseDateTime uses three formatters instead of reassigning dateFormat.
+
+private func makePOSIXFormatter(_ format: String) -> DateFormatter {
     let fmt = DateFormatter()
     fmt.locale = Locale(identifier: "en_US_POSIX")
-    fmt.dateFormat = "yyyy-MM-dd"
-    return fmt.date(from: s)
+    fmt.dateFormat = format
+    return fmt
+}
+
+private let dateOnlyFormatter = makePOSIXFormatter("yyyy-MM-dd")
+private let dateTimeFormatters = [
+    makePOSIXFormatter("yyyy-MM-dd'T'HH:mm:ss"),
+    makePOSIXFormatter("yyyy-MM-dd'T'HH:mm"),
+    makePOSIXFormatter("yyyy-MM-dd HH:mm"),
+]
+private let mediumDateFormatter: DateFormatter = {
+    let fmt = DateFormatter()
+    fmt.dateStyle = .medium
+    fmt.timeStyle = .none
+    return fmt
+}()
+private let shortTimeFormatter: DateFormatter = {
+    let fmt = DateFormatter()
+    fmt.dateStyle = .none
+    fmt.timeStyle = .short
+    return fmt
+}()
+
+private func parseDate(_ s: String?) -> Date? {
+    guard let s else { return nil }
+    return dateOnlyFormatter.date(from: s)
 }
 
 private func parseDateTime(_ s: String) -> Date? {
-    let fmt = DateFormatter()
-    fmt.locale = Locale(identifier: "en_US_POSIX")
-    for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm"] {
-        fmt.dateFormat = format
+    for fmt in dateTimeFormatters {
         if let d = fmt.date(from: s) { return d }
     }
     return nil
 }
 
 private func formatDate(_ d: Date) -> String {
-    let fmt = DateFormatter()
-    fmt.dateStyle = .medium
-    fmt.timeStyle = .none
-    return fmt.string(from: d)
+    mediumDateFormatter.string(from: d)
 }
 
 private func formatTime(_ d: Date) -> String {
-    let fmt = DateFormatter()
-    fmt.dateStyle = .none
-    fmt.timeStyle = .short
-    return fmt.string(from: d)
+    shortTimeFormatter.string(from: d)
 }

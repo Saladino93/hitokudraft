@@ -67,17 +67,31 @@ enum CodeHighlighter {
         var options: NSRegularExpression.Options = []
     }
 
+    /// Compiled patterns per language. The result cache above misses on every token
+    /// while a code block streams (the code text changes each time), so without this
+    /// the ~10 regexes per language would be recompiled per token.
+    private static var compiledCache: [String: [(NSRegularExpression, NSColor)]] = [:]
+
+    private static func compiledPatterns(for language: String) -> [(NSRegularExpression, NSColor)] {
+        if let hit = compiledCache[language] { return hit }
+        let compiled = tokenPatterns(for: language).compactMap { token in
+            (try? NSRegularExpression(pattern: token.pattern, options: token.options))
+                .map { ($0, token.color) }
+        }
+        compiledCache[language] = compiled
+        return compiled
+    }
+
     private static func apply(to code: String, language: String) -> NSAttributedString {
         let result = NSMutableAttributedString(
             string: code,
             attributes: [.foregroundColor: colorPlain, .font: codeFont]
         )
 
-        for token in tokenPatterns(for: language) {
-            guard let regex = try? NSRegularExpression(pattern: token.pattern, options: token.options) else { continue }
-            let ns = NSRange(code.startIndex..., in: code)
+        let ns = NSRange(code.startIndex..., in: code)
+        for (regex, color) in compiledPatterns(for: language) {
             for match in regex.matches(in: code, range: ns) {
-                result.addAttribute(.foregroundColor, value: token.color, range: match.range)
+                result.addAttribute(.foregroundColor, value: color, range: match.range)
             }
         }
         return result

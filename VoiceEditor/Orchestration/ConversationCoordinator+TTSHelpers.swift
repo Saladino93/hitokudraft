@@ -9,6 +9,9 @@ extension ConversationCoordinator {
     /// Lightweight — runs per-chunk during streaming. The full OutputCleaner
     /// still runs on the final assembled text.
     func cleanChunkForTTS(_ chunk: String) -> String {
+        // Fast path: every artifact below contains '<' or '`'. Most streamed chunks
+        // are plain words — skip the 11 full-string scans for them.
+        guard chunk.contains("<") || chunk.contains("`") else { return chunk }
         var t = chunk
         t = t.replacingOccurrences(of: "<think>", with: "")
         t = t.replacingOccurrences(of: "</think>", with: "")
