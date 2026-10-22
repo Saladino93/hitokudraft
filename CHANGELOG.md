@@ -29,6 +29,10 @@ All notable changes to Hitoku Draft are documented in this file.
   same sentence appears twice in an answer.
 
 ### Fixed
+- **Text goes only where it came from.** Dictated and edited text is now only
+  inserted into the app it was captured from. If you switch apps while a response is
+  being generated, or a password field is focused, the result is shown in the overlay
+  instead.
 - **Clearer privacy information.** The Privacy section of the Help tab now explains
   exactly when the app goes online: optional web search and link opening, license
   checks, update checks, and model downloads. Your audio and transcripts are still

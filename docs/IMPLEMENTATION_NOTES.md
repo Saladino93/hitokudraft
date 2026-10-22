@@ -172,6 +172,20 @@ Internal record of the security fixes from the October audit. Public CHANGELOG e
 - **Retention:** after every write, `pruneOldEntries()` lists filenames only (no decoding), parses the timestamp prefix, sorts newest first, and deletes everything past index 500 or older than 90 days (`maxEntries` / `maxAgeDays`). Age comes from the filename, never the file mtime (mtime changes on copy/restore). Files whose names don't parse are left alone. Logs the count when > 0. Pruning only runs on save, so with Save history off nothing is pruned.
 - **UI:** retention note under the Save history caption; History tab height 540 -> 600. Keys `history.include_context`, `history.include_context_desc`, `history.retention_note` in en/es/fr/it.
 
+### 3. Paste only into the capture app; never into secure fields
+
+**The TOCTOU:** `TextCaptureService.pasteText` resolved the paste target from `NSWorkspace.shared.frontmostApplication` *at paste time*, deliberately ("respect their current focus"). The target app is recorded much earlier (`rememberTargetApp()`, called by `captureSelectedText()` for voice edit / grammar fix and at dictation start), and generation can take seconds. Switching apps in that window (or an app stealing focus) typed the result, which can contain the user's selection or screen content, into whatever was frontmost: a chat window, a terminal, a browser address bar.
+
+**Checks in `pasteText` (before the pasteboard is written):**
+- Frontmost is Hitoku itself (overlay/settings) -> paste into the recorded `targetApp`, unchanged.
+- Otherwise, if `targetApp` was recorded and the frontmost app's `bundleIdentifier` differs -> throw `TextCaptureService.TextCaptureError.targetAppChanged`. (Bundle-id granularity: a different window of the same app still receives the paste. No recorded target -> old behaviour.)
+- After `activate()` + the existing 100 ms settle: `TextCaptureService.isSecureInputActive()` (`IsSecureEventInputEnabled()`, Carbon) true -> throw `.secureInputActive`. This is system-wide, so it also trips while Terminal's "Secure Keyboard Entry" is active; those users get the overlay instead of a paste into Terminal.
+- The pasteboard is now written only after both checks pass (previously first thing), so a declined paste never leaves the result on the clipboard.
+
+**AX subrole check:** `AXEditabilityDetector.focusedElementIsEditable()` returns `false` when the focused element's `kAXSubroleAttribute` is `kAXSecureTextFieldSubrole`, before any caret/role heuristics. This only affects voice edit (the only caller that consults editability); dictation and grammar fix always try to paste and rely on the secure-input check instead.
+
+**Fallback path (`ConversationCoordinator.presentOutput`):** the paste branch catches `TextCaptureError` only, logs at info (`Paste skipped (<case>), showing result in overlay`), calls `display.show(text, ttsStreamedAlready:)`, sets `.idle`, and restores the saved clipboard immediately (same as the non-editable branch). This applies to all three paste callers, including dictation and grammar fix (`useDisplayMode: false`), whose text would otherwise be lost. Other errors (cancellation) still propagate to the callers' existing catch blocks, which restore the clipboard. The orphaned-TTS stop for `ttsStreamedAlready` now runs after a successful paste rather than before, so streamed read-aloud keeps playing when the result falls back to the overlay. Note that with read-aloud enabled, a dictation or grammar-fix result that falls back to the overlay is read aloud like any overlay result.
+
 ## 2026-10-22: Launch crash on macOS 27.2 / Kokoro MPSGraph abort
 
 **Symptom:** SIGABRT at launch on macOS 27.2 (M5 Pro), "MLIR pass failed" inside MPSGraph while Core ML compiled the Kokoro TTS models.

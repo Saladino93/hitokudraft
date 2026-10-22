@@ -8,7 +8,21 @@ final class TextCaptureService {
         let items: [[(type: NSPasteboard.PasteboardType, data: Data)]]
     }
 
+    /// Why `pasteText` declined to paste. The caller shows the text in the overlay instead.
+    enum TextCaptureError: Error {
+        /// The frontmost app is no longer the one the text was captured from.
+        case targetAppChanged
+        /// Secure keyboard entry is on (a password field is focused somewhere).
+        case secureInputActive
+    }
+
     private var targetApp: NSRunningApplication?
+
+    /// True while any process has secure keyboard entry enabled (password fields,
+    /// Terminal's "Secure Keyboard Entry").
+    static func isSecureInputActive() -> Bool {
+        IsSecureEventInputEnabled()
+    }
 
     func rememberTargetApp() {
         targetApp = NSWorkspace.shared.frontmostApplication
@@ -67,19 +81,35 @@ final class TextCaptureService {
         return pasteboard.string(forType: .string) ?? ""
     }
 
+    /// Pastes `text` into the app the text was captured from.
+    ///
+    /// Throws `TextCaptureError` (without touching the pasteboard) when the frontmost
+    /// app is no longer the recorded target, or when secure input is active, so the
+    /// caller can show the result in the overlay instead of typing it somewhere else.
     func pasteText(_ text: String) async throws {
+        let currentApp = NSWorkspace.shared.frontmostApplication
+        let pasteTarget: NSRunningApplication?
+        if currentApp?.bundleIdentifier == Bundle.main.bundleIdentifier {
+            pasteTarget = targetApp  // Our app is focused (e.g., overlay) — fall back to stored target
+        } else {
+            // The user switched apps while the result was generated: never paste into
+            // an app the text didn't come from.
+            if let targetApp, currentApp?.bundleIdentifier != targetApp.bundleIdentifier {
+                throw TextCaptureError.targetAppChanged
+            }
+            pasteTarget = currentApp
+        }
+        pasteTarget?.activate()
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Checked after activation so it reflects the target's focused field.
+        guard !Self.isSecureInputActive() else {
+            throw TextCaptureError.secureInputActive
+        }
+
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-
-        // Paste into the currently focused app — not the one stored at recording start.
-        // If the user switched apps during recording, respect their current focus.
-        let currentApp = NSWorkspace.shared.frontmostApplication
-        let pasteTarget = currentApp?.bundleIdentifier == Bundle.main.bundleIdentifier
-            ? targetApp  // Our app is focused (e.g., overlay) — fall back to stored target
-            : currentApp
-        pasteTarget?.activate()
-        try await Task.sleep(for: .milliseconds(100))
 
         simulateKeyPress(keyCode: 0x09, flags: .maskCommand)  // Cmd+V
         try await Task.sleep(for: .milliseconds(250))

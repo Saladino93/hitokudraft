@@ -937,11 +937,22 @@ final class ConversationCoordinator {
         let isEditable = targetIsEditable ?? editabilityDetector.focusedElementIsEditable()
         if !useDisplayMode || isEditable {
             // Editable path (or dictation — always paste).
+            state = .pasting
+            do {
+                try await textCapture.pasteText(text)
+            } catch let error as TextCaptureService.TextCaptureError {
+                // Frontmost app changed since capture, or a password field is focused:
+                // never paste there. Show the result in the overlay instead (any streamed
+                // TTS keeps playing, since the overlay is now the output).
+                Self.log.info("Paste skipped (\(String(describing: error), privacy: .public)), showing result in overlay")
+                display.show(text, ttsStreamedAlready: ttsStreamedAlready)
+                state = .idle
+                if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
+                return
+            }
             // If TTS was streamed (display mode detected at generation start) but focus
             // changed to an editable field mid-generation, stop orphaned TTS playback.
             if ttsStreamedAlready { await TTSService.shared.stop() }
-            state = .pasting
-            try await textCapture.pasteText(text)
             if let saved = savedClipboard {
                 try? await Task.sleep(for: .milliseconds(300))
                 textCapture.restoreClipboard(saved)

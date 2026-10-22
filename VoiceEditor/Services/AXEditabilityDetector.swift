@@ -18,6 +18,9 @@ import ApplicationServices
 ///    caret even if the range is briefly unavailable).
 /// 3. If the focused element can't be read at all (permission revoked), return `true`
 ///    so the app falls back to its prior paste behavior.
+///
+/// Password fields (`AXSecureTextField` subrole) are never editable-for-paste: the
+/// result goes to the overlay instead of being typed into a password field.
 struct AXEditabilityDetector: EditabilityDetector {
 
     /// Roles whose caret signal is a genuine text insertion point. `AXWebArea` and
@@ -57,6 +60,12 @@ struct AXEditabilityDetector: EditabilityDetector {
         var roleRef: CFTypeRef?
         _ = AXUIElementCopyAttributeValue(focused, kAXRoleAttribute as CFString, &roleRef)
         let role = (roleRef as? String) ?? "?"
+
+        var subroleRef: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(focused, kAXSubroleAttribute as CFString, &subroleRef)
+        if (subroleRef as? String) == kAXSecureTextFieldSubrole as String {
+            return false
+        }
 
         // Gather caret signals. Any of these *can* indicate a text cursor — but a
         // generic container (the Finder desktop's AXGroup) can report a spurious
