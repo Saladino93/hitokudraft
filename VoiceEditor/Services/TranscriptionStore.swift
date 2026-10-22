@@ -78,6 +78,9 @@ actor TranscriptionStore {
     }
 
     /// Save a voice interaction to disk.
+    /// No-op when the user disabled "Save history" (Settings → History).
+    /// Gated here — the single choke point — so every pipeline (voice edit,
+    /// dictation, grammar fix, action mode) respects the setting.
     func save(
         mode: InteractionMode,
         transcription: String,
@@ -96,6 +99,7 @@ actor TranscriptionStore {
         latencyInsertMs: Int? = nil,
         latencyTotalMs: Int? = nil
     ) {
+        guard Self.savingEnabled else { return }
         let record = Record(
             timestamp: Date(),
             mode: mode,
@@ -127,10 +131,23 @@ actor TranscriptionStore {
         }
     }
 
+    /// Whether saving is enabled (Settings → History → "Save history").
+    /// Defaults to true when the key is absent (preserves pre-toggle behavior).
+    nonisolated static var savingEnabled: Bool {
+        UserDefaults.standard.object(forKey: "saveHistory").flatMap { $0 as? Bool } ?? true
+    }
+
     // MARK: - Query
 
-    /// List all saved records, most recent first.
-    func listAll() -> [Record] {
+    /// A record paired with its on-disk file, so UI rows can delete the right file.
+    struct Entry: Identifiable {
+        let url: URL
+        let record: Record
+        var id: String { url.lastPathComponent }
+    }
+
+    /// List all saved entries, most recent first.
+    func listEntries() -> [Entry] {
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: [.creationDateKey],
             options: .skipsHiddenFiles
@@ -143,9 +160,60 @@ actor TranscriptionStore {
             .filter { $0.pathExtension == "json" }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
             .compactMap { url in
-                guard let data = try? Data(contentsOf: url) else { return nil }
-                return try? decoder.decode(Record.self, from: data)
+                guard let data = try? Data(contentsOf: url),
+                      let record = try? decoder.decode(Record.self, from: data) else { return nil }
+                return Entry(url: url, record: record)
             }
+    }
+
+    /// List all saved records, most recent first.
+    func listAll() -> [Record] {
+        listEntries().map(\.record)
+    }
+
+    // MARK: - Manage
+
+    /// Delete a single saved interaction.
+    func delete(_ entry: Entry) {
+        do {
+            try FileManager.default.removeItem(at: entry.url)
+        } catch {
+            Self.log.error("Failed to delete transcription \(entry.url.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+
+    /// Delete every saved interaction.
+    func clearAll() {
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            Self.log.error("Failed to list transcriptions for clearing: \(error.localizedDescription)")
+            return
+        }
+        var failures = 0
+        for url in files where url.pathExtension == "json" {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                failures += 1
+                Self.log.error("Failed to delete transcription \(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        if failures == 0 {
+            Self.log.info("Cleared all saved transcriptions")
+        } else {
+            Self.log.error("Clear all finished with \(failures) file(s) not deleted")
+        }
+    }
+
+    /// Export the full history as a single JSON array.
+    func exportAll(to destination: URL) throws {
+        let data = try encoder.encode(listAll())
+        try data.write(to: destination, options: .atomic)
     }
 
     /// Number of saved transcriptions.

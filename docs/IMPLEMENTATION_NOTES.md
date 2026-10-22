@@ -166,6 +166,19 @@ Five fixes from the full-codebase audit (architecture / memory / concurrency / p
 
 ---
 
+## 2026-06-10 — History Tab in Settings
+
+User-facing browser for the interaction logs `TranscriptionStore` already writes (one JSON per interaction in `~/Library/Application Support/HitokuDraft/transcriptions/`).
+
+- **Store (`TranscriptionStore.swift`):** new `Entry` (record + file URL, `Identifiable` by filename) via `listEntries()`; `delete(_:)`, `clearAll()`, `exportAll(to:)` (single JSON array). `listAll()` now derives from `listEntries()`. **Save gate:** `save()` no-ops when `saveHistory` (UserDefaults, default true) is off — gated at the store so all four pipelines (voice edit, dictation, grammar fix, action mode) respect it without call-site changes.
+- **UI (`Views/HistorySettingsTab.swift`, new):** search (in-memory over transcript + response), Save-history toggle, LazyVStack rows (cached `DateFormatter`, mode capsule, transcript + dimmed LLM response, Copy/Delete), Clear All behind a confirmation dialog, footer path + Show in Folder + Export (`NSSavePanel`). Copy puts the interaction's *product* on the pasteboard: response when present, else transcript.
+- **SettingsView:** new `Tab.history` (clock icon, height 540) after Tools; the old Tools "Transcription history / Reveal in Finder" row removed (Tools height 420 → 360).
+- **Localization:** 18 keys × en/es/it/fr.
+
+Iteration candidates (deliberately not built yet): expandable rows for long texts, mode filter, latency/context detail popover, date grouping.
+
+---
+
 ## 2026-06-10 — ConversationCoordinator Split (audit batch 4)
 
 The coordinator shrank from 1,265 to 1,035 lines by extracting two self-contained domains into controllers. **Zero call-site changes** — the coordinator keeps its public API as thin forwarders, so views, OverlayViewModel, FileTranscriptionModel, and SettingsView are untouched.

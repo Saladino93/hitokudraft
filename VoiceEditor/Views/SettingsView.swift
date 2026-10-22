@@ -35,7 +35,7 @@ struct SettingsView: View {
     @AppStorage("internetAccessEnabled") private var internetAccessEnabled: Bool = false
 
     // MARK: - Navigation State
-    private enum Tab { case license, general, tools, appearance, model, help, updates }
+    private enum Tab { case license, general, tools, history, appearance, model, help, updates }
     @State private var selectedTab: Tab = .general
 
     // MARK: - Custom Model State
@@ -63,7 +63,8 @@ struct SettingsView: View {
         switch selectedTab {
         case .license: return 178
         case .general: return 510
-        case .tools: return 420
+        case .tools: return 360
+        case .history: return 540
         case .appearance: return 473
         case .model: return 518
         case .help: return 540
@@ -84,6 +85,10 @@ struct SettingsView: View {
             toolsTab
                 .tag(Tab.tools)
                 .tabItem { Label(L("tab.tools"), systemImage: "wrench.and.screwdriver") }
+
+            HistorySettingsTab()
+                .tag(Tab.history)
+                .tabItem { Label(L("tab.history"), systemImage: "clock") }
 
             appearanceTab
                 .padding(.top, 20)
@@ -430,29 +435,6 @@ struct SettingsView: View {
 
     private var toolsTab: some View {
         VStack(alignment: .leading, spacing: 16) {
-
-            // Transcription history (top)
-            HStack(spacing: 8) {
-                Image(systemName: "doc.text")
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("tools.history_title"))
-                        .font(.subheadline.weight(.medium))
-                    Text(L("tools.history_desc"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button(L("tools.reveal_in_finder")) {
-                    Task {
-                        let path = await TranscriptionStore.shared.directoryPath
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
-                    }
-                }
-                .font(.caption)
-            }
-
-            Divider()
 
             // Internet toggle
             HStack(spacing: 8) {

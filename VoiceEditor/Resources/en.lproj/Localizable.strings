@@ -209,9 +209,6 @@
 
 /* Settings — Tools Tab */
 "tab.tools" = "Tools";
-"tools.history_title" = "Transcription History";
-"tools.history_desc" = "All voice interactions are saved as JSON files.";
-"tools.reveal_in_finder" = "Reveal in Finder";
 "tools.internet_toggle" = "Allow internet access";
 "tools.internet_hint" = "(web search, URL fetch)";
 "tools.available_title" = "Available Tools";
@@ -237,3 +234,23 @@
 "model.desc.larger_multimodal" = "Larger multimodal model, higher quality (needs 4+ GB RAM)";
 "model.desc.flagship_multimodal" = "Largest multimodal model, top quality (needs ~10 GB RAM)";
 "model.desc.best_quality" = "Best overall quality (top multilingual and reasoning)";
+
+/* History tab */
+"tab.history" = "History";
+"history.search_placeholder" = "Search transcripts…";
+"history.clear_all" = "Clear All";
+"history.clear_confirm_title" = "Clear all history?";
+"history.clear_confirm_message" = "This permanently deletes all saved interactions from this Mac.";
+"history.clear_confirm_button" = "Clear All";
+"history.save_toggle" = "Save history";
+"history.save_caption" = "Stored only on this device. Never leaves your computer.";
+"history.empty" = "No history yet. Interactions appear here after you dictate or edit.";
+"history.no_matches" = "No matches.";
+"history.copy" = "Copy";
+"history.delete" = "Delete";
+"history.show_in_folder" = "Show in Folder";
+"history.export" = "Export…";
+"history.mode.voice_edit" = "Voice Edit";
+"history.mode.dictation" = "Dictation";
+"history.mode.grammar_fix" = "Grammar Fix";
+"history.mode.action" = "Action";

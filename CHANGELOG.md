@@ -4,6 +4,12 @@ All notable changes to Hitoku Draft are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **History tab in Settings.** Browse your saved interactions: search transcripts,
+  copy a result, delete single entries or clear everything, export the full history
+  as JSON, and open the storage folder. A new "Save history" switch turns saving
+  off entirely. Everything stays on your Mac.
+
 ### Changed
 - **Internal architecture cleanup.** The app's central orchestration code was split
   into focused modules (overlay result display, model loading/switching), with no
