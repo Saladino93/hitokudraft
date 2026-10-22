@@ -27,14 +27,25 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Runs once when the window closes; lets launch-time windows queue up behind it.
+    private var onDismiss: (@MainActor () -> Void)?
+
     func show() {
         window?.orderFrontRegardless()
         window?.makeKeyAndOrderFront(nil)
     }
 
+    func windowWillClose(_ notification: Notification) {
+        let next = onDismiss
+        onDismiss = nil
+        next?()
+    }
+
     /// Call once at launch. Shows the window if the user just upgraded, then
     /// records the current version so it won't appear again until the next update.
-    static func checkAndShowIfNeeded() {
+    /// `then` runs after the window is dismissed, or after the same launch delay
+    /// when there is nothing new to show.
+    static func checkAndShowIfNeeded(then next: @escaping @MainActor () -> Void = {}) {
         let defaults = UserDefaults.standard
         let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         let lastSeen = defaults.string(forKey: "whatsNewLastSeenVersion") ?? ""
@@ -44,10 +55,12 @@ final class WhatsNewWindowController: NSWindowController, NSWindowDelegate {
 
         // Show on upgrade (lastSeen differs) and on first run/fresh install.
         // Suppressed only when relaunching the same version.
-        guard current != lastSeen else { return }
+        let shouldShow = current != lastSeen
 
-        // Delay slightly so the menu bar is fully set up before the window appears.
+        // Delay slightly so the menu bar is fully set up before any window appears.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            guard shouldShow else { next(); return }
+            WhatsNewWindowController.shared.onDismiss = next
             WhatsNewWindowController.shared.show()
         }
     }

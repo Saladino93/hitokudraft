@@ -110,6 +110,30 @@ struct SettingsView: View {
         .frame(width: 620, height: currentHeight)
         .animation(.spring(response: 0.3, dampingFraction: 1.0), value: selectedTab)
         .background(WindowActivator())
+        .onAppear { applyRequestedTab() }
+        .onChange(of: SettingsNavigator.shared.requestedTab) { applyRequestedTab() }
+    }
+
+    /// Switches to a tab requested from outside Settings (e.g. the first-launch model prompt).
+    private func applyRequestedTab() {
+        guard let requested = SettingsNavigator.shared.requestedTab else { return }
+        SettingsNavigator.shared.requestedTab = nil
+        switch requested {
+        case .model: selectedTab = .model
+        }
+    }
+
+    /// Picker binding for the active LLM. The setter only runs for user picks, so it
+    /// also records that the user made an explicit LLM choice (stops the first-launch
+    /// model prompt). Programmatic changes (revert, remove) go straight to the manager.
+    private var userLLMSelection: Binding<ModelOption> {
+        Binding(
+            get: { modelManager.selectedModel },
+            set: { newValue in
+                FirstRunModelPrompt.recordChoice()
+                modelManager.selectedModel = newValue
+            }
+        )
     }
 
     // MARK: - General Tab
@@ -505,7 +529,7 @@ struct SettingsView: View {
                 GridRow {
                     Text(L("model.active_llm"))
                         .gridColumnAlignment(.trailing)
-                    Picker("", selection: $modelManager.selectedModel) {
+                    Picker("", selection: userLLMSelection) {
                         ForEach(ModelRegistry.availableModels) { model in
                             Button {} label: {
                                 HStack(spacing: 4) {
@@ -1082,6 +1106,21 @@ struct SettingsView: View {
             validateCustomModel()
         }
     }
+}
+
+// MARK: - External Navigation
+
+/// Lets UI outside the Settings window ask it to open on a specific tab.
+/// Set `requestedTab` before calling `openSettings()`; SettingsView consumes it
+/// on appear (fresh window) or via onChange (window already alive).
+@MainActor
+@Observable
+final class SettingsNavigator {
+    static let shared = SettingsNavigator()
+    private init() {}
+
+    enum Destination { case model }
+    var requestedTab: Destination?
 }
 
 // MARK: - Window Activator

@@ -265,3 +265,12 @@
 
 /* Help tab */
 "help.privacy_text" = "Il tuo audio e le tue trascrizioni vengono elaborati sul tuo Mac. Se \"Consenti accesso a internet\" è attivo, le ricerche e le pagine che l'assistente sceglie di aprire vengono inviate a DuckDuckGo e a quei siti. La verifica della licenza contatta Gumroad, il controllo degli aggiornamenti contatta hitoku.me e i modelli vengono scaricati da Hugging Face.";
+
+/* First-launch AI model prompt */
+"first_run.model_title" = "Aggiungere un modello di IA?";
+"first_run.model_body" = "Hitoku Draft può trascrivere senza un modello di IA. Con un modello può anche modificare il testo, correggere la grammatica ed eseguire comandi vocali. Il modello consigliato per questo Mac è %@ (circa %@ da scaricare). Puoi cambiarlo in qualsiasi momento nelle Preferenze.";
+"first_run.model_body_nosize" = "Hitoku Draft può trascrivere senza un modello di IA. Con un modello può anche modificare il testo, correggere la grammatica ed eseguire comandi vocali. Il modello consigliato per questo Mac è %@. Puoi cambiarlo in qualsiasi momento nelle Preferenze.";
+"first_run.install_recommended" = "Installa il modello consigliato";
+"first_run.choose_in_settings" = "Scegli un altro modello…";
+"first_run.continue_without" = "Continua senza modello di IA";
+"first_run.ask_again_note" = "Te lo chiederemo di nuovo al prossimo avvio, a meno che tu non faccia una scelta.";

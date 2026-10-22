@@ -265,3 +265,12 @@
 
 /* Help tab */
 "help.privacy_text" = "Your audio and transcripts are processed on your Mac. If \"Allow internet access\" is on, search queries and pages the assistant chooses to open are sent to DuckDuckGo and to those websites. License checks contact Gumroad, update checks contact hitoku.me, and model downloads come from Hugging Face.";
+
+/* First-launch AI model prompt */
+"first_run.model_title" = "Add an AI model?";
+"first_run.model_body" = "Hitoku Draft can transcribe without an AI model. With one, it can also edit text, fix grammar, and run voice commands. The recommended model for this Mac is %@ (about %@ to download). You can change this any time in Settings.";
+"first_run.model_body_nosize" = "Hitoku Draft can transcribe without an AI model. With one, it can also edit text, fix grammar, and run voice commands. The recommended model for this Mac is %@. You can change this any time in Settings.";
+"first_run.install_recommended" = "Install recommended model";
+"first_run.choose_in_settings" = "Choose a different model…";
+"first_run.continue_without" = "Continue without an AI model";
+"first_run.ask_again_note" = "We'll ask again next time unless you choose.";

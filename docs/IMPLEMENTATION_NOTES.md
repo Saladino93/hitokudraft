@@ -150,6 +150,14 @@ Memory.cacheLimit = 20 * 1024 * 1024  // NOT GPU.set(cacheLimit:) which is depre
 
 ---
 
+## 2026-10-22: First-launch AI model prompt
+
+- `FirstRunModelPromptWindowController.swift`: shown at launch while `UserDefaults` `llmChoiceMade` is false and the LLM is None. Set by the Settings LLM picker (binding setter `userLLMSelection`, user picks only), "Install recommended model" (selects `ModelRegistry.smartDefault`, persists `selectedModelPath`, `switchModel()`, opens Settings on Models) and "Continue without an AI model". "Choose a different model…" and closing the window leave it unset. If a model is already selected without the flag, the flag is set and the prompt skipped.
+- Migration `migration_v167_llm_choice_made`: an existing `selectedModelPath` key (None stores `__none__`) sets the flag, so users who already chose are never asked.
+- Sequencing: `WhatsNewWindowController.checkAndShowIfNeeded(then:)` runs the prompt check after What's New closes, or after the same 1.2 s delay when it is not shown.
+- `SettingsNavigator.shared.requestedTab` lets outside UI open Settings on a tab (consumed in `onAppear` / `onChange`).
+- Test: `defaults write com.hitokudraft.app llmChoiceMade -bool false` with None selected, then relaunch.
+
 ## 2026-10-22: Strict concurrency enabled (warnings)
 
 Strict concurrency checking is on in warning mode; the language mode is still Swift 5.

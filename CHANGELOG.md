@@ -9,6 +9,10 @@ All notable changes to Hitoku Draft are documented in this file.
   copy a result, delete single entries or clear everything, export the full history
   as JSON, and open the storage folder. A new "Save history" switch turns saving
   off entirely. Everything stays on your Mac.
+- **AI model setup on first launch.** If you have not chosen an AI model yet, Hitoku
+  Draft offers to install the one recommended for your Mac, lets you pick another
+  in Settings, or continue with transcription only. Once you choose, it will not ask
+  again. Existing choices are kept.
 
 ### Changed
 - **History storage improvements.** The history folder is now private to your user
