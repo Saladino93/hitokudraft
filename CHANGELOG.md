@@ -50,6 +50,11 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Memory and stability hardening.** Fixed several internal thread-safety issues in
   the model routing and logging paths, and reduced needless allocations in the
   overlay's audio-level animation.
+- **Stopping read-aloud.** Read-aloud now stops cleanly: pressing stop never lets
+  a queued sentence play afterwards, and rapid stop and restart no longer overlaps
+  voices.
+- **Voice activity detection.** More reliable voice activity detection during long
+  dictations.
 
 ## [1.6.6] - 2026-06-07
 

@@ -132,3 +132,9 @@ These are all low severity and deferred from this session:
 - [ ] Menu bar icon cycles correctly through all states
 - [ ] Clipboard contents restored after voice edit and grammar fix
 - [ ] Sparkle update check available in menu
+- [ ] Read-aloud: segments highlight in order; highlight clears when playback ends
+- [ ] Read-aloud: stop mid-sentence while the next segment is synthesizing, nothing plays afterwards
+- [ ] Read-aloud: rapid speak/stop/speak x10, no overlapping voices
+- [ ] Read-aloud: switch TTS backend while playing, no crash, new voice used next time
+- [ ] VAD: 2-3 min dictation, idle 5 min, dictate again, silence detection still stops recording
+- [ ] Voice edit cancel / grammar fix / dictation stop: TTS stops and highlight clears

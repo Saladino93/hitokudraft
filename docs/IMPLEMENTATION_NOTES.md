@@ -150,6 +150,51 @@ Memory.cacheLimit = 20 * 1024 * 1024  // NOT GPU.set(cacheLimit:) which is depre
 
 ---
 
+## 2026-10-22: TTS/VAD concurrency fixes
+
+Four commits: TTS synthesis worker, generation-checked TTS queue, ordered VAD feed, locked MLX backend state.
+
+### 1. `SynthesisWorker` in front of each TTS engine (`TTSService.swift`)
+
+- `KokoroTtsManager` is a non-Sendable FluidAudio class; previously it was held by a provider that was shared across tasks without synchronization (e.g. a prefetch `Task` from a stopped drain loop could still be synthesizing when a new loop or `speak` started), so two `synthesize` calls could overlap on one engine.
+- `SynthesisWorker<Engine>` is a single detached task that creates the engine itself and drains an unbounded `AsyncStream` of jobs (`initialize`, `synthesize`) in FIFO order. The engine never leaves that task, so neither the worker nor the providers need `@unchecked Sendable`; `TTSProvider` is now `AnyObject, Sendable`.
+- Why not actor providers: an actor would still have to hold the non-Sendable manager (and send it into its async methods), and actor methods are reentrant at every `await`, so two synthesis calls could still interleave inside FluidAudio. A worker gives strict one-at-a-time execution.
+- Cancellation: each job carries a `LockedFlag`; the caller's `withTaskCancellationHandler` sets it, and a synthesis job that has not started yet is skipped with `CancellationError`. A job that already started runs to completion (FluidAudio has no cancellation hook). `ready` (a `LockedFlag`) backs `isAvailable`.
+- The worker task never captures `self`; `deinit` finishes the stream, buffered jobs drain, and the engine is released when the loop ends. A job yielded after finish is resumed with `SynthesisWorkerError.workerStopped`.
+- Kokoro's LaunchSafety safe-compute-units load path is unchanged; it now runs as `KokoroTTSProvider.initialize(manager:cacheDirectory:)` on the worker task.
+- `LockedFlag` moved to `Utilities/LockedFlag.swift`, is backed by `OSAllocatedUnfairLock` (no `@unchecked`), and gained `setIfClear()` (test-and-set).
+
+### 2. Generation invariant in `TTSService`
+
+- `stop()` bumps `generation`, clears the queue, cancels the drain task, stops the player, and fires the end-of-playback callback (`""`) itself if a player or drain loop was active. ConversationCoordinator relies on that callback to clear the highlighted segment.
+- `processQueue(generation:)` and `speak` capture the generation on entry. **Invariant: every `await` is followed by an `isLive(gen)` check (`gen == generation && !Task.isCancelled`) before any write to `player`, `queuedSentences`, `queueTask`, or the highlight callback.** A stale loop touches nothing, including in its `defer`. Previously a loop suspended in `synthesize` or in `await prefetchTask.value` when `stop()` landed would resume and play the segment anyway.
+- `speak` now begins with `stop()`, so rapid speak/stop/speak cannot overlap voices.
+- `ensureInitialized` only clears `initTask` if it is still its own task, so a backend switch mid-init cannot wipe the new backend's init task.
+- `TTSService.init(providerFactory:)` makes the provider injectable for tests; `shared` uses `defaultProvider`.
+
+### 3. VAD stream ownership (`VoiceActivityDetector`, `AudioCaptureService`)
+
+- Before: every converted buffer spawned `Task { await vad.feedSamples(...) }`. Unstructured tasks have no ordering guarantee, so chunks could reach Silero out of order, and `feedSamples` was reentrant at its `await`.
+- Now each recording session owns one `AsyncStream<[Float]>`. `startSession()` (replaces `reset()`) ends any previous session, bumps `sessionID`, resets state, then installs the stream's continuation in a lock (`inlet`) and starts a single consumer task. `feed(_:)` and `endSession(_:)` are nonisolated and synchronous; the processing queue calls `feed` in capture order. `process(_:session:)` drops work from older sessions, both on entry and after `processStreamingChunk` returns.
+- Buffering is `.unbounded` on purpose: Silero's recurrent state assumes contiguous audio, so dropping buffers would corrupt speechEnd timing. The cost of a backlog is 64 KB/s of 16 kHz Float32. A warning is logged if `sampleBuffer` exceeds 32,000 samples.
+- `startSession()` returns the session ID; `endSession(_:)` only closes the stream if it still belongs to that session, so a late `ContinuousSession.stop()` cannot close a newer recording's stream. `recordUntilSilence` ends the session after `processingQueue.sync {}`; `ContinuousSession.stop()` enqueues it on its processing queue so it lands behind the last tap-driven block. Both end the session if the engine fails to start.
+- `ContinuousSession.stop()` uses `LockedFlag.setIfClear()` instead of an unsynchronized `Bool`. The class stays `@unchecked Sendable` (engine/inputNode are non-Sendable AVFoundation objects touched once under the flag).
+
+### 4. `MLXInferenceBackend` locked state
+
+- `container` and `config` live in one `State` struct behind `OSAllocatedUnfairLock`; the class is now plain `Sendable`. `generate` snapshots both once per request and passes `config` into `prepareInput`; `loadModel` publishes container and config together only after the load succeeds (previously `config` was written before the await, even if the load then failed). The cancellation handling from the same-day MLX fix is unchanged.
+
+### Manual test plan
+
+1. Overlay read-aloud flow: segments highlight in order and the highlight clears at the end.
+2. Stop mid-sentence while a later segment is synthesizing: nothing plays afterwards.
+3. Rapid speak / stop / speak, ten times: no overlapping voices.
+4. Dictate for 2 to 3 minutes with VAD enabled, then idle 5 minutes and dictate again: silence detection still ends the recording.
+5. Switch TTS backend in Settings while audio is playing: no crash, next read-aloud uses the new voice.
+6. Voice edit cancel, grammar fix, and dictation stop paths: TTS stops and the highlight clears.
+
+---
+
 ## 2026-10-22: Security hardening batch
 
 Internal record of the security fixes from the October audit. Public CHANGELOG entries are deliberately generic.

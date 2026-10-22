@@ -1,4 +1,5 @@
 import Foundation
+import os
 import CoreGraphics
 import CoreImage
 import MLX
@@ -9,33 +10,39 @@ import HitokuInference
 
 /// MLX-based inference backend wrapping `ModelContainer` from mlx-swift-lm.
 /// Supports text and image modalities.
-public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
+///
+/// Thread safety: all mutable state lives in one `State` value behind an unfair lock.
+/// Readers snapshot it once per call, so the class is honestly `Sendable`.
+public final class MLXInferenceBackend: InferenceBackend, Sendable {
 
     // MARK: - State
 
-    private var container: ModelContainer?
-    private var config: BackendConfig = .init()
+    private struct State: Sendable {
+        var container: ModelContainer?
+        var config = BackendConfig()
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
 
     // MARK: - Init
 
     /// Create with a pre-loaded container (used when ModelManager handles loading).
     public init(container: ModelContainer, config: BackendConfig = .init()) {
-        self.container = container
-        self.config = config
+        state = OSAllocatedUnfairLock(initialState: State(container: container, config: config))
     }
 
     /// Create an empty backend — call `loadModel(at:config:)` before generating.
-    public init() {}
+    public init() {
+        state = OSAllocatedUnfairLock(initialState: State())
+    }
 
     // MARK: - InferenceBackend
 
     public var supportedModalities: Set<InputModality> { [.text, .image] }
 
-    public var isLoaded: Bool { container != nil }
+    public var isLoaded: Bool { state.withLock { $0.container != nil } }
 
     public func loadModel(at path: String, config: BackendConfig) async throws {
-        self.config = config
-
         let isVLM = config.extra["isVLM"] as? Bool ?? false
         let factory: any ModelFactory = isVLM
             ? VLMModelFactory.shared
@@ -43,18 +50,26 @@ public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
 
         let modelConfig = ModelConfiguration(id: path)
         let loaded = try await factory.loadContainer(configuration: modelConfig)
-        self.container = loaded
+        // Publish container and config together, only once the load has succeeded.
+        state.withLock {
+            $0.container = loaded
+            $0.config = config
+        }
     }
 
     public func unload() {
-        container = nil
+        state.withLock { $0.container = nil }
         MLX.Memory.clearCache()
     }
 
     public func generate(request: InferenceRequest) -> AsyncThrowingStream<String, Error> {
-        guard let container else {
+        // One snapshot per request: a concurrent load/unload cannot change the container
+        // or config mid-generation.
+        let snapshot = state.withLock { $0 }
+        guard let container = snapshot.container else {
             return AsyncThrowingStream { $0.finish(throwing: InferenceError.modelNotLoaded) }
         }
+        let config = snapshot.config
 
         return AsyncThrowingStream { continuation in
             // Keep the handle so a consumer that cancels or drops the stream cancels
@@ -62,7 +77,7 @@ public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
             // in the background (and holds the container) after the caller has gone.
             let task = Task {
                 do {
-                    let lmInput = try await self.prepareInput(request: request, container: container)
+                    let lmInput = try await self.prepareInput(request: request, container: container, config: config)
                     let parameters = self.makeParameters(request: request)
                     try Task.checkCancellation()
 
@@ -100,7 +115,8 @@ public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
 
     private func prepareInput(
         request: InferenceRequest,
-        container: ModelContainer
+        container: ModelContainer,
+        config: BackendConfig
     ) async throws -> LMInput {
         let text = request.text ?? ""
         let effectivePrompt = config.disableThinking ? text + " /no_think" : text
