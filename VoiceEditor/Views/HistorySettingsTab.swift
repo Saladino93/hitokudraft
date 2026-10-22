@@ -10,6 +10,11 @@ struct HistorySettingsTab: View {
 
     @AppStorage("saveHistory") private var saveHistory = true
     @AppStorage("historyIncludesContext") private var includeContext = false
+    /// 0 = keep everything (default). Read by TranscriptionStore on each save.
+    @AppStorage(TranscriptionStore.maxEntriesKey) private var maxEntries = 0
+
+    /// Retention choices offered in the Keep picker (0 = all entries).
+    private static let retentionOptions = [0, 100, 500, 1000]
 
     @State private var entries: [TranscriptionStore.Entry] = []
     @State private var searchText = ""
@@ -50,9 +55,6 @@ struct HistorySettingsTab: View {
                     Text(L("history.save_caption"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(L("history.retention_note"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Toggle("", isOn: $saveHistory)
@@ -73,6 +75,21 @@ struct HistorySettingsTab: View {
                 Toggle("", isOn: $includeContext)
                     .labelsHidden()
                     .toggleStyle(.switch)
+            }
+            .disabled(!saveHistory)
+
+            // Retention limit (TranscriptionStore prunes after each save when > 0)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(L("history.retention_label"))
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Picker("", selection: $maxEntries) {
+                    ForEach(Self.retentionOptions, id: \.self) { option in
+                        Text(retentionTitle(option)).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
             }
             .disabled(!saveHistory)
 
@@ -179,6 +196,12 @@ struct HistorySettingsTab: View {
     }
 
     // MARK: - Actions
+
+    private func retentionTitle(_ option: Int) -> String {
+        option == 0
+            ? L("history.retention_unlimited")
+            : String(format: L("history.retention_entries"), option)
+    }
 
     private func reload() async {
         entries = await TranscriptionStore.shared.listEntries()

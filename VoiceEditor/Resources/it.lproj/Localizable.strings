@@ -255,7 +255,9 @@
 "history.mode.dictation" = "Dettatura";
 "history.mode.grammar_fix" = "Correzione";
 "history.mode.action" = "Azione";
-"history.retention_note" = "Conserva le 500 voci più recenti degli ultimi 90 giorni.";
+"history.retention_label" = "Conserva";
+"history.retention_unlimited" = "Tutte le voci";
+"history.retention_entries" = "Ultime %d voci";
 "history.include_context" = "Includi contesto dello schermo";
 "history.include_context_desc" = "Salva il testo sullo schermo acquisito per ogni richiesta. Disattivato per impostazione predefinita; utile solo per la risoluzione dei problemi.";
 

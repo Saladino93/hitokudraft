@@ -25,9 +25,14 @@ actor TranscriptionStore {
         return e
     }()
 
-    /// Retention policy, enforced after every save.
-    static let maxEntries = 500
-    static let maxAgeDays = 90
+    /// UserDefaults key for the retention limit (Settings → History → Keep).
+    static let maxEntriesKey = "historyMaxEntries"
+
+    /// Keep at most this many entries, enforced after every save. 0 (the default,
+    /// also when the key is absent) keeps everything.
+    nonisolated static var maxEntries: Int {
+        max(0, UserDefaults.standard.integer(forKey: maxEntriesKey))
+    }
 
     private init() {
         try? FileManager.default.createDirectory(
@@ -113,8 +118,8 @@ actor TranscriptionStore {
     /// No-op when the user disabled "Save history" (Settings → History).
     /// Gated here — the single choke point — so every pipeline (voice edit,
     /// dictation, grammar fix, action mode) respects the setting. Screen context
-    /// text is dropped unless "Include screen context" is on, and retention is
-    /// enforced after each write.
+    /// text is dropped unless "Include screen context" is on, and the optional
+    /// entry limit is enforced after each write.
     func save(
         mode: InteractionMode,
         transcription: String,
@@ -162,8 +167,7 @@ actor TranscriptionStore {
             let data = try encoder.encode(record)
             let filename = Self.filename(for: record.timestamp)
             let url = directory.appendingPathComponent(filename)
-            try data.write(to: url, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try Self.writeOwnerOnly(data, to: url)
             Self.log.info("Saved \(mode.rawValue) transcription: \(filename)")
         } catch {
             Self.log.error("Failed to save transcription: \(error.localizedDescription)")
@@ -178,20 +182,47 @@ actor TranscriptionStore {
         UserDefaults.standard.bool(forKey: "historyIncludesContext")
     }
 
-    /// Delete the oldest entries so at most `maxEntries` remain and none is older
-    /// than `maxAgeDays`. Works on filenames only (the timestamp prefix), so it
-    /// never decodes a record. Files whose name doesn't parse are left alone.
+    /// Writes `data` to `url` atomically with owner-only permissions from the moment
+    /// the file exists: a hidden temp file in the same directory is created with
+    /// `O_CREAT | O_EXCL` and mode 0600, written, then `rename(2)`d onto `url`.
+    /// (`Data.write(.atomic)` + chmod left a short window at umask permissions.)
+    private static func writeOwnerOnly(_ data: Data, to url: URL) throws {
+        let tmp = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        let fd = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        guard fd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            unlink(tmp.path)
+            throw error
+        }
+        guard rename(tmp.path, url.path) == 0 else {
+            let code = errno
+            unlink(tmp.path)
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
+    }
+
+    /// When a limit is set (`maxEntries` > 0), delete the oldest entries so at most
+    /// that many remain. No limit by default, so nothing is ever deleted unless the
+    /// user chose one. Works on filenames only (the timestamp prefix), so it never
+    /// decodes a record. Files whose name doesn't parse are left alone.
     private func pruneOldEntries() {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
-        let cutoff = Date().addingTimeInterval(-Double(Self.maxAgeDays) * 86_400)
+        let limit = Self.maxEntries
+        guard limit > 0,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
         let dated = names
             .filter { $0.hasSuffix(".json") }
-            .compactMap { name in Self.date(fromFilename: name).map { (name, $0) } }
-            .sorted { $0.0 > $1.0 }  // newest first
+            .filter { Self.date(fromFilename: $0) != nil }
+            .sorted(by: >)  // newest first
 
         var pruned = 0
-        for (index, (name, date)) in dated.enumerated()
-        where index >= Self.maxEntries || date < cutoff {
+        for (index, name) in dated.enumerated() where index >= limit {
             do {
                 try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
                 pruned += 1

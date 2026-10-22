@@ -255,7 +255,9 @@
 "history.mode.dictation" = "Dictation";
 "history.mode.grammar_fix" = "Grammar Fix";
 "history.mode.action" = "Action";
-"history.retention_note" = "Keeps the most recent 500 entries from the last 90 days.";
+"history.retention_label" = "Keep";
+"history.retention_unlimited" = "All entries";
+"history.retention_entries" = "Last %d entries";
 "history.include_context" = "Include screen context";
 "history.include_context_desc" = "Stores the on-screen text captured for each request. Off by default; useful only for troubleshooting.";
 
