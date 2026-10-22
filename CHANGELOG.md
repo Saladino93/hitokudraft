@@ -33,6 +33,7 @@ All notable changes to Hitoku Draft are documented in this file.
   same sentence appears twice in an answer.
 
 ### Fixed
+- The read-aloud progress bar now follows the speech instead of jumping per sentence.
 - History entries no longer overlap when a long transcript is selected; long entries
   can be expanded.
 - **Text goes only where it came from.** Dictated and edited text is now only

@@ -18,6 +18,10 @@ final class DisplayResultController {
     /// The TTS segment currently being spoken — used by the overlay to highlight text.
     var speakingSegment: String = ""
 
+    /// Read-aloud playback progress in [0, 1], sampled from the audio player by
+    /// TTSService (~10 Hz, monotonic per playback). Drives the overlay progress bar.
+    var speakingProgress: Double = 0
+
     /// Stateless UserDefaults wrapper — reads current TTS settings at call time.
     @ObservationIgnored private let preferences: PreferencesStore
 
@@ -53,10 +57,8 @@ final class DisplayResultController {
             // queue to drain. Otherwise synthesize the full text as a single utterance.
             // The auto-dismiss timer only starts after audio finishes (or immediately if TTS off).
             if ttsEnabled {
-                // Ensure highlight callback is set for both paths.
-                await TTSService.shared.setOnSegmentStart { [weak self] segment in
-                    self?.speakingSegment = segment
-                }
+                // Ensure highlight and progress callbacks are set for both paths.
+                await self?.attachTTSCallbacks()
                 if ttsStreamedAlready {
                     await TTSService.shared.waitForQueue()
                 } else {
@@ -95,10 +97,8 @@ final class DisplayResultController {
         let sentences = text.splitIntoSentences()
 
         clearTask = Task { [weak self] in
-            // Register segment callback for text highlighting in the overlay.
-            await TTSService.shared.setOnSegmentStart { [weak self] segment in
-                self?.speakingSegment = segment
-            }
+            // Register callbacks for text highlighting and the progress bar in the overlay.
+            await self?.attachTTSCallbacks()
 
             // Enqueue all sentences — first one starts playing immediately.
             for sentence in sentences {
@@ -172,6 +172,20 @@ final class DisplayResultController {
         dismissTask = nil
         result = ""
         speakingSegment = ""
+        speakingProgress = 0
         Task { await TTSService.shared.stop() }
+    }
+
+    // MARK: - TTS callbacks
+
+    /// Routes TTS segment starts (text highlight) and sampled playback progress (bar) to
+    /// this controller. Both callbacks hop to the main actor inside TTSService.
+    private func attachTTSCallbacks() async {
+        await TTSService.shared.setOnSegmentStart { [weak self] segment in
+            self?.speakingSegment = segment
+        }
+        await TTSService.shared.setOnProgress { [weak self] progress in
+            self?.speakingProgress = progress
+        }
     }
 }

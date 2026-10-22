@@ -1002,6 +1002,10 @@ final class ConversationCoordinator {
 
     // MARK: - Display-mode forwarders (logic lives in DisplayResultController)
 
+    /// Read-aloud playback progress in [0, 1], sampled from audio playback by TTSService.
+    /// Drives the overlay progress bar.
+    var ttsSpeakingProgress: Double { display.speakingProgress }
+
     func readAloud(_ text: String) { display.readAloud(text) }
 
     func stopReadAloud() { display.stopReadAloud() }

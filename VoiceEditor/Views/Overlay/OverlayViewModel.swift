@@ -44,15 +44,6 @@ final class OverlayViewModel {
     /// Debounce timer for speaking → done transition (prevents flashing between TTS sentences).
     @ObservationIgnored private var speakingDebounceTask: Task<Void, Never>?
 
-    // MARK: - TTS progress cache
-    // deriveState() runs on every published change; without a memo the O(n) substring
-    // search re-runs per change. The anchor keeps the search monotonic so repeated
-    // sentences advance instead of snapping back to the first occurrence.
-    @ObservationIgnored private var progressText = ""
-    @ObservationIgnored private var progressSegment = ""
-    @ObservationIgnored private var progressValue: Double = 0
-    @ObservationIgnored private var progressAnchor: String.Index?
-
     // MARK: - Observe Coordinator
 
     func observe(_ coordinator: ConversationCoordinator) {
@@ -75,6 +66,7 @@ final class OverlayViewModel {
                 _ = c.displayModeResult
                 _ = c.activeRecordingSession
                 _ = c.ttsSpeakingSegment
+                _ = c.ttsSpeakingProgress
             },
             onChange: { [weak self] in self?.handleCoordinatorChange() }
         )
@@ -125,6 +117,7 @@ final class OverlayViewModel {
         let state = coordinator.state
         let displayResult = coordinator.displayModeResult
         let speakingSegment = coordinator.ttsSpeakingSegment
+        let speakingProgress = coordinator.ttsSpeakingProgress
         let liveText = coordinator.liveTranscriptionText
         let streamText = coordinator.streamingLLMText
 
@@ -134,14 +127,22 @@ final class OverlayViewModel {
                 // TTS is actively speaking
                 speakingDebounceTask?.cancel()
                 speakingDebounceTask = nil
-                // Progress based on character position of the current segment in the full text.
-                let progress = ttsProgress(text: displayResult, segment: speakingSegment)
+                // Progress is sampled from audio playback by TTSService.
                 overlayState = .speaking(
                     text: displayResult,
                     currentSentence: speakingSegment,
-                    progress: progress
+                    progress: speakingProgress
                 )
-            } else if case .speaking = overlayState {
+            } else if case .speaking(let shownText, let shownSentence, let shownProgress) = overlayState {
+                // Playback finished: the final 1.0 can arrive in the same coalesced update
+                // as the cleared segment, so let the bar finish filling (highlight unchanged).
+                if speakingProgress > shownProgress {
+                    overlayState = .speaking(
+                        text: shownText,
+                        currentSentence: shownSentence,
+                        progress: speakingProgress
+                    )
+                }
                 // TTS segment went empty — debounce before transitioning to .done
                 // (prevents flashing between sentences)
                 if speakingDebounceTask == nil {
@@ -200,31 +201,6 @@ final class OverlayViewModel {
                 lastTranscription = ""
             }
         }
-    }
-
-    /// Character-position progress of `segment` within `text`, memoized per
-    /// (text, segment) pair and searched forward from the previous segment's start.
-    private func ttsProgress(text: String, segment: String) -> Double {
-        guard !text.isEmpty else { return 0 }
-        if text == progressText && segment == progressSegment { return progressValue }
-        if text != progressText {
-            progressText = text
-            progressAnchor = nil
-        }
-        progressSegment = segment
-        let start = progressAnchor ?? text.startIndex
-        // Search from the current anchor first; fall back to a full scan in case
-        // TTS restarted or segments arrived out of order.
-        let range = text.range(of: segment, options: .literal, range: start..<text.endIndex)
-            ?? text.range(of: segment, options: .literal)
-        if let range {
-            progressAnchor = range.lowerBound
-            let endOffset = text.distance(from: text.startIndex, to: range.upperBound)
-            progressValue = Double(endOffset) / Double(text.count)
-        } else {
-            progressValue = 0
-        }
-        return progressValue
     }
 
     // MARK: - Audio Level Polling

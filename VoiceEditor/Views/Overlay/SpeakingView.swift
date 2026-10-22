@@ -41,7 +41,9 @@ struct SpeakingTextView: View {
     }
 }
 
-/// Progress bar for TTS playback.
+/// Progress bar for TTS playback. `progress` is sampled from the audio player about
+/// every 100 ms (TTSService); a short linear animation bridges the samples so the bar
+/// glides with the speech.
 struct SpeakingProgressBar: View {
     let progress: Double
     let theme: DictationTheme
@@ -55,7 +57,7 @@ struct SpeakingProgressBar: View {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(theme.speakingAccentColor)
                     .frame(width: geo.size.width * max(0, min(progress, 1.0)), height: 3)
-                    .animation(.easeInOut(duration: 0.3), value: progress)
+                    .animation(.linear(duration: 0.15), value: progress)
             }
         }
         .frame(height: 3)

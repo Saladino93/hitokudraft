@@ -307,11 +307,14 @@ actor TTSService {
     /// Fires on @MainActor when a new segment starts playing. Set by the coordinator
     /// to drive overlay text highlighting. Receives "" when playback ends or is stopped.
     private var onSegmentStart: (@Sendable @MainActor (String) -> Void)?
+    /// Fires on @MainActor with overall read-aloud progress in [0, 1]. Set by the overlay
+    /// controller to drive the progress bar. See `PlaybackProgress`.
+    private var onProgress: (@Sendable @MainActor (Double) -> Void)?
 
-    /// Playback generation. Bumped by `stop()`. Every drain loop and every `speak` captures
-    /// it on entry and checks `isLive(_:)` after every `await` before touching `player`,
-    /// the queue, or the highlight callback, so a loop that was stopped while suspended
-    /// can never start playing a stale segment.
+    /// Playback generation. Bumped by `stop()`. Every drain loop, `speak`, and progress
+    /// sampler captures it on entry and checks `isLive(_:)` after every `await` before
+    /// touching `player`, the queue, progress, or the callbacks, so a loop that was stopped
+    /// while suspended can never start playing a stale segment.
     private var generation: UInt64 = 0
 
     // MARK: - Sentence Queue (streaming TTS)
@@ -319,6 +322,35 @@ actor TTSService {
     private var queuedSentences: [String] = []
     /// Background task draining `queuedSentences`; nil when the queue is idle.
     private var queueTask: Task<Void, Never>?
+
+    // MARK: - Playback Progress
+
+    /// Read-aloud progress bookkeeping for one playback session: a drain loop's lifetime,
+    /// from the `enqueue` that starts it until it ends naturally or `stop()` lands.
+    ///
+    /// Progress is `(chars of completed segments + chars of current segment × player
+    /// position) / chars enqueued so far`. Sentences can be enqueued while a session plays
+    /// (streaming), so the denominator only grows; the published value is kept monotonic,
+    /// so the bar may slow down but never moves backwards within a session.
+    private struct PlaybackProgress {
+        /// Character count of every segment enqueued this session, in enqueue order.
+        /// Invariant: `segmentChars.count == dequeued + queuedSentences.count`.
+        var segmentChars: [Int] = []
+        /// Sum of `segmentChars`.
+        var totalChars = 0
+        /// Segments removed from `queuedSentences` so far; the next one dequeued gets this index.
+        var dequeued = 0
+        /// Index (into `segmentChars`) of the segment currently playing, if any.
+        var playing: Int?
+        /// Sum of `segmentChars` before `playing` (completed or skipped segments).
+        var charsBefore = 0
+        /// Last value sent to `onProgress`; later values are never lower.
+        var published: Double = 0
+    }
+    private var progress = PlaybackProgress()
+    /// Samples the player while a segment plays. Cancelled at segment end, by `stop()`,
+    /// and when a new session starts.
+    private var progressTask: Task<Void, Never>?
 
     /// Unified cache root — same directory used by LLM and ASR model downloads.
     /// TTS models land in `<cacheRoot>/Models/kokoro/` and `<cacheRoot>/Models/pocket-tts/`.
@@ -360,6 +392,13 @@ actor TTSService {
         onSegmentStart = callback
     }
 
+    /// Registers a callback for overall read-aloud progress in [0, 1], sampled from the
+    /// audio player about every 100 ms while a segment plays. Receives 0 when a new
+    /// playback session starts and 1 when one finishes naturally; `stop()` sends nothing.
+    func setOnProgress(_ callback: @escaping @Sendable @MainActor (Double) -> Void) {
+        onProgress = callback
+    }
+
     // MARK: - Streaming Playback
 
     /// Appends `text` to the sentence queue and starts the drain task if not already running.
@@ -369,7 +408,11 @@ actor TTSService {
         configure(backend: backend)
         let trimmed = Self.prepareForSpeech(text)
         guard !trimmed.isEmpty else { return }
+        // A new drain loop is a new playback session: progress restarts at 0.
+        if queueTask == nil { resetProgress(publishZero: true) }
         queuedSentences.append(trimmed)
+        progress.segmentChars.append(trimmed.count)
+        progress.totalChars += trimmed.count
         guard queueTask == nil else { return }
         let gen = generation
         queueTask = Task { await self.processQueue(generation: gen, voice: voice, speed: speed) }
@@ -384,13 +427,16 @@ actor TTSService {
     /// Drains `queuedSentences` for playback generation `gen`.
     ///
     /// Invariant: every `await` must be followed by an `isLive(gen)` check before any write
-    /// to `player`, `queuedSentences`, `queueTask`, or the highlight callback. A stale loop
-    /// (one whose generation was superseded by `stop()`) touches nothing; `stop()` already
-    /// cleared the queue and fired the end-of-playback callback on its behalf.
+    /// to `player`, `queuedSentences`, `queueTask`, `progress`, or the highlight/progress
+    /// callbacks. A stale loop (one whose generation was superseded by `stop()`) touches
+    /// nothing; `stop()` already cleared the queue and fired the end-of-playback callback
+    /// on its behalf.
     private func processQueue(generation gen: UInt64, voice: String, speed: Float) async {
         defer {
             if gen == generation {
                 queueTask = nil
+                // Natural end of the session: fill the progress bar, stop sampling.
+                finishProgress()
                 // Signal end of playback — clears overlay highlight.
                 notifySegmentEnd()
             }
@@ -410,17 +456,18 @@ actor TTSService {
         // Prefetch buffer: while current audio plays, synthesize the next segment
         // concurrently. This eliminates the gap between segments when synthesis is
         // faster than playback (the common case for short text on Apple Silicon).
-        var prefetched: (text: String, audio: Data)? = nil
+        var prefetched: (text: String, index: Int, audio: Data)? = nil
 
         while isLive(gen), !queuedSentences.isEmpty || prefetched != nil {
             // Use prefetched audio if available; otherwise synthesize the current segment.
             let text: String
+            let index: Int
             let audio: Data
             if let p = prefetched {
-                (text, audio) = p
+                (text, index, audio) = p
                 prefetched = nil
             } else {
-                text = queuedSentences.removeFirst()
+                (text, index) = dequeueSentence()
                 Self.log.info("TTS synth [\(voice, privacy: .public)]: \(text.count) chars")
                 do {
                     let start = ContinuousClock.now
@@ -443,16 +490,17 @@ actor TTSService {
             let duration = player?.duration ?? 0
             Self.log.debug("TTS playing \(duration, privacy: .public)s of audio")
             notifySegment(text)
+            startSegmentProgress(index, generation: gen)
 
             // While audio plays, prefetch the next segment's synthesis.
             // Task.sleep yields the actor executor; synthesis runs on the provider's worker.
             if !queuedSentences.isEmpty {
-                let next = queuedSentences.removeFirst()
-                Self.log.info("TTS prefetch [\(voice, privacy: .public)]: \(next.count) chars")
+                let next = dequeueSentence()
+                Self.log.info("TTS prefetch [\(voice, privacy: .public)]: \(next.text.count) chars")
 
                 let prefetchTask = Task { [provider] () -> Data? in
                     let start = ContinuousClock.now
-                    let result = try? await provider.synthesize(text: next, voice: voice, speed: speed)
+                    let result = try? await provider.synthesize(text: next.text, voice: voice, speed: speed)
                     Self.log.debug("TTS prefetch took \(ContinuousClock.now - start, privacy: .public)")
                     return result
                 }
@@ -462,16 +510,23 @@ actor TTSService {
                     catch { prefetchTask.cancel(); return }
                 }
                 guard isLive(gen) else { prefetchTask.cancel(); return }
+                finishSegmentProgress()
 
                 // Collect prefetched result — instant if synth finished during playback.
+                // A failed prefetch is skipped; its characters count as done once a later
+                // segment plays (or the session finishes).
                 let result = await prefetchTask.value
                 guard isLive(gen) else { return }
-                if let result { prefetched = (next, result) }
-            } else if duration > 0 {
+                if let result { prefetched = (next.text, next.index, result) }
+            } else {
                 // No next sentence yet — just await playback.
                 // New sentences may arrive via enqueue() during sleep — the loop re-checks.
-                do { try await Task.sleep(for: .seconds(duration + 0.05)) }
-                catch { return }
+                if duration > 0 {
+                    do { try await Task.sleep(for: .seconds(duration + 0.05)) }
+                    catch { return }
+                    guard isLive(gen) else { return }
+                }
+                finishSegmentProgress()
             }
         }
     }
@@ -495,16 +550,19 @@ actor TTSService {
 
     /// Stops all playback and clears the sentence queue.
     ///
-    /// Bumps `generation`, so any drain loop or `speak` suspended at an `await` exits
-    /// without touching playback state. If something was active, fires the end-of-playback
-    /// callback here (the stale loop no longer does); ConversationCoordinator relies on it
-    /// to clear the highlighted segment.
+    /// Bumps `generation`, so any drain loop, `speak`, or progress sampler suspended at an
+    /// `await` exits without touching playback state. If something was active, fires the
+    /// end-of-playback callback here (the stale loop no longer does); ConversationCoordinator
+    /// relies on it to clear the highlighted segment.
     func stop() {
         generation &+= 1
         let wasActive = player != nil || queueTask != nil
         queuedSentences.removeAll()
         queueTask?.cancel()
         queueTask = nil
+        // Cancels the sampler. Nothing is published: the bar keeps its position while the
+        // overlay leaves the speaking state, and the next session starts again at 0.
+        resetProgress(publishZero: false)
         player?.stop()
         player = nil
         if wasActive { notifySegmentEnd() }
@@ -597,6 +655,92 @@ actor TTSService {
     /// Fires the highlight callback with "" (playback ended) — clears overlay highlight.
     private func notifySegmentEnd() {
         notifySegment("")
+    }
+
+    // MARK: - Progress (private)
+
+    /// Removes the next sentence from the queue, tagged with its index in
+    /// `progress.segmentChars` (FIFO, so dequeue order is enqueue order).
+    private func dequeueSentence() -> (text: String, index: Int) {
+        let index = progress.dequeued
+        progress.dequeued += 1
+        return (queuedSentences.removeFirst(), index)
+    }
+
+    /// Starts a new progress session. `publishZero` resets the bar for a session that is
+    /// about to play; `stop()` passes false and leaves the last value on screen.
+    private func resetProgress(publishZero: Bool) {
+        progressTask?.cancel()
+        progressTask = nil
+        progress = PlaybackProgress()
+        if publishZero { notifyProgress(0) }
+    }
+
+    /// Segment `index` started playing: record it and start sampling the player.
+    /// Called right after `player.play()`, with no `await` since the last liveness check.
+    private func startSegmentProgress(_ index: Int, generation gen: UInt64) {
+        progress.playing = index
+        progress.charsBefore = progress.segmentChars[..<index].reduce(0, +)
+        progressTask?.cancel()
+        progressTask = Task { await self.sampleProgress(generation: gen, segment: index) }
+    }
+
+    /// The playing segment's audio is done: stop sampling and publish its end position.
+    private func finishSegmentProgress() {
+        progressTask?.cancel()
+        progressTask = nil
+        publishPlaybackProgress(segmentFraction: 1)
+    }
+
+    /// The session ended naturally: stop sampling and fill the bar if anything played.
+    private func finishProgress() {
+        progressTask?.cancel()
+        progressTask = nil
+        if progress.playing != nil { publishProgress(1) }
+    }
+
+    /// Publishes progress about every 100 ms while segment `index` plays.
+    ///
+    /// Same invariant as `processQueue`: after every sleep it re-checks `isLive(gen)`
+    /// (false once `stop()` bumped the generation or this task was cancelled at segment
+    /// end) and touches nothing when stale.
+    private func sampleProgress(generation gen: UInt64, segment index: Int) async {
+        while isLive(gen), progress.playing == index {
+            publishPlaybackProgress()
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+        }
+    }
+
+    /// Publishes `(charsBefore + chars of current × fraction) / totalChars`. `fraction`
+    /// defaults to the player's position (`currentTime / duration`) in the current segment.
+    private func publishPlaybackProgress(segmentFraction: Double? = nil) {
+        guard let index = progress.playing, progress.totalChars > 0 else { return }
+        let fraction: Double
+        if let segmentFraction {
+            fraction = segmentFraction
+        } else if let player, player.duration > 0 {
+            fraction = player.currentTime / player.duration
+        } else {
+            fraction = 0
+        }
+        let current = Double(progress.segmentChars[index]) * min(max(fraction, 0), 1)
+        publishProgress((Double(progress.charsBefore) + current) / Double(progress.totalChars))
+    }
+
+    /// Monotonic publish: clamps to 0...1 and only sends values above the last one, so the
+    /// bar never moves backwards (e.g. `totalChars` grew, or a finished player reports 0).
+    private func publishProgress(_ value: Double) {
+        let clamped = min(max(value, 0), 1)
+        guard clamped > progress.published else { return }
+        progress.published = clamped
+        notifyProgress(clamped)
+    }
+
+    /// Fires the progress callback on the main actor (same hop as `notifySegment`).
+    private func notifyProgress(_ value: Double) {
+        if let callback = onProgress {
+            Task { @MainActor in callback(value) }
+        }
     }
 }
 
