@@ -8,12 +8,13 @@ import os
 
 /// Abstract TTS synthesis backend.
 ///
-/// Conforming types are stored exclusively within `TTSService`'s actor isolation,
-/// so non-Sendable concrete types (KokoroTtsManager, PocketTtsManager) are safe.
+/// Conformers are genuinely `Sendable`: the underlying FluidAudio engine (e.g. the
+/// non-Sendable `KokoroTtsManager` class) lives inside a `SynthesisWorker`, which owns it
+/// on a single task and serializes every call to it. No `@unchecked Sendable` is needed.
 ///
 /// To add a new backend: conform to this protocol, add a case to `TtsBackend`,
 /// and add a branch in `TTSService.configure(backend:)`. No other changes needed.
-protocol TTSProvider: AnyObject {
+protocol TTSProvider: AnyObject, Sendable {
     /// One-time download + model initialization. May be called multiple times safely
     /// (callers guard on `isAvailable`).
     func initialize() async throws
@@ -28,6 +29,114 @@ protocol TTSProvider: AnyObject {
     static var defaultVoice: String { get }
 }
 
+// MARK: - Synthesis Worker
+
+/// Errors raised by `SynthesisWorker` itself (engine errors pass through unchanged).
+enum SynthesisWorkerError: LocalizedError {
+    /// The worker's job stream was finished (provider deallocated) before the job was queued.
+    case workerStopped
+
+    var errorDescription: String? {
+        switch self {
+        case .workerStopped: return "TTS synthesis worker has stopped"
+        }
+    }
+}
+
+/// FIFO front for a non-Sendable synthesis engine. The engine is created inside the worker
+/// task and never escapes it, so neither the engine nor this class needs @unchecked Sendable.
+///
+/// Jobs run strictly one at a time in submission order, which also removes any reentrancy
+/// into the engine (two overlapping `synthesize` calls on one FluidAudio manager).
+final class SynthesisWorker<Engine>: Sendable {
+
+    private struct Job: Sendable {
+        enum Kind: Sendable {
+            case initialize(CheckedContinuation<Void, any Error>)
+            case synthesize(text: String, voice: String, speed: Float, CheckedContinuation<Data, any Error>)
+        }
+        let kind: Kind
+        /// Set by the caller's cancellation handler; a synthesis job that has not started yet is skipped.
+        let cancelled = LockedFlag()
+    }
+
+    private let inlet: AsyncStream<Job>.Continuation
+
+    /// Set once `initialize` has succeeded. Lock-backed → race-free read from any isolation.
+    let ready = LockedFlag()
+
+    init(
+        makeEngine: @escaping @Sendable () -> Engine,
+        initialize: @escaping @Sendable (Engine) async throws -> Void,
+        synthesize: @escaping @Sendable (Engine, _ text: String, _ voice: String, _ speed: Float) async throws -> Data
+    ) {
+        let (stream, continuation) = AsyncStream<Job>.makeStream(bufferingPolicy: .unbounded)
+        inlet = continuation
+        // Must not capture `self`: `deinit` finishes the stream, which is what ends this loop.
+        // Every job is resumed exactly once.
+        Task.detached(priority: .userInitiated) { [ready] in
+            let engine = makeEngine()
+            for await job in stream {
+                switch job.kind {
+                case .initialize(let c):
+                    if ready.value { c.resume(); continue }
+                    do {
+                        try await initialize(engine)
+                        ready.set()
+                        c.resume()
+                    } catch {
+                        c.resume(throwing: error)
+                    }
+                case .synthesize(let text, let voice, let speed, let c):
+                    if job.cancelled.value { c.resume(throwing: CancellationError()); continue }
+                    do {
+                        c.resume(returning: try await synthesize(engine, text, voice, speed))
+                    } catch {
+                        c.resume(throwing: error)
+                    }
+                }
+            }
+            // Stream finished and drained: `engine` is released here.
+        }
+    }
+
+    deinit {
+        // Buffered jobs still drain; the engine is freed when the loop ends.
+        inlet.finish()
+    }
+
+    /// Runs (or joins) engine initialization. No-op once `ready` is set.
+    func initialize() async throws {
+        try await submit { .initialize($0) }
+    }
+
+    /// Queues a synthesis job. If the calling task is cancelled before the job starts,
+    /// the job is skipped and this throws `CancellationError`.
+    func synthesize(text: String, voice: String, speed: Float) async throws -> Data {
+        try await submit { .synthesize(text: text, voice: voice, speed: speed, $0) }
+    }
+
+    private func submit<T: Sendable>(
+        _ makeKind: (CheckedContinuation<T, any Error>) -> Job.Kind
+    ) async throws -> T {
+        let holder = OSAllocatedUnfairLock<Job?>(initialState: nil)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, any Error>) in
+                let job = Job(kind: makeKind(c))
+                holder.withLock { $0 = job }
+                // Publish to `holder` first, then check: a cancel that fired before the
+                // publish is caught here, one after it is caught by `onCancel`.
+                if Task.isCancelled { job.cancelled.set() }
+                if case .terminated = inlet.yield(job) {
+                    c.resume(throwing: SynthesisWorkerError.workerStopped)
+                }
+            }
+        } onCancel: {
+            holder.withLock { $0?.cancelled.set() }
+        }
+    }
+}
+
 // MARK: - Kokoro Backend
 
 /// Phoneme-based, multi-voice synthesis via Kokoro 82M CoreML.
@@ -37,15 +146,22 @@ final class KokoroTTSProvider: TTSProvider {
 
     private static let log = Logger(subsystem: "com.hitokudraft.app", category: "KokoroTTSProvider")
 
-    private let manager: KokoroTtsManager
-    private let cacheDirectory: URL?
+    private let worker: SynthesisWorker<KokoroTtsManager>
 
     init(cacheDirectory: URL? = nil) {
-        self.cacheDirectory = cacheDirectory
-        manager = KokoroTtsManager(directory: cacheDirectory)
+        worker = SynthesisWorker(
+            makeEngine: { KokoroTtsManager(directory: cacheDirectory) },
+            initialize: { try await KokoroTTSProvider.initialize(manager: $0, cacheDirectory: cacheDirectory) },
+            synthesize: { try await $0.synthesize(text: $1, voice: $2, voiceSpeed: $3) }
+        )
     }
 
     func initialize() async throws {
+        try await worker.initialize()
+    }
+
+    /// Runs on the worker task, which owns `manager`.
+    private static func initialize(manager: KokoroTtsManager, cacheDirectory: URL?) async throws {
         let units = LaunchSafety.ttsComputeUnits
         Self.log.info("Kokoro compute units: \(LaunchSafety.describe(units), privacy: .public)")
 
@@ -82,10 +198,10 @@ final class KokoroTTSProvider: TTSProvider {
     }
 
     func synthesize(text: String, voice: String, speed: Float) async throws -> Data {
-        try await manager.synthesize(text: text, voice: voice, voiceSpeed: speed)
+        try await worker.synthesize(text: text, voice: voice, speed: speed)
     }
 
-    var isAvailable: Bool { manager.isAvailable }
+    var isAvailable: Bool { worker.ready.value }
 
     /// All voices whose second character is 'f' (female prefix convention).
     /// e.g. "af_heart" (American), "bf_alice" (British), "if_sara" (Italian).
@@ -106,29 +222,29 @@ final class KokoroTTSProvider: TTSProvider {
 /// Speed parameter is not supported by this backend and is silently ignored.
 final class PocketTTSProvider: TTSProvider {
 
-    private let manager: PocketTtsManager
-    /// Local flag because PocketTtsManager is an actor; bridging `isAvailable`
-    /// synchronously avoids an async hop on every `speak()` call.
-    private var initialized = false
+    private let worker: SynthesisWorker<PocketTtsManager>
 
     init(cacheDirectory: URL? = nil) {
         // Note: PocketTTS is still `.cpuAndGPU`-only at the pinned FluidAudio revision —
         // `PocketTtsModelStore` hardcodes its compute units and exposes no override, so
         // `LaunchSafety.ttsComputeUnits` cannot be applied here.
-        manager = PocketTtsManager(directory: cacheDirectory)
+        worker = SynthesisWorker(
+            makeEngine: { PocketTtsManager(directory: cacheDirectory) },
+            initialize: { try await $0.initialize() },
+            // PocketTTS has no speed parameter — `speed` is intentionally ignored.
+            synthesize: { manager, text, voice, _ in try await manager.synthesize(text: text, voice: voice) }
+        )
     }
 
     func initialize() async throws {
-        try await manager.initialize()
-        initialized = true
+        try await worker.initialize()
     }
 
     func synthesize(text: String, voice: String, speed: Float) async throws -> Data {
-        // PocketTTS has no speed parameter — `speed` is intentionally ignored.
-        try await manager.synthesize(text: text, voice: voice)
+        try await worker.synthesize(text: text, voice: voice, speed: speed)
     }
 
-    var isAvailable: Bool { initialized }
+    var isAvailable: Bool { worker.ready.value }
 
     /// Female voices compatible with the current PocketTTS model (125-frame prompt).
     /// Several voices in the HuggingFace repo use variable-length prompts that are

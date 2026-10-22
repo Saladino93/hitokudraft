@@ -616,30 +616,7 @@ private struct SilenceDetectionState {
 }
 
 // MARK: - Thread-safe primitives
-
-/// A thread-safe write-once boolean flag.
-final class LockedFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _value = false
-
-    var value: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return _value
-    }
-
-    func set() {
-        lock.lock()
-        _value = true
-        lock.unlock()
-    }
-
-    func reset() {
-        lock.lock()
-        _value = false
-        lock.unlock()
-    }
-}
+// `LockedFlag` lives in Utilities/LockedFlag.swift (shared with TTSService).
 
 /// A thread-safe optional string for passing results across task boundaries.
 final class LockedString: @unchecked Sendable {
