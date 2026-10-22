@@ -4,7 +4,8 @@ import os
 /// Persists every voice interaction as a JSON file.
 ///
 /// Files are stored in `~/Library/Application Support/HitokuDraft/transcriptions/`
-/// with one file per interaction, named by ISO-8601 timestamp.
+/// with one file per interaction, named by ISO-8601 timestamp plus a short random
+/// suffix. The directory is 0700 and every file 0600 (owner-only).
 actor TranscriptionStore {
     static let shared = TranscriptionStore()
 
@@ -24,8 +25,39 @@ actor TranscriptionStore {
         return e
     }()
 
+    /// Retention policy, enforced after every save.
+    static let maxEntries = 500
+    static let maxAgeDays = 90
+
     private init() {
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        Self.migratePermissionsIfNeeded(directory: directory)
+    }
+
+    /// One-time tightening of history created before files were written owner-only
+    /// (previously the default umask left them world-readable).
+    private static func migratePermissionsIfNeeded(directory: URL) {
+        let key = "historyPermissionsMigrated"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        let fm = FileManager.default
+        do {
+            try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        } catch {
+            log.error("History permission migration: directory chmod failed: \(error.localizedDescription)")
+        }
+        let names = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+        var updated = 0
+        for name in names {
+            let path = directory.appendingPathComponent(name).path
+            if (try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)) != nil {
+                updated += 1
+            }
+        }
+        log.info("History permission migration: restricted \(updated) file(s)")
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     // MARK: - Record
@@ -80,7 +112,9 @@ actor TranscriptionStore {
     /// Save a voice interaction to disk.
     /// No-op when the user disabled "Save history" (Settings → History).
     /// Gated here — the single choke point — so every pipeline (voice edit,
-    /// dictation, grammar fix, action mode) respects the setting.
+    /// dictation, grammar fix, action mode) respects the setting. Screen context
+    /// text is dropped unless "Include screen context" is on, and retention is
+    /// enforced after each write.
     func save(
         mode: InteractionMode,
         transcription: String,
@@ -100,7 +134,7 @@ actor TranscriptionStore {
         latencyTotalMs: Int? = nil
     ) {
         guard Self.savingEnabled else { return }
-        let record = Record(
+        var record = Record(
             timestamp: Date(),
             mode: mode,
             transcription: transcription,
@@ -120,14 +154,53 @@ actor TranscriptionStore {
             latencyTotalMs: latencyTotalMs
         )
 
+        if !Self.includesContext {
+            record.contextText = nil
+        }
+
         do {
             let data = try encoder.encode(record)
             let filename = Self.filename(for: record.timestamp)
             let url = directory.appendingPathComponent(filename)
             try data.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             Self.log.info("Saved \(mode.rawValue) transcription: \(filename)")
         } catch {
             Self.log.error("Failed to save transcription: \(error.localizedDescription)")
+        }
+
+        pruneOldEntries()
+    }
+
+    /// Whether the captured screen-context text is stored with each entry
+    /// (Settings → History → "Include screen context"). Off by default.
+    nonisolated static var includesContext: Bool {
+        UserDefaults.standard.bool(forKey: "historyIncludesContext")
+    }
+
+    /// Delete the oldest entries so at most `maxEntries` remain and none is older
+    /// than `maxAgeDays`. Works on filenames only (the timestamp prefix), so it
+    /// never decodes a record. Files whose name doesn't parse are left alone.
+    private func pruneOldEntries() {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
+        let cutoff = Date().addingTimeInterval(-Double(Self.maxAgeDays) * 86_400)
+        let dated = names
+            .filter { $0.hasSuffix(".json") }
+            .compactMap { name in Self.date(fromFilename: name).map { (name, $0) } }
+            .sorted { $0.0 > $1.0 }  // newest first
+
+        var pruned = 0
+        for (index, (name, date)) in dated.enumerated()
+        where index >= Self.maxEntries || date < cutoff {
+            do {
+                try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+                pruned += 1
+            } catch {
+                Self.log.error("Failed to prune transcription \(name): \(error.localizedDescription)")
+            }
+        }
+        if pruned > 0 {
+            Self.log.info("Pruned \(pruned) old transcription(s)")
         }
     }
 
@@ -230,12 +303,30 @@ actor TranscriptionStore {
 
     // MARK: - Helpers
 
+    /// Fixed-width UTC timestamp prefix shared by every filename, e.g. `2026-04-11T17-30-45Z`.
+    private static let filenameTimestampFormatter: DateFormatter = {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.timeZone = TimeZone(identifier: "UTC")
+        fmt.dateFormat = "yyyy-MM-dd'T'HH-mm-ss'Z'"
+        return fmt
+    }()
+
+    private static let filenameTimestampLength = 20
+
     private static func filename(for date: Date) -> String {
-        let fmt = ISO8601DateFormatter()
-        fmt.formatOptions = [.withInternetDateTime]
-        // Replace colons for filesystem safety: 2026-04-11T17:30:45Z → 2026-04-11T17-30-45Z.json
-        return fmt.string(from: date)
-            .replacingOccurrences(of: ":", with: "-")
-            + ".json"
+        // Timestamp first so lexicographic order stays chronological ("newest first"
+        // sorting and pruning rely on it). The random suffix keeps two saves within
+        // the same second from overwriting each other:
+        // 2026-04-11T17-30-45Z_1a2b3c4d.json
+        let suffix = UUID().uuidString.prefix(8).lowercased()
+        return filenameTimestampFormatter.string(from: date) + "_" + suffix + ".json"
+    }
+
+    /// Parses the timestamp prefix of a history filename (both the current
+    /// `<timestamp>_<suffix>.json` and the older `<timestamp>.json` forms).
+    private static func date(fromFilename name: String) -> Date? {
+        guard name.count >= filenameTimestampLength else { return nil }
+        return filenameTimestampFormatter.date(from: String(name.prefix(filenameTimestampLength)))
     }
 }

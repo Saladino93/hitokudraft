@@ -161,6 +161,17 @@ Internal record of the security fixes from the October audit. Public CHANGELOG e
 - Help tab "Privacy" row claimed nothing ever leaves the device. Replaced (`help.privacy_text`, 4 languages) with an accurate list of outbound traffic: DuckDuckGo search and assistant-chosen pages when "Allow internet access" is on, Gumroad licence verification, Sparkle update checks (hitoku.me appcast; added beyond the audit list so the text is complete), Hugging Face model downloads. Help tab height 540 -> 600 to fit the longer text (measured with `ImageRenderer`: +60 pt for Spanish, the longest).
 - CHANGELOG: the "Memory and stability hardening" entry no longer claims that cancelling releases the model promptly; that only became true with b71f024 and is covered by the "Cancelling a response" entry.
 
+### 2. Transcription history storage (`TranscriptionStore`, `HistorySettingsTab`)
+
+`TranscriptionStore.save()` remains the single choke point for every pipeline (voice edit, dictation, grammar fix, action mode). All of the rules below are enforced there, never at call sites, so a new pipeline that calls `save()` inherits them.
+
+- **Permissions:** directory created with `.posixPermissions: 0o700`; each file is written `.atomic` and then chmodded to `0o600`. (The brief window where the renamed file has umask permissions is covered by the 0700 parent.) Previously both used the default umask (0755/0644), so any local account could read transcripts, answers and screen context.
+- **One-time migration:** in `init`, keyed by UserDefaults `historyPermissionsMigrated` (Bool). Chmods the directory to 0700 and every existing file to 0600, logs the count, then sets the flag. Existing files are not rewritten, so `contextText` already stored in old entries stays until those entries age out or are deleted.
+- **Filename collision:** `filename(for:)` had 1-second resolution, so two saves in the same second (e.g. dictation immediately followed by a grammar fix) overwrote each other. Now `<yyyy-MM-dd'T'HH-mm-ss'Z'>_<8 hex>.json`. The 20-character UTC timestamp stays first, so lexicographic order (used by `listEntries()` for newest-first and by pruning) is still chronological; legacy `<timestamp>.json` names parse with the same prefix. `Entry.id` is still the filename.
+- **Screen context gate:** `contextText` is nil-ed before encoding unless UserDefaults `historyIncludesContext` (default false) is true. Toggle "Include screen context" in Settings → History (disabled while Save history is off). The other context metadata (`contextMode`, `contextSource`, `hadScreenshot`) is still saved, so a log still shows *whether* context was used.
+- **Retention:** after every write, `pruneOldEntries()` lists filenames only (no decoding), parses the timestamp prefix, sorts newest first, and deletes everything past index 500 or older than 90 days (`maxEntries` / `maxAgeDays`). Age comes from the filename, never the file mtime (mtime changes on copy/restore). Files whose names don't parse are left alone. Logs the count when > 0. Pruning only runs on save, so with Save history off nothing is pruned.
+- **UI:** retention note under the Save history caption; History tab height 540 -> 600. Keys `history.include_context`, `history.include_context_desc`, `history.retention_note` in en/es/fr/it.
+
 ## 2026-10-22: Launch crash on macOS 27.2 / Kokoro MPSGraph abort
 
 **Symptom:** SIGABRT at launch on macOS 27.2 (M5 Pro), "MLIR pass failed" inside MPSGraph while Core ML compiled the Kokoro TTS models.

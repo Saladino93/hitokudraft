@@ -11,6 +11,9 @@ All notable changes to Hitoku Draft are documented in this file.
   off entirely. Everything stays on your Mac.
 
 ### Changed
+- **History storage improvements.** The history folder is now private to your user
+  account, screen context is no longer stored with each entry unless you opt in, and
+  history is automatically trimmed to the most recent 500 entries.
 - **Internal architecture cleanup.** The app's central orchestration code was split
   into focused modules (overlay result display, model loading/switching), with no
   user-visible behavior change. Improves reliability of future updates.

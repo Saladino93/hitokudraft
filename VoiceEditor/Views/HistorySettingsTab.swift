@@ -9,6 +9,7 @@ struct HistorySettingsTab: View {
     private static let log = Logger(subsystem: "com.hitokudraft.app", category: "HistorySettingsTab")
 
     @AppStorage("saveHistory") private var saveHistory = true
+    @AppStorage("historyIncludesContext") private var includeContext = false
 
     @State private var entries: [TranscriptionStore.Entry] = []
     @State private var searchText = ""
@@ -49,12 +50,31 @@ struct HistorySettingsTab: View {
                     Text(L("history.save_caption"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text(L("history.retention_note"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Toggle("", isOn: $saveHistory)
                     .labelsHidden()
                     .toggleStyle(.switch)
             }
+
+            // Include-screen-context toggle (TranscriptionStore drops contextText when off)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("history.include_context"))
+                        .font(.subheadline.weight(.medium))
+                    Text(L("history.include_context_desc"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: $includeContext)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            .disabled(!saveHistory)
 
             Divider()
 

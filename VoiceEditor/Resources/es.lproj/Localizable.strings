@@ -254,6 +254,9 @@
 "history.mode.dictation" = "Dictado";
 "history.mode.grammar_fix" = "Corrección";
 "history.mode.action" = "Acción";
+"history.retention_note" = "Conserva las 500 entradas más recientes de los últimos 90 días.";
+"history.include_context" = "Incluir contexto de pantalla";
+"history.include_context_desc" = "Guarda el texto de pantalla capturado en cada solicitud. Desactivado por defecto; útil solo para diagnosticar problemas.";
 
 /* Help tab */
 "help.privacy_text" = "Tu audio y tus transcripciones se procesan en tu Mac. Si \"Permitir acceso a internet\" está activado, las búsquedas y las páginas que el asistente decide abrir se envían a DuckDuckGo y a esos sitios web. La verificación de la licencia se conecta con Gumroad, la búsqueda de actualizaciones con hitoku.me y los modelos se descargan de Hugging Face.";

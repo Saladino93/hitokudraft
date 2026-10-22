@@ -64,7 +64,7 @@ struct SettingsView: View {
         case .license: return 178
         case .general: return 510
         case .tools: return 360
-        case .history: return 540
+        case .history: return 600
         case .appearance: return 473
         case .model: return 518
         case .help: return 600
