@@ -48,10 +48,16 @@ final class AudioCaptureService {
             throw AudioCaptureError.microphoneNotGranted
         }
 
-        // Reset VAD state for this recording session
-        await vadDetector?.reset()
+        // Fresh VAD session (state + ordered sample stream) for this recording
+        let vadSession = await vadDetector?.startSession()
 
-        let (engine, inputNode, tapFormat) = try await startEngineWithRetries()
+        let engine: AVAudioEngine, inputNode: AVAudioInputNode, tapFormat: AVAudioFormat
+        do {
+            (engine, inputNode, tapFormat) = try await startEngineWithRetries()
+        } catch {
+            if let vadSession { vadDetector?.endSession(vadSession) }
+            throw error
+        }
 
         let audioBuffer = ThreadSafeAudioBuffer()
         let tapSampleRate = tapFormat.sampleRate
@@ -101,9 +107,10 @@ final class AudioCaptureService {
                     let samples = Self.convertToSTT(copy)
                     audioBuffer.append(samples)
 
-                    // Feed VAD if available and mic isn't muted
+                    // Feed VAD if available and mic isn't muted. Synchronous enqueue on this
+                    // serial queue keeps buffers in capture order.
                     if let vad = vadDetector, rms >= Self.mutedMicThreshold {
-                        Task { await vad.feedSamples(samples) }
+                        vad.feed(samples)
                     }
                 }
 
@@ -139,6 +146,8 @@ final class AudioCaptureService {
 
         // Flush any pending processing before reading the buffer
         processingQueue.sync {}
+        // All tap-driven feeds are now enqueued; close this session's VAD stream.
+        if let vadSession { vadDetector?.endSession(vadSession) }
 
         // Check if we stopped because no speech was detected
         if stopReason.value == "noSpeech" {
@@ -171,12 +180,20 @@ final class AudioCaptureService {
     /// A long-running recording session that auto-detects silence.
     /// Audio accumulates in `audioBuffer`; the caller reads it periodically
     /// and checks `isSilenceDetected` to know when the user stopped speaking.
+    ///
+    /// `@unchecked Sendable`: `engine` and `inputNode` are non-Sendable AVFoundation objects,
+    /// touched after init only inside `stop()`, which runs its body exactly once (guarded by
+    /// the lock-backed `stopFlag`). Every other stored property is immutable or lock-backed.
     final class ContinuousSession: @unchecked Sendable {
         let audioBuffer = ThreadSafeAudioBuffer()
         private let engine: AVAudioEngine
         private let inputNode: AVAudioInputNode
         private let processingQueue = DispatchQueue(label: "com.hitokudraft.dictation-processing")
-        private var stopped = false
+        /// Test-and-set guard so concurrent `stop()` calls tear down exactly once.
+        private let stopFlag = LockedFlag()
+        /// VAD fed by this session, and the VAD session ID it owns.
+        private let vad: VoiceActivityDetector?
+        private let vadSession: UInt64?
 
         /// Thread-safe flag set when silence is detected after speech.
         private let silenceFlag = LockedFlag()
@@ -194,9 +211,12 @@ final class AudioCaptureService {
         fileprivate init(engine: AVAudioEngine, inputNode: AVAudioInputNode,
                          tapFormat: AVAudioFormat, silenceDurationLimit: TimeInterval,
                          vadDetector: VoiceActivityDetector? = nil,
+                         vadSession: UInt64? = nil,
                          noSpeechTimeout: TimeInterval = 5.0) {
             self.engine = engine
             self.inputNode = inputNode
+            self.vad = vadDetector
+            self.vadSession = vadSession
 
             let buffer = self.audioBuffer
             let queue = self.processingQueue
@@ -243,9 +263,10 @@ final class AudioCaptureService {
                     buffer.append(samples)
                     cumulativeSamples += samples.count
 
-                    // Feed VAD if available and mic isn't muted
+                    // Feed VAD if available and mic isn't muted. Synchronous enqueue on this
+                    // serial queue keeps buffers in capture order.
                     if let vad = vadDetector, rms >= AudioCaptureService.mutedMicThreshold {
-                        Task { await vad.feedSamples(samples) }
+                        vad.feed(samples)
                     }
 
                     if cumulativeSamples % 32_000 < samples.count {
@@ -285,11 +306,15 @@ final class AudioCaptureService {
         /// Stops recording, removes the tap, and drains pending audio processing.
         /// Uses async drain instead of sync to avoid blocking the calling thread.
         func stop() {
-            guard !stopped else { return }
-            stopped = true
+            guard stopFlag.setIfClear() else { return }
             inputNode.removeTap(onBus: 0)
             engine.stop()
+            let vad = self.vad, vadSession = self.vadSession
             processingQueue.async {
+                // Lands behind the last tap-driven block, so every captured buffer is fed
+                // before the VAD stream finishes. Scoped to our session ID so a late run
+                // cannot close a newer recording's stream.
+                if let vadSession { vad?.endSession(vadSession) }
                 AudioCaptureService.log.info("ContinuousSession: stopped, processing drained")
             }
         }
@@ -305,13 +330,20 @@ final class AudioCaptureService {
             throw AudioCaptureError.microphoneNotGranted
         }
 
-        // Reset VAD state for this recording session
-        await vadDetector?.reset()
+        // Fresh VAD session (state + ordered sample stream) for this recording
+        let vadSession = await vadDetector?.startSession()
 
-        let (engine, inputNode, tapFormat) = try await startEngineWithRetries()
+        let engine: AVAudioEngine, inputNode: AVAudioInputNode, tapFormat: AVAudioFormat
+        do {
+            (engine, inputNode, tapFormat) = try await startEngineWithRetries()
+        } catch {
+            if let vadSession { vadDetector?.endSession(vadSession) }
+            throw error
+        }
         return ContinuousSession(engine: engine, inputNode: inputNode, tapFormat: tapFormat,
                                  silenceDurationLimit: silenceDurationLimit,
                                  vadDetector: vadDetector,
+                                 vadSession: vadSession,
                                  noSpeechTimeout: noSpeechTimeout)
     }
 
