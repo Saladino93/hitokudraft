@@ -160,8 +160,12 @@ final class ConversationCoordinator {
             self?.setupHotkeys()
         }
 
-        // Rebuild LLM service when context awareness mode changes (updates system prompt)
+        // Rebuild LLM service when context awareness mode changes (updates system prompt).
+        // The notification is posted on the writing thread, and some writers are off the main
+        // actor (e.g. TranscriptionStore's one-time migration), so hop to main before the
+        // main-actor sink runs. Swift 6 checks that isolation at runtime and would trap.
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
                 let newMode = self.preferences.contextAwareMode

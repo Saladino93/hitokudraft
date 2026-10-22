@@ -60,6 +60,7 @@ All notable changes to Hitoku Draft are documented in this file.
 - **Stability and robustness.** Fixed several rare stability issues while running
   models, a potential audio encoding issue, and needless memory use in the recording
   animation. Custom model names and spoken app names are handled more robustly.
+- Fixed a rare startup issue when saving the first history entry.
 
 ## [1.6.6] - 2026-06-07
 
