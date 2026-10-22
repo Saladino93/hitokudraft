@@ -37,11 +37,13 @@ final class DisplayResultController {
     /// Shows `text` in the overlay and starts the TTS-then-auto-dismiss sequence.
     /// `ttsStreamedAlready` means sentences were enqueued during generation — wait
     /// for the queue to drain instead of synthesizing the full text again.
-    func show(_ text: String, ttsStreamedAlready: Bool) {
+    /// `speak: false` shows the text without reading it aloud (a paste that fell back to
+    /// the overlay); already-streamed TTS is still waited for.
+    func show(_ text: String, ttsStreamedAlready: Bool, speak: Bool = true) {
         result = text
         // Capture TTS settings synchronously before entering the Task closure.
         let tts = preferences.ttsSettings
-        let ttsEnabled = tts.enabled
+        let ttsEnabled = tts.enabled && (speak || ttsStreamedAlready)
         let ttsBackend = tts.backend
         let ttsVoice = tts.voice
         let ttsSpeed = tts.speed

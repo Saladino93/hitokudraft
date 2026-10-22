@@ -25,7 +25,7 @@ enum WebFetchError: LocalizedError {
         case .invalidURL:
             return "The URL is invalid or unreachable."
         case .blockedHost:
-            return "Local and private network addresses cannot be fetched."
+            return "Local and private network addresses cannot be fetched, and only standard web ports (80 and 443) are allowed."
         case .requestFailed(let code):
             return "Web request failed with HTTP status \(code)."
         case .notHTML(let contentType):

@@ -34,7 +34,7 @@ All notable changes to Hitoku Draft are documented in this file.
   being generated, or a password field is focused, the result is shown in the overlay
   instead.
 - **Safer web access.** When internet access is enabled, the assistant can now only
-  open links you mention, and local network addresses are never contacted.
+  open links you mention or select, and local network addresses are never contacted.
 - **Sturdier input handling.** More robust handling of custom model names and spoken
   app names.
 - **Clearer privacy information.** The Privacy section of the Help tab now explains

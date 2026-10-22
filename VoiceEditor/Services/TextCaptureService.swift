@@ -12,7 +12,8 @@ final class TextCaptureService {
     enum TextCaptureError: Error {
         /// The frontmost app is no longer the one the text was captured from.
         case targetAppChanged
-        /// Secure keyboard entry is on (a password field is focused somewhere).
+        /// The focused field in the target is a password field, or secure keyboard
+        /// entry is on somewhere.
         case secureInputActive
     }
 
@@ -24,8 +25,16 @@ final class TextCaptureService {
         IsSecureEventInputEnabled()
     }
 
-    func rememberTargetApp() {
-        targetApp = NSWorkspace.shared.frontmostApplication
+    /// Records the frontmost app as the paste target.
+    /// With `keepingTargetIfSelf`, a frontmost Hitoku window (settings, overlay) leaves
+    /// the previously recorded target in place instead of making Hitoku the target.
+    func rememberTargetApp(keepingTargetIfSelf: Bool = false) {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if keepingTargetIfSelf, targetApp != nil,
+           frontmost?.bundleIdentifier == Bundle.main.bundleIdentifier {
+            return
+        }
+        targetApp = frontmost
     }
 
     func saveClipboard() -> ClipboardSnapshot {
@@ -103,7 +112,11 @@ final class TextCaptureService {
         try await Task.sleep(for: .milliseconds(100))
 
         // Checked after activation so it reflects the target's focused field.
-        guard !Self.isSecureInputActive() else {
+        // Primary: the target's focused element is a password field.
+        // Secondary: secure keyboard entry is on system-wide (e.g. a password field the
+        // AX tree doesn't expose, or Terminal's "Secure Keyboard Entry").
+        guard !AXEditabilityDetector.focusedElementIsSecureField(),
+              !Self.isSecureInputActive() else {
             throw TextCaptureError.secureInputActive
         }
 

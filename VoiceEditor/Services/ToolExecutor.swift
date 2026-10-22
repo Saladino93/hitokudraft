@@ -21,9 +21,10 @@ extension Tool {
 }
 
 /// Per-request facts a tool may use to validate its arguments.
-/// Built only from what the user said, never from screen context or model output.
+/// Built only from the user's own input (spoken command and selected text), never from
+/// screen context or model output.
 struct ToolRequestContext: Sendable {
-    /// Normalized keys (`URLDetector.allowListKey`) of links in the user's own command.
+    /// Normalized keys (`URLDetector.allowListKey`) of links the user mentioned or selected.
     var userProvidedURLKeys: Set<String> = []
 
     init(userText: String = "") {
@@ -94,8 +95,8 @@ actor ToolExecutor {
     // MARK: - Request Lifecycle
 
     /// Resets per-request state. Call once per user request, before any tool runs,
-    /// with the user's own command text (the transcript), never screen context,
-    /// selected text, or model output.
+    /// with the user's own input: the command transcript plus the text they selected.
+    /// Never screen context, a previous result, or model output.
     func beginRequest(userText: String) {
         requestContext = ToolRequestContext(userText: userText)
         Self.log.info("Tool request context: \(self.requestContext.userProvidedURLKeys.count) user-provided URL(s)")
@@ -209,18 +210,23 @@ actor ToolExecutor {
         """
     }
 
-    /// Strips tool call tags from the final output text so they are not pasted.
+    /// Patterns removed by `stripToolCallTags`, in order: whole blocks first (shortest
+    /// match, across newlines), then orphaned tags. A `<tool_result ...>` block can
+    /// appear when the model echoes the framed tool result back.
+    private static let toolTagPatterns = [
+        #"<tool_call>[\s\S]*?</tool_call>"#,
+        #"<tool_result\b[^>]*>[\s\S]*?</tool_result>"#,
+        #"</?tool_call>"#,
+        #"</tool_result>"#,
+        #"<tool_result\b[^>\n]*>?"#,
+    ]
+
+    /// Strips tool call / tool result tags from the final output text so they are not pasted.
     func stripToolCallTags(from text: String) -> String {
         var result = text
-        // Remove <tool_call>...</tool_call> blocks
-        while let startRange = result.range(of: "<tool_call>"),
-              let endRange = result.range(of: "</tool_call>") {
-            let fullRange = startRange.lowerBound..<endRange.upperBound
-            result.removeSubrange(fullRange)
+        for pattern in Self.toolTagPatterns {
+            result = result.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
         }
-        // Also remove orphaned opening/closing tags
-        result = result.replacingOccurrences(of: "<tool_call>", with: "")
-        result = result.replacingOccurrences(of: "</tool_call>", with: "")
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

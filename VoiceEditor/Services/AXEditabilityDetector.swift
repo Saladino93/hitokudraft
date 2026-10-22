@@ -61,9 +61,7 @@ struct AXEditabilityDetector: EditabilityDetector {
         _ = AXUIElementCopyAttributeValue(focused, kAXRoleAttribute as CFString, &roleRef)
         let role = (roleRef as? String) ?? "?"
 
-        var subroleRef: CFTypeRef?
-        _ = AXUIElementCopyAttributeValue(focused, kAXSubroleAttribute as CFString, &subroleRef)
-        if (subroleRef as? String) == kAXSecureTextFieldSubrole as String {
+        if Self.isSecureTextField(focused) {
             return false
         }
 
@@ -87,6 +85,27 @@ struct AXEditabilityDetector: EditabilityDetector {
         }
 
         return false
+    }
+
+    /// True when the system-wide focused element is a password field
+    /// (`AXSecureTextField` subrole). False when nothing is focused or AX is unavailable.
+    /// Used by `TextCaptureService.pasteText` as its per-target secure-input check.
+    static func focusedElementIsSecureField() -> Bool {
+        let system = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            system, kAXFocusedUIElementAttribute as CFString, &focusedRef
+        ) == .success, let focusedRef else {
+            return false
+        }
+        return isSecureTextField(unsafeBitCast(focusedRef, to: AXUIElement.self))
+    }
+
+    /// True when the element's subrole is `AXSecureTextField`.
+    private static func isSecureTextField(_ element: AXUIElement) -> Bool {
+        var subroleRef: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleRef)
+        return (subroleRef as? String) == kAXSecureTextFieldSubrole as String
     }
 
     /// True when the attribute is present and non-nil on the element.

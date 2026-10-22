@@ -54,6 +54,8 @@ extension ConversationCoordinator {
         }
 
         do {
+            // Recorded at start so a target exists even if stop finds Hitoku frontmost;
+            // refreshed in stopDictation() (see there).
             textCapture.rememberTargetApp()
             let session = try await audioCapture.startContinuousRecording(
                 vadDetector: modelManager.vadDetector
@@ -110,6 +112,16 @@ extension ConversationCoordinator {
     }
 
     func stopDictation() async {
+        // Re-record the paste target at stop time (user stop and silence auto-stop both
+        // land here). The user may move to another app while dictating; the app focused
+        // when dictation ends is where they expect the text, so the switch-app guard in
+        // pasteText only covers transcription + polish. A Hitoku window being frontmost
+        // keeps the target recorded at start. Only while still dictating: a late duplicate
+        // stop (silence racing the hotkey) must not move the target mid-transcription.
+        if case .dictating = state {
+            textCapture.rememberTargetApp(keepingTargetIfSelf: true)
+        }
+
         // Stop the waveform animation and mic indicator immediately — before any async wait.
         // This gives instant visual feedback when the user presses the stop shortcut.
         activeRecordingSession = nil
@@ -170,8 +182,9 @@ extension ConversationCoordinator {
             }
 
             let savedClipboardOpt: TextCaptureService.ClipboardSnapshot? = textCapture.saveClipboard()
-            // Dictation always pastes the raw transcript — never shows in the overlay.
-            try await presentOutput(finalText, savedClipboard: savedClipboardOpt, useDisplayMode: false)
+            // Dictation always pastes the raw transcript; the overlay is only a fallback
+            // when pasteText declines (app switched, password field).
+            let outputNotice = try await presentOutput(finalText, savedClipboard: savedClipboardOpt, useDisplayMode: false)
 
             SoundPlayer.shared.playCompletion()
             // Capture main-actor state before detaching — NSWorkspace and
@@ -189,7 +202,7 @@ extension ConversationCoordinator {
             }
             modelManager.keepAlive()
             modelManager.keepSTTAlive()
-            state = .idle
+            finishPipeline(notice: outputNotice)
         } catch {
             state = .error(error.localizedDescription)
             resetErrorAfterDelay()

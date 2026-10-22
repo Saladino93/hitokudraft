@@ -115,6 +115,7 @@
 "error.empty_recording" = "Nessun audio registrato. Controlla il microfono.";
 "error.too_quiet" = "Registrazione troppo silenziosa — nessun parlato rilevato.";
 "error.no_speech_detected" = "Nessun parlato rilevato";
+"error.secure_input" = "L'input sicuro è attivo, quindi il risultato è stato mostrato nell'overlay invece di essere inserito.";
 "error.low_confidence" = "Parlato non compreso chiaramente. Riprova.";
 "error.mlx_empty" = "MLX STT non ha prodotto testo. Riprova.";
 

@@ -115,6 +115,7 @@
 "error.empty_recording" = "Recording produced no audio. Check your microphone.";
 "error.too_quiet" = "Recording was too quiet — no speech detected.";
 "error.no_speech_detected" = "No speech detected";
+"error.secure_input" = "Secure input is active, so the result was shown in the overlay instead of being inserted.";
 "error.low_confidence" = "Could not understand speech clearly. Please try again.";
 "error.mlx_empty" = "MLX STT produced no text. Please try again.";
 

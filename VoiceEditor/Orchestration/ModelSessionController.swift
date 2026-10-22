@@ -397,7 +397,7 @@ final class ModelSessionController {
             toolDefs = """
             - **web_search**: Search the web for current information.
               Parameters: {"query": "your search query"}
-            - **fetch_url**: Fetch and read a web page the user mentioned. Only links the user said can be fetched.
+            - **fetch_url**: Fetch and read a web page the user mentioned or selected. Only links the user mentioned or selected can be fetched.
               Parameters: {"url": "https://example.com/page"}
             """ + "\n" + toolDefs
         }

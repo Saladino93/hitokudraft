@@ -37,7 +37,7 @@ struct WebSearchTool: Tool {
 /// Fetches a web page and returns clean text content.
 struct FetchURLTool: Tool {
     let name = "fetch_url"
-    let toolDescription = "Fetch and read a web page the user mentioned. Only links the user said can be fetched."
+    let toolDescription = "Fetch and read a web page the user mentioned or selected. Only links the user mentioned or selected can be fetched."
     let parameterDescription = "{\"url\": \"https://example.com/page\"}"
 
     let fetchService: any WebFetchService
@@ -54,11 +54,11 @@ struct FetchURLTool: Tool {
             return "Error: Missing or invalid 'url' parameter. Must be an http(s) URL."
         }
 
-        // Only links the user mentioned in their own command. Stops a page, the screen,
-        // or the model itself from steering requests to arbitrary addresses.
+        // Only links the user mentioned in their command or selected. Stops a page, the
+        // screen, or the model itself from steering requests to arbitrary addresses.
         guard let key = URLDetector.allowListKey(for: url),
               context.userProvidedURLKeys.contains(key) else {
-            return "Error: URL not provided by the user; only links the user mentioned can be fetched."
+            return "Error: URL not provided by the user; only links the user mentioned or selected can be fetched."
         }
 
         let text = try await fetchService.fetchArticleText(from: url, budget: 2000)

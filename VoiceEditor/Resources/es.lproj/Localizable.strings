@@ -115,6 +115,7 @@
 "error.empty_recording" = "No se grabó audio. Comprueba tu micrófono.";
 "error.too_quiet" = "Grabación demasiado silenciosa — no se detectó habla.";
 "error.no_speech_detected" = "No se detectó habla";
+"error.secure_input" = "La entrada segura está activa, así que el resultado se mostró en el panel en lugar de insertarse.";
 "error.low_confidence" = "No se entendió claramente el habla. Inténtalo de nuevo.";
 "error.mlx_empty" = "MLX STT no produjo texto. Inténtalo de nuevo.";
 

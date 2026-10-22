@@ -59,11 +59,15 @@ struct FindFreeTimeTool: Tool {
         let endHour = Int(arguments["end_hour"] ?? "18") ?? 18
 
         // Hours come from the model: reject out-of-range values instead of crashing.
-        guard (0...23).contains(startHour), (0...23).contains(endHour), startHour < endHour else {
-            return "Error: start_hour and end_hour must be whole hours from 0 to 23, with start_hour before end_hour."
+        // end_hour 24 means "until midnight" (start of the next day).
+        guard (0...23).contains(startHour), (1...24).contains(endHour), startHour < endHour else {
+            return "Error: start_hour must be a whole hour from 0 to 23 and end_hour from 1 to 24, with start_hour before end_hour."
         }
+        let dayEndDate: Date? = endHour == 24
+            ? cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: baseDate))
+            : cal.date(bySettingHour: endHour, minute: 0, second: 0, of: baseDate)
         guard let dayStart = cal.date(bySettingHour: startHour, minute: 0, second: 0, of: baseDate),
-              let dayEnd = cal.date(bySettingHour: endHour, minute: 0, second: 0, of: baseDate) else {
+              let dayEnd = dayEndDate else {
             return "Error: Could not build the requested time range."
         }
 

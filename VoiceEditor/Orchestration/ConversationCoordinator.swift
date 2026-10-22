@@ -518,6 +518,7 @@ final class ConversationCoordinator {
                 // Clear stale multi-turn context when the user has selected new text.
                 if !selectedText.isEmpty { lastEditContext = nil }
 
+                var outputNotice: String?
                 if let llm = self.llm {
                     // Phase 3: LLM generation
                     state = .generating
@@ -651,9 +652,12 @@ final class ConversationCoordinator {
 
                     // Tool-use loop: if the LLM emitted a tool call, execute it and re-generate
                     if let toolExecutor = self.toolExecutor {
-                        // Per-request tool context from the user's own words only (never the
-                        // previous result, selection, or screen) — fetch_url's allow-list.
-                        await toolExecutor.beginRequest(userText: audioDirectMode ? "" : trimmedCommand)
+                        // Per-request tool context from the user's own input only: the spoken
+                        // command plus the text they selected (never the previous result, screen
+                        // context, or model output) — fetch_url's allow-list. Audio-direct mode
+                        // has no transcript, so only the selection counts there.
+                        let userCommandText = audioDirectMode ? "" : trimmedCommand
+                        await toolExecutor.beginRequest(userText: userCommandText + "\n" + selectedText)
                         for _ in 0..<ToolExecutor.maxIterations {
                             try Task.checkCancellation()
                             guard let toolCall = await toolExecutor.detectToolCall(in: raw) else { break }
@@ -713,7 +717,7 @@ final class ConversationCoordinator {
                         }
                     }
 
-                    try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS, targetIsEditable: targetIsEditable)
+                    outputNotice = try await presentOutput(cleaned, savedClipboard: savedClipboard, ttsStreamedAlready: willStreamTTS, targetIsEditable: targetIsEditable)
                     tInserted = Date()
                     lastEditContext = EditContext(instruction: trimmedCommand, result: cleaned, timestamp: Date())
                     SoundPlayer.shared.playCompletion()
@@ -761,7 +765,7 @@ final class ConversationCoordinator {
                     if stt != nil { modelManager.keepSTTAlive() }
                 } else {
                     // STT-only mode (None selected): paste raw transcript directly
-                    try await presentOutput(trimmedCommand, savedClipboard: savedClipboard, targetIsEditable: targetIsEditable)
+                    outputNotice = try await presentOutput(trimmedCommand, savedClipboard: savedClipboard, targetIsEditable: targetIsEditable)
                     SoundPlayer.shared.playCompletion()
                     let sttLogApp = NSWorkspace.shared.frontmostApplication?.localizedName
                     Task.detached {
@@ -774,7 +778,7 @@ final class ConversationCoordinator {
                     if stt != nil { modelManager.keepSTTAlive() }
                 }
 
-                state = .idle
+                finishPipeline(notice: outputNotice)
                 voiceEditTask = nil
             } catch {
                 activeRecordingSession = nil
@@ -878,7 +882,7 @@ final class ConversationCoordinator {
                 guard !cleaned.isEmpty else { throw VoiceEditorError.emptyOutput }
 
                 // Grammar fix always pastes — no overlay display mode for Ctrl+A.
-                try await presentOutput(cleaned, savedClipboard: savedClipboard, useDisplayMode: false)
+                let outputNotice = try await presentOutput(cleaned, savedClipboard: savedClipboard, useDisplayMode: false)
 
                 SoundPlayer.shared.playCompletion()
                 // Capture main-actor state before detaching.
@@ -894,7 +898,7 @@ final class ConversationCoordinator {
                     )
                 }
                 modelManager.keepAlive()
-                state = .idle
+                finishPipeline(notice: outputNotice)
             } catch is CancellationError {
                 textCapture.restoreClipboard(savedClipboard)
                 state = .idle
@@ -929,13 +933,18 @@ final class ConversationCoordinator {
     ///
     /// `useDisplayMode` must be `false` for raw dictation results — dictation always pastes, never
     /// shows in the overlay, regardless of whether the focused element is editable.
+    ///
+    /// Returns a user-facing notice when the paste was declined for a reason the overlay
+    /// alone doesn't explain (secure input). Callers end with `finishPipeline(notice:)`
+    /// so the notice isn't overwritten by their final `.idle`.
+    @discardableResult
     func presentOutput(
         _ text: String,
         savedClipboard: TextCaptureService.ClipboardSnapshot?,
         useDisplayMode: Bool = true,
         ttsStreamedAlready: Bool = false,
         targetIsEditable: Bool? = nil
-    ) async throws {
+    ) async throws -> String? {
         // `isEditable` now means "there is a text caret at the focus" (see
         // AXEditabilityDetector). Caret present → paste there; no caret → display.
         let isEditable = targetIsEditable ?? editabilityDetector.focusedElementIsEditable()
@@ -947,12 +956,21 @@ final class ConversationCoordinator {
             } catch let error as TextCaptureService.TextCaptureError {
                 // Frontmost app changed since capture, or a password field is focused:
                 // never paste there. Show the result in the overlay instead (any streamed
-                // TTS keeps playing, since the overlay is now the output).
+                // TTS keeps playing, since the overlay is now the output). Paste-path
+                // callers (dictation, grammar fix: useDisplayMode == false) are not read
+                // aloud; the user expected an insertion, not speech.
                 Self.log.info("Paste skipped (\(String(describing: error), privacy: .public)), showing result in overlay")
-                display.show(text, ttsStreamedAlready: ttsStreamedAlready)
+                display.show(text, ttsStreamedAlready: ttsStreamedAlready, speak: useDisplayMode)
                 state = .idle
                 if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
-                return
+                switch error {
+                case .secureInputActive:
+                    // Not obvious from the overlay alone why nothing was typed.
+                    return L("error.secure_input")
+                case .targetAppChanged:
+                    // The overlay itself is the feedback.
+                    return nil
+                }
             }
             // If TTS was streamed (display mode detected at generation start) but focus
             // changed to an editable field mid-generation, stop orphaned TTS playback.
@@ -967,6 +985,18 @@ final class ConversationCoordinator {
             display.show(text, ttsStreamedAlready: ttsStreamedAlready)
             state = .idle
             if let saved = savedClipboard { textCapture.restoreClipboard(saved) }
+        }
+        return nil
+    }
+
+    /// Ends a pipeline after `presentOutput`: `.idle`, or the returned notice as a
+    /// transient error state (cleared by `resetErrorAfterDelay`).
+    func finishPipeline(notice: String?) {
+        if let notice {
+            state = .error(notice)
+            resetErrorAfterDelay()
+        } else {
+            state = .idle
         }
     }
 
