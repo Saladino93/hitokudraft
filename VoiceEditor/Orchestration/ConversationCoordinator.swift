@@ -651,6 +651,9 @@ final class ConversationCoordinator {
 
                     // Tool-use loop: if the LLM emitted a tool call, execute it and re-generate
                     if let toolExecutor = self.toolExecutor {
+                        // Per-request tool context from the user's own words only (never the
+                        // previous result, selection, or screen) — fetch_url's allow-list.
+                        await toolExecutor.beginRequest(userText: audioDirectMode ? "" : trimmedCommand)
                         for _ in 0..<ToolExecutor.maxIterations {
                             try Task.checkCancellation()
                             guard let toolCall = await toolExecutor.detectToolCall(in: raw) else { break }
@@ -660,7 +663,8 @@ final class ConversationCoordinator {
                             let toolResult = try await toolExecutor.execute(toolCall)
 
                             // Re-generate with tool result appended to the original prompt
-                            let augmentedPrompt = prompt + "\n\nTool result for \(toolCall.name):\n\(toolResult)\n\nNow answer the user's question using this information. Output ONLY the final answer — no tool calls."
+                            // Framed as untrusted data (see ToolExecutor.framedResult).
+                            let augmentedPrompt = prompt + "\n\n" + ToolExecutor.framedResult(name: toolCall.name, result: toolResult) + "\n\nNow answer the user's question using this information. Output ONLY the final answer — no tool calls."
                             raw = ""
                             raw.reserveCapacity(4096)
                             streamingLLMText = ""

@@ -37,16 +37,28 @@ struct WebSearchTool: Tool {
 /// Fetches a web page and returns clean text content.
 struct FetchURLTool: Tool {
     let name = "fetch_url"
-    let toolDescription = "Fetch and read a web page. Use when you need to read the content of a specific URL."
+    let toolDescription = "Fetch and read a web page the user mentioned. Only links the user said can be fetched."
     let parameterDescription = "{\"url\": \"https://example.com/page\"}"
 
     let fetchService: any WebFetchService
 
+    /// Without a request context nothing was provided by the user, so every URL is rejected.
     func execute(arguments: [String: String]) async throws -> String {
+        try await execute(arguments: arguments, context: ToolRequestContext())
+    }
+
+    func execute(arguments: [String: String], context: ToolRequestContext) async throws -> String {
         guard let urlStr = arguments["url"],
               let url = URL(string: urlStr),
               url.scheme == "http" || url.scheme == "https" else {
             return "Error: Missing or invalid 'url' parameter. Must be an http(s) URL."
+        }
+
+        // Only links the user mentioned in their own command. Stops a page, the screen,
+        // or the model itself from steering requests to arbitrary addresses.
+        guard let key = URLDetector.allowListKey(for: url),
+              context.userProvidedURLKeys.contains(key) else {
+            return "Error: URL not provided by the user; only links the user mentioned can be fetched."
         }
 
         let text = try await fetchService.fetchArticleText(from: url, budget: 2000)
