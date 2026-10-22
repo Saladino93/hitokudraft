@@ -13,7 +13,7 @@ import os
 /// on a single task and serializes every call to it. No `@unchecked Sendable` is needed.
 ///
 /// To add a new backend: conform to this protocol, add a case to `TtsBackend`,
-/// and add a branch in `TTSService.configure(backend:)`. No other changes needed.
+/// and add a branch in `TTSService.defaultProvider`. No other changes needed.
 protocol TTSProvider: AnyObject, Sendable {
     /// One-time download + model initialization. May be called multiple times safely
     /// (callers guard on `isAvailable`).
@@ -274,7 +274,25 @@ actor TTSService {
 
     private static let log = Logger(subsystem: "com.hitokudraft.app", category: "TTSService")
 
+    /// Builds a provider for a backend, rooted at the given cache directory.
+    typealias ProviderFactory = @Sendable (TtsBackend, URL) -> any TTSProvider
+
+    /// Production provider factory.
+    static let defaultProvider: ProviderFactory = { backend, cacheDirectory in
+        switch backend {
+        case .kokoro:    KokoroTTSProvider(cacheDirectory: cacheDirectory)
+        case .pocketTts: PocketTTSProvider(cacheDirectory: cacheDirectory)
+        }
+    }
+
     static let shared = TTSService()
+
+    private let providerFactory: ProviderFactory
+
+    /// - Parameter providerFactory: injectable for tests; production uses `defaultProvider`.
+    init(providerFactory: @escaping ProviderFactory = TTSService.defaultProvider) {
+        self.providerFactory = providerFactory
+    }
 
     private var provider: (any TTSProvider)?
     private var currentBackend: TtsBackend?
@@ -284,8 +302,14 @@ actor TTSService {
     /// Retained to keep playback alive. Replaced on each new utterance.
     private var player: AVAudioPlayer?
     /// Fires on @MainActor when a new segment starts playing. Set by the coordinator
-    /// to drive overlay text highlighting. Cleared automatically when playback stops.
+    /// to drive overlay text highlighting. Receives "" when playback ends or is stopped.
     private var onSegmentStart: (@Sendable @MainActor (String) -> Void)?
+
+    /// Playback generation. Bumped by `stop()`. Every drain loop and every `speak` captures
+    /// it on entry and checks `isLive(_:)` after every `await` before touching `player`,
+    /// the queue, or the highlight callback, so a loop that was stopped while suspended
+    /// can never start playing a stale segment.
+    private var generation: UInt64 = 0
 
     // MARK: - Sentence Queue (streaming TTS)
     /// Sentences waiting to be synthesized and played, in arrival order.
@@ -306,11 +330,7 @@ actor TTSService {
         currentBackend = backend
         initTask?.cancel()
         initTask = nil
-        let dir = cacheRoot
-        provider = switch backend {
-        case .kokoro:    KokoroTTSProvider(cacheDirectory: dir)
-        case .pocketTts: PocketTTSProvider(cacheDirectory: dir)
-        }
+        provider = providerFactory(backend, cacheRoot)
     }
 
     /// Pre-initializes the TTS provider so it's ready when the first sentence arrives.
@@ -342,7 +362,8 @@ actor TTSService {
         guard !trimmed.isEmpty else { return }
         queuedSentences.append(trimmed)
         guard queueTask == nil else { return }
-        queueTask = Task { await self.processQueue(voice: voice, speed: speed) }
+        let gen = generation
+        queueTask = Task { await self.processQueue(generation: gen, voice: voice, speed: speed) }
     }
 
     /// Awaits completion of all queued sentences.
@@ -351,96 +372,97 @@ actor TTSService {
         await queueTask?.value
     }
 
-    private func processQueue(voice: String, speed: Float) async {
+    /// Drains `queuedSentences` for playback generation `gen`.
+    ///
+    /// Invariant: every `await` must be followed by an `isLive(gen)` check before any write
+    /// to `player`, `queuedSentences`, `queueTask`, or the highlight callback. A stale loop
+    /// (one whose generation was superseded by `stop()`) touches nothing; `stop()` already
+    /// cleared the queue and fired the end-of-playback callback on its behalf.
+    private func processQueue(generation gen: UInt64, voice: String, speed: Float) async {
         defer {
-            queueTask = nil
-            // Signal end of playback — clears overlay highlight.
-            if let callback = onSegmentStart {
-                Task { @MainActor in callback("") }
+            if gen == generation {
+                queueTask = nil
+                // Signal end of playback — clears overlay highlight.
+                notifySegmentEnd()
             }
         }
         guard let provider else { return }
         do {
             try await ensureInitialized(provider: provider)
         } catch {
-            Self.log.error("TTS init failed, dropping queue: \(error.localizedDescription, privacy: .public)")
-            queuedSentences.removeAll()
+            if gen == generation {
+                Self.log.error("TTS init failed, dropping queue: \(error.localizedDescription, privacy: .public)")
+                queuedSentences.removeAll()
+            }
             return
         }
+        guard isLive(gen) else { return }
 
         // Prefetch buffer: while current audio plays, synthesize the next segment
         // concurrently. This eliminates the gap between segments when synthesis is
         // faster than playback (the common case for short text on Apple Silicon).
-        var prefetchedAudio: Data? = nil
-        var prefetchedText: String = ""
-        var currentSegmentText: String = ""
+        var prefetched: (text: String, audio: Data)? = nil
 
-        while !queuedSentences.isEmpty || prefetchedAudio != nil {
-            guard !Task.isCancelled else { break }
-
+        while isLive(gen), !queuedSentences.isEmpty || prefetched != nil {
             // Use prefetched audio if available; otherwise synthesize the current segment.
-            let audioData: Data
-            if let prefetched = prefetchedAudio {
-                audioData = prefetched
-                prefetchedAudio = nil
-                currentSegmentText = prefetchedText
+            let text: String
+            let audio: Data
+            if let p = prefetched {
+                (text, audio) = p
+                prefetched = nil
             } else {
-                let sentence = queuedSentences.removeFirst()
-                currentSegmentText = sentence
-                Self.log.info("TTS synth [\(voice, privacy: .public)]: \(sentence.count) chars")
+                text = queuedSentences.removeFirst()
+                Self.log.info("TTS synth [\(voice, privacy: .public)]: \(text.count) chars")
                 do {
                     let start = ContinuousClock.now
-                    audioData = try await provider.synthesize(text: sentence, voice: voice, speed: speed)
+                    audio = try await provider.synthesize(text: text, voice: voice, speed: speed)
                     let elapsed = ContinuousClock.now - start
-                    Self.log.debug("TTS synth took \(elapsed, privacy: .public) for \(sentence.count) chars")
+                    Self.log.debug("TTS synth took \(elapsed, privacy: .public) for \(text.count) chars")
                 } catch {
-                    guard !Task.isCancelled else { break }
+                    guard isLive(gen) else { return }
                     Self.log.error("TTS synthesis failed: \(error.localizedDescription, privacy: .public)")
                     continue
                 }
+                guard isLive(gen) else { return }
             }
 
             // Start playback and notify overlay for text highlighting.
+            // No `await` between the liveness check above and these writes.
             player?.stop()
-            player = try? AVAudioPlayer(data: audioData)
+            player = try? AVAudioPlayer(data: audio)
             player?.play()
-            let playDuration = player?.duration ?? 0
-            Self.log.debug("TTS playing \(playDuration, privacy: .public)s of audio")
-            if let callback = onSegmentStart {
-                Task { @MainActor in callback(currentSegmentText) }
-            }
+            let duration = player?.duration ?? 0
+            Self.log.debug("TTS playing \(duration, privacy: .public)s of audio")
+            notifySegment(text)
 
             // While audio plays, prefetch the next segment's synthesis.
-            // Task.sleep yields the actor executor → the prefetch Task runs concurrently
-            // because CoreML inference happens off-actor on its own thread.
+            // Task.sleep yields the actor executor; synthesis runs on the provider's worker.
             if !queuedSentences.isEmpty {
-                let nextSentence = queuedSentences.removeFirst()
-                Self.log.info("TTS prefetch [\(voice, privacy: .public)]: \(nextSentence.count) chars")
+                let next = queuedSentences.removeFirst()
+                Self.log.info("TTS prefetch [\(voice, privacy: .public)]: \(next.count) chars")
 
                 let prefetchTask = Task { [provider] () -> Data? in
                     let start = ContinuousClock.now
-                    let result = try? await provider.synthesize(
-                        text: nextSentence, voice: voice, speed: speed
-                    )
+                    let result = try? await provider.synthesize(text: next, voice: voice, speed: speed)
                     Self.log.debug("TTS prefetch took \(ContinuousClock.now - start, privacy: .public)")
                     return result
                 }
 
-                if playDuration > 0 {
-                    do { try await Task.sleep(for: .seconds(playDuration + 0.05)) }
-                    catch { prefetchTask.cancel(); break }
+                if duration > 0 {
+                    do { try await Task.sleep(for: .seconds(duration + 0.05)) }
+                    catch { prefetchTask.cancel(); return }
                 }
+                guard isLive(gen) else { prefetchTask.cancel(); return }
 
                 // Collect prefetched result — instant if synth finished during playback.
-                prefetchedAudio = await prefetchTask.value
-                prefetchedText = nextSentence
-            } else {
+                let result = await prefetchTask.value
+                guard isLive(gen) else { return }
+                if let result { prefetched = (next, result) }
+            } else if duration > 0 {
                 // No next sentence yet — just await playback.
-                if playDuration > 0 {
-                    do { try await Task.sleep(for: .seconds(playDuration + 0.05)) }
-                    catch { break }
-                }
-                // New sentences may have arrived via enqueue() during sleep — loop will check.
+                // New sentences may arrive via enqueue() during sleep — the loop re-checks.
+                do { try await Task.sleep(for: .seconds(duration + 0.05)) }
+                catch { return }
             }
         }
     }
@@ -448,19 +470,19 @@ actor TTSService {
     // MARK: - Full-text Playback
 
     /// Synthesizes `text` as a single utterance and awaits completion.
-    /// Stops any in-progress queue first.
+    /// Stops any in-progress playback and queue first.
     /// Task cancellation propagates via `Task.sleep`.
     func speak(text: String, voice: String, speed: Float, backend: TtsBackend) async {
-        // Clear any streaming queue before speaking the full text.
-        queuedSentences.removeAll()
-        queueTask?.cancel()
-        queueTask = nil
+        stop()
+        let gen = generation
         configure(backend: backend)
         let trimmed = Self.prepareForSpeech(text)
         guard !trimmed.isEmpty, let provider else { return }
         do {
             try await ensureInitialized(provider: provider)
+            guard isLive(gen) else { return }
             let data = try await provider.synthesize(text: trimmed, voice: voice, speed: speed)
+            guard isLive(gen) else { return }
             player?.stop()
             player = try? AVAudioPlayer(data: data)
             player?.play()
@@ -470,17 +492,26 @@ actor TTSService {
                 try? await Task.sleep(for: .seconds(duration + 0.1))
             }
         } catch {
+            guard isLive(gen) else { return }
             Self.log.error("TTS speak failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     /// Stops all playback and clears the sentence queue.
+    ///
+    /// Bumps `generation`, so any drain loop or `speak` suspended at an `await` exits
+    /// without touching playback state. If something was active, fires the end-of-playback
+    /// callback here (the stale loop no longer does); ConversationCoordinator relies on it
+    /// to clear the highlighted segment.
     func stop() {
+        generation &+= 1
+        let wasActive = player != nil || queueTask != nil
         queuedSentences.removeAll()
         queueTask?.cancel()
         queueTask = nil
         player?.stop()
         player = nil
+        if wasActive { notifySegmentEnd() }
     }
 
     /// `true` when the current provider is loaded and ready to synthesize.
@@ -551,8 +582,25 @@ actor TTSService {
         // Start initialization; store the task so concurrent callers can join.
         let task = Task { try await provider.initialize() }
         initTask = task
-        defer { initTask = nil }
+        // Only clear our own task: a `configure()` switch mid-init may have installed a new one.
+        defer { if initTask == task { initTask = nil } }
         try await task.value
+    }
+
+    private func isLive(_ gen: UInt64) -> Bool {
+        gen == generation && !Task.isCancelled
+    }
+
+    /// Fires the highlight callback with `text` (segment started playing).
+    private func notifySegment(_ text: String) {
+        if let callback = onSegmentStart {
+            Task { @MainActor in callback(text) }
+        }
+    }
+
+    /// Fires the highlight callback with "" (playback ended) — clears overlay highlight.
+    private func notifySegmentEnd() {
+        notifySegment("")
     }
 }
 
