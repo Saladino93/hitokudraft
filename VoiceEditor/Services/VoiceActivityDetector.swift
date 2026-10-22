@@ -8,7 +8,7 @@ import os
 /// Publishes thread-safe flags that `AudioCaptureService` reads from its tap callback.
 ///
 /// Feeding model: each recording session owns one `AsyncStream` of sample buffers. The audio
-/// processing queue pushes into it synchronously via `feed(_:)` (nonisolated, no Task per
+/// processing queue pushes into it synchronously via `feed(_:session:)` (nonisolated, no Task per
 /// buffer), and a single consumer task drains it in order into `process(_:session:)`. That
 /// keeps chunks strictly in capture order, which Silero's recurrent state requires.
 /// Public flags are `nonisolated let` because they are lock-backed and must be readable
@@ -74,6 +74,11 @@ actor VoiceActivityDetector {
         self.segConfig = config
     }
 
+    deinit {
+        // The consumer holds `self` weakly and would otherwise wait on an open stream forever.
+        endSession()
+    }
+
     /// Creates a fully initialized detector. Downloads Silero VAD model on first use (~2 MB).
     static func create() async throws -> VoiceActivityDetector {
         let manager = try await VadManager()
@@ -112,10 +117,14 @@ actor VoiceActivityDetector {
         return id
     }
 
-    /// Queues 16 kHz samples for the current session. Synchronous and non-blocking;
-    /// a no-op when no session is open.
-    nonisolated func feed(_ samples: [Float]) {
-        inlet.withLock { _ = $0?.continuation.yield(samples) }
+    /// Queues 16 kHz samples for `session`. Synchronous and non-blocking; a no-op when no
+    /// session is open or when `session` is not the open one (a late block from an old
+    /// recording's processing queue must not leak into a newer recording's stream).
+    nonisolated func feed(_ samples: [Float], session: UInt64) {
+        inlet.withLock { current in
+            guard let open = current, open.session == session else { return }
+            _ = open.continuation.yield(samples)
+        }
     }
 
     /// Finishes the sample stream. Already-queued samples are still processed.

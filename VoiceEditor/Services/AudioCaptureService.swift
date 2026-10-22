@@ -109,8 +109,8 @@ final class AudioCaptureService {
 
                     // Feed VAD if available and mic isn't muted. Synchronous enqueue on this
                     // serial queue keeps buffers in capture order.
-                    if let vad = vadDetector, rms >= Self.mutedMicThreshold {
-                        vad.feed(samples)
+                    if let vad = vadDetector, let vadSession, rms >= Self.mutedMicThreshold {
+                        vad.feed(samples, session: vadSession)
                     }
                 }
 
@@ -265,8 +265,8 @@ final class AudioCaptureService {
 
                     // Feed VAD if available and mic isn't muted. Synchronous enqueue on this
                     // serial queue keeps buffers in capture order.
-                    if let vad = vadDetector, rms >= AudioCaptureService.mutedMicThreshold {
-                        vad.feed(samples)
+                    if let vad = vadDetector, let vadSession, rms >= AudioCaptureService.mutedMicThreshold {
+                        vad.feed(samples, session: vadSession)
                     }
 
                     if cumulativeSamples % 32_000 < samples.count {

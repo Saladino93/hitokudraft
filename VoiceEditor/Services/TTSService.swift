@@ -80,6 +80,9 @@ final class SynthesisWorker<Engine>: Sendable {
                 switch job.kind {
                 case .initialize(let c):
                     if ready.value { c.resume(); continue }
+                    // Caller (e.g. an init task cancelled by a backend switch) gave up before
+                    // this job started. `ready` stays false, so the next caller retries.
+                    if job.cancelled.value { c.resume(throwing: CancellationError()); continue }
                     do {
                         try await initialize(engine)
                         ready.set()
@@ -325,8 +328,14 @@ actor TTSService {
 
     /// Switch to `backend` if it differs from the current one.
     /// Idempotent: repeated calls with the same backend are no-ops.
+    ///
+    /// A switch stops playback first: the generation bump makes any drain loop bound to the
+    /// old provider/voice go dead, so the next `enqueue` starts a fresh loop with the new
+    /// provider. On an idle service (e.g. the launch `preWarm`) `stop()` only bumps the
+    /// generation and fires no callback.
     func configure(backend: TtsBackend) {
         guard backend != currentBackend else { return }
+        stop()
         currentBackend = backend
         initTask?.cancel()
         initTask = nil
@@ -469,32 +478,19 @@ actor TTSService {
 
     // MARK: - Full-text Playback
 
-    /// Synthesizes `text` as a single utterance and awaits completion.
+    /// Speaks `text` as a single utterance and awaits completion.
     /// Stops any in-progress playback and queue first.
-    /// Task cancellation propagates via `Task.sleep`.
+    ///
+    /// Goes through the same generation-checked drain loop as streaming playback (one
+    /// segment), so it holds the `queueTask` marker and a later `stop()` ends it cleanly.
+    /// The highlight callback fires for the segment like any queued one. Cancelling the
+    /// calling task does not stop playback; call `stop()`.
     func speak(text: String, voice: String, speed: Float, backend: TtsBackend) async {
         stop()
-        let gen = generation
-        configure(backend: backend)
-        let trimmed = Self.prepareForSpeech(text)
-        guard !trimmed.isEmpty, let provider else { return }
-        do {
-            try await ensureInitialized(provider: provider)
-            guard isLive(gen) else { return }
-            let data = try await provider.synthesize(text: trimmed, voice: voice, speed: speed)
-            guard isLive(gen) else { return }
-            player?.stop()
-            player = try? AVAudioPlayer(data: data)
-            player?.play()
-            // No segment highlight for full-text speak — highlighting only works
-            // with streaming segments where there's dim/bright contrast.
-            if let duration = player?.duration, duration > 0 {
-                try? await Task.sleep(for: .seconds(duration + 0.1))
-            }
-        } catch {
-            guard isLive(gen) else { return }
-            Self.log.error("TTS speak failed: \(error.localizedDescription, privacy: .public)")
-        }
+        // `enqueue` configures the backend, trims via `prepareForSpeech`, and ignores empty text
+        // (in which case no loop starts and `waitForQueue` returns immediately).
+        enqueue(text: text, voice: voice, speed: speed, backend: backend)
+        await waitForQueue()
     }
 
     /// Stops all playback and clears the sentence queue.
