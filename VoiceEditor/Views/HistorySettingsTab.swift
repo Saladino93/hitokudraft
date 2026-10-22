@@ -20,6 +20,12 @@ struct HistorySettingsTab: View {
     @State private var searchText = ""
     @State private var confirmClearAll = false
     @State private var storePath = ""
+    /// Rows showing their full text, keyed by `entry.id` (the filename). Kept on the
+    /// tab, not per-row @State, because LazyVStack recycles row views.
+    @State private var expandedIDs: Set<String> = []
+
+    /// Collapsed rows clamp each text to this many lines.
+    private static let previewLineLimit = 4
 
     /// Cached — DateFormatter construction is expensive; rows render in a list.
     private static let rowDateFormatter: DateFormatter = {
@@ -153,7 +159,10 @@ struct HistorySettingsTab: View {
     // MARK: - Row
 
     private func row(for entry: TranscriptionStore.Entry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let long = isLong(entry)
+        let expanded = expandedIDs.contains(entry.id)
+        let clamped = long && !expanded
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(Self.rowDateFormatter.string(from: entry.record.timestamp))
                     .font(.caption)
@@ -171,28 +180,70 @@ struct HistorySettingsTab: View {
                     Task {
                         await TranscriptionStore.shared.delete(entry)
                         entries.removeAll { $0.id == entry.id }
+                        expandedIDs.remove(entry.id)
                     }
                 }
                 .font(.caption)
             }
 
-            Text(entry.record.transcription)
-                .font(.callout)
-                .lineLimit(4)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            entryText(entry.record.transcription, clamped: clamped)
 
             if let response = entry.record.llmResponse, !response.isEmpty {
-                Text(response)
-                    .font(.callout)
+                entryText(response, clamped: clamped)
                     .foregroundStyle(.secondary)
-                    .lineLimit(4)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if long {
+                Button(expanded ? L("history.show_less") : L("history.show_more")) {
+                    toggleExpanded(entry.id)
+                }
+                .buttonStyle(.link)
+                .font(.caption)
             }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    /// Transcript / response text. On macOS a selectable Text keeps its line-limited
+    /// layout height but draws its full content once selected, spilling over the rows
+    /// below. So selection and the line limit are never combined: a clamped preview is
+    /// not selectable; unclamped text is selectable and sized to its full height.
+    @ViewBuilder
+    private func entryText(_ text: String, clamped: Bool) -> some View {
+        if clamped {
+            Text(text)
+                .font(.callout)
+                .lineLimit(Self.previewLineLimit)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(text)
+                .font(.callout)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Whether either text may exceed the preview. A cheap estimate (a list row should
+    /// not measure text): about 80 callout characters fit on a line at the fixed 620pt
+    /// Settings width. Misjudging is harmless: a short entry judged long just gets a
+    /// button; a long entry judged short is shown in full and the row grows to fit.
+    private func isLong(_ entry: TranscriptionStore.Entry) -> Bool {
+        let texts = [entry.record.transcription, entry.record.llmResponse ?? ""]
+        return texts.contains { text in
+            text.count > 80 * Self.previewLineLimit
+                || text.filter(\.isNewline).count >= Self.previewLineLimit
+        }
+    }
+
+    /// No animation: animating a row's height inside a LazyVStack makes the rows below jump.
+    private func toggleExpanded(_ id: String) {
+        if expandedIDs.contains(id) {
+            expandedIDs.remove(id)
+        } else {
+            expandedIDs.insert(id)
+        }
     }
 
     // MARK: - Actions

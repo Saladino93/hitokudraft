@@ -29,6 +29,8 @@ All notable changes to Hitoku Draft are documented in this file.
   same sentence appears twice in an answer.
 
 ### Fixed
+- History entries no longer overlap when a long transcript is selected; long entries
+  can be expanded.
 - **Text goes only where it came from.** Dictated and edited text is now only
   inserted into the app it was captured from. If you switch apps while a response is
   being generated, or a password field is focused, the result is shown in the overlay

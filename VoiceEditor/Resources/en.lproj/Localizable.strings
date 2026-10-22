@@ -249,6 +249,8 @@
 "history.no_matches" = "No matches.";
 "history.copy" = "Copy";
 "history.delete" = "Delete";
+"history.show_more" = "Show more";
+"history.show_less" = "Show less";
 "history.show_in_folder" = "Show in Folder";
 "history.export" = "Export…";
 "history.mode.voice_edit" = "Voice Edit";

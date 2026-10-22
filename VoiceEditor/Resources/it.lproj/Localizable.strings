@@ -249,6 +249,8 @@
 "history.no_matches" = "Nessun risultato.";
 "history.copy" = "Copia";
 "history.delete" = "Elimina";
+"history.show_more" = "Mostra di più";
+"history.show_less" = "Mostra meno";
 "history.show_in_folder" = "Mostra nel Finder";
 "history.export" = "Esporta…";
 "history.mode.voice_edit" = "Modifica vocale";
