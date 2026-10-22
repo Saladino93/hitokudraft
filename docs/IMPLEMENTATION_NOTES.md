@@ -205,6 +205,15 @@ Threat: indirect prompt injection. Screen context, a fetched page, or a search s
 - Search-query exfiltration: `web_search` sends a model-chosen query to DuckDuckGo, so injected instructions can still leak screen text through the query string. Mitigated only by the framing above.
 - The framing is a prompt-level mitigation; small local models may still follow injected instructions. The allow-list and host filter are the hard controls.
 
+### 5. Validation of model paths, app names and calendar hours
+
+- **Custom HF model id (`SettingsView.validateCustomModel`)**: was "contains `/`, no leading `/`, no space", which accepted `../../x` and `a/b/c`. Now `isValidHFRepoID`: `^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$` and no `..` anywhere (HF forbids `..` in repo names too). Failures show the existing `model.hf_format_hint` validation state. Local-folder models are unchanged (absolute paths, never deleted).
+- **`ModelManager.isInsideModelsCache(_:)`**: new helper, true when `url.standardizedFileURL.path` has the prefix `modelsCacheRoot.standardizedFileURL.path + "/"`. Lexical only (does not resolve symlinks).
+- **Cached model deletion (`ModelRegistry.deleteCachedWeights`)**: `<Caches>/models/<model.path>` is checked with `isInsideModelsCache` before `removeItem`; logs and returns otherwise. `model.path` comes from the registry JSON in Application Support, which is user-editable and was previously reachable from the weak HF validation above, so a crafted path could delete outside the cache.
+- **LiteRT download (`ModelManager`)**: `resolveLiteRTFilename` keeps only HF `rfilename`s that are plain file names (`URL(fileURLWithPath:).lastPathComponent == name`, non-empty, not `..`, no leading `.`). Deviation from the audit wording ("use lastPathComponent"): names in repo subfolders are skipped instead of flattened, because the same string builds the `resolve/main/<filename>` download URL and flattening would 404. `loadLiteRTModel` and `downloadLiteRTModel` additionally assert the cache dir and destination file are inside the cache (throw `LiteRTLoadError.invalidURL`), which also covers `liteRTFilename` values persisted in the registry.
+- **`launch_app` (`ActionCoordinator`)**: each name/variant must be non-empty, contain no `/` or `..`, and not start with `.` before it is substituted into `/Applications/<name>.app` etc.; rejects are logged. The action payload has no bundle-id field (`PendingAction.LaunchApp.appNames` only), so the `urlForApplication(withBundleIdentifier:)` route was not added.
+- **`find_free_time` (`CalendarTools`)**: `start_hour`/`end_hour` must be 0...23 with start < end, otherwise a tool error string; the two `date(bySettingHour:)` force-unwraps are now guarded (nil returned a crash for e.g. hour 24). The `list_events` default end-date force-unwrap is guarded too. Minutes are always 0 in this tool, so there is nothing to clamp.
+
 ## 2026-10-22: Launch crash on macOS 27.2 / Kokoro MPSGraph abort
 
 **Symptom:** SIGABRT at launch on macOS 27.2 (M5 Pro), "MLIR pass failed" inside MPSGraph while Core ML compiled the Kokoro TTS models.

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 /// Orchestrates the Action Mode pipeline for Ctrl+A with no text selected:
 ///   listen → transcribe → route (LLM) → confirm → execute (EventKit)
@@ -15,6 +16,7 @@ import Foundation
 /// ConversationCoordinator.swift fully restores prior behavior.
 @MainActor
 final class ActionCoordinator {
+    private static let log = Logger(subsystem: "com.hitokudraft.actions", category: "coordinator")
 
     // MARK: - Injected dependencies (closures for always-current values)
 
@@ -283,7 +285,9 @@ final class ActionCoordinator {
                 // Try the exact name and common variations (e.g. "Apple Maps" → "Maps")
                 let variations = [name] + name.split(separator: " ").map(String.init)
                 var opened = false
-                for variant in variations where !opened {
+                // Names come from the LLM: a plain app name only, so the candidate paths
+                // below can't be steered outside the application folders.
+                for variant in variations where !opened && Self.isPlainAppName(variant) {
                     let candidates = [
                         "/Applications/\(variant).app",
                         "/Applications/Utilities/\(variant).app",
@@ -300,5 +304,12 @@ final class ActionCoordinator {
         case .unknown:
             break  // confirm() returns false for .unknown; should not reach here
         }
+    }
+
+    /// True for a bare application name: no path separators, no `..`, no leading dot.
+    private static func isPlainAppName(_ name: String) -> Bool {
+        let ok = !name.isEmpty && !name.contains("/") && !name.contains("..") && !name.hasPrefix(".")
+        if !ok { log.warning("Rejected app name for launch: \(name, privacy: .public)") }
+        return ok
     }
 }

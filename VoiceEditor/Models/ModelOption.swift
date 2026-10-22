@@ -347,6 +347,11 @@ enum ModelRegistry {
         let fm = FileManager.default
         guard let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
         let dir = caches.appendingPathComponent("models").appendingPathComponent(model.path)
+        // model.path comes from the user-editable registry: never delete outside the cache.
+        guard ModelManager.isInsideModelsCache(dir) else {
+            print("Warning: Refusing to delete model cache outside \(ModelManager.modelsCacheRoot.path): \(dir.path)")
+            return
+        }
         guard fm.fileExists(atPath: dir.path) else { return }
         do {
             try fm.removeItem(at: dir)

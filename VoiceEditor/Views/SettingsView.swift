@@ -962,9 +962,16 @@ struct SettingsView: View {
             let configExists = FileManager.default.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent("config.json").path)
             customValidation = configExists ? .compatible : .needsConversion
         case .huggingFace:
-            if path.contains("/") && !path.hasPrefix("/") && !path.contains(" ") { customValidation = .compatible }
+            if Self.isValidHFRepoID(path) { customValidation = .compatible }
             else { customValidation = .unsupported(L("model.hf_format_hint")) }
         }
+    }
+
+    /// `owner/name` with HF-style characters only. The repo id becomes a path under the
+    /// model cache (and is deleted from there on removal), so no `..` or extra segments.
+    private static func isValidHFRepoID(_ path: String) -> Bool {
+        let pattern = "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$"
+        return path.range(of: pattern, options: .regularExpression) != nil && !path.contains("..")
     }
 
     private func addCustomModel() {

@@ -50,6 +50,12 @@ final class ModelManager {
             .appendingPathComponent("models")
     }
 
+    /// True when `url` resolves to a location strictly inside `modelsCacheRoot`.
+    /// Guards every path built from a model id or a server-provided filename.
+    nonisolated static func isInsideModelsCache(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.hasPrefix(modelsCacheRoot.standardizedFileURL.path + "/")
+    }
+
     /// Destination for FluidAudio ASR models inside the unified cache.
     /// Mirrors the folder-name convention used by AsrModels.defaultCacheDirectory(for:).
     private var asrCacheDirectory: URL {
@@ -269,6 +275,10 @@ final class ModelManager {
         // Download .litertlm from HuggingFace if not cached
         let cacheDir = Self.modelsCacheRoot.appendingPathComponent(model.path)
         let modelFile = cacheDir.appendingPathComponent(filename)
+        guard Self.isInsideModelsCache(cacheDir), Self.isInsideModelsCache(modelFile) else {
+            print("[ModelManager] Refusing LiteRT model path outside the model cache: \(modelFile.path)")
+            throw LiteRTLoadError.invalidURL
+        }
 
         if !FileManager.default.fileExists(atPath: modelFile.path) {
             statusMessage = "Downloading \(model.name)..."
@@ -325,8 +335,12 @@ final class ModelManager {
 
     /// Downloads a single file from a HuggingFace repo to the given directory.
     private func downloadLiteRTModel(repo: String, filename: String, to directory: URL) async throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let destination = directory.appendingPathComponent(filename)
+        guard Self.isInsideModelsCache(destination) else {
+            print("[ModelManager] Refusing LiteRT download outside the model cache: \(destination.path)")
+            throw LiteRTLoadError.invalidURL
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let urlString = "https://huggingface.co/\(repo)/resolve/main/\(filename)"
         guard let url = URL(string: urlString) else {
@@ -362,11 +376,19 @@ final class ModelManager {
               let siblings = json["siblings"] as? [[String: Any]] else {
             return nil
         }
+        // The name becomes a local filename under the model cache: plain file names only
+        // (files in repo subfolders are skipped rather than flattened, since the download
+        // URL needs the real path).
         let files = siblings
             .compactMap { $0["rfilename"] as? String }
-            .filter { $0.hasSuffix(".litertlm") }
+            .filter { $0.hasSuffix(".litertlm") && isSafeFilename($0) }
         // Prefer the native variant; the "-web" build targets WASM/WebGPU in browsers.
         return files.first { !$0.contains("-web") } ?? files.first
+    }
+
+    private static func isSafeFilename(_ name: String) -> Bool {
+        let last = URL(fileURLWithPath: name).lastPathComponent
+        return !last.isEmpty && last == name && last != ".." && !last.hasPrefix(".")
     }
 
     /// Reload only the LLM with the currently selected model.

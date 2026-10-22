@@ -16,8 +16,10 @@ struct ListEventsTool: Tool {
         }
 
         let start = parseDate(arguments["start_date"]) ?? Calendar.current.startOfDay(for: Date())
-        let end = parseDate(arguments["end_date"])
-            ?? Calendar.current.date(byAdding: .day, value: 1, to: start)!
+        guard let end = parseDate(arguments["end_date"])
+            ?? Calendar.current.date(byAdding: .day, value: 1, to: start) else {
+            return "Error: Invalid date range."
+        }
 
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
         let events = store.events(matching: predicate)
@@ -56,8 +58,14 @@ struct FindFreeTimeTool: Tool {
         let startHour = Int(arguments["start_hour"] ?? "9") ?? 9
         let endHour = Int(arguments["end_hour"] ?? "18") ?? 18
 
-        let dayStart = cal.date(bySettingHour: startHour, minute: 0, second: 0, of: baseDate)!
-        let dayEnd = cal.date(bySettingHour: endHour, minute: 0, second: 0, of: baseDate)!
+        // Hours come from the model: reject out-of-range values instead of crashing.
+        guard (0...23).contains(startHour), (0...23).contains(endHour), startHour < endHour else {
+            return "Error: start_hour and end_hour must be whole hours from 0 to 23, with start_hour before end_hour."
+        }
+        guard let dayStart = cal.date(bySettingHour: startHour, minute: 0, second: 0, of: baseDate),
+              let dayEnd = cal.date(bySettingHour: endHour, minute: 0, second: 0, of: baseDate) else {
+            return "Error: Could not build the requested time range."
+        }
 
         let predicate = store.predicateForEvents(withStart: dayStart, end: dayEnd, calendars: nil)
         let events = store.events(matching: predicate)

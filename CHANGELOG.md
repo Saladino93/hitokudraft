@@ -35,6 +35,8 @@ All notable changes to Hitoku Draft are documented in this file.
   instead.
 - **Safer web access.** When internet access is enabled, the assistant can now only
   open links you mention, and local network addresses are never contacted.
+- **Sturdier input handling.** More robust handling of custom model names and spoken
+  app names.
 - **Clearer privacy information.** The Privacy section of the Help tab now explains
   exactly when the app goes online: optional web search and link opening, license
   checks, update checks, and model downloads. Your audio and transcripts are still
