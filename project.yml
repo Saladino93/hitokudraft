@@ -7,6 +7,8 @@ options:
   createIntermediateGroups: true
   defaultConfig: Release
 
+# Direct dependencies are pinned (exactVersion / revision): the xcodeproj and its
+# Package.resolved are gitignored, so this file is the only record of what ships.
 packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio
@@ -26,22 +28,22 @@ packages:
     minorVersion: 0.30.6
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
-    from: 2.0.0
+    exactVersion: 2.4.0
   mlx-audio-swift:
     url: https://github.com/Blaizzy/mlx-audio-swift
-    from: 0.1.0
+    exactVersion: 0.1.2
   swift-huggingface:
     url: https://github.com/huggingface/swift-huggingface
-    from: 0.8.1
+    exactVersion: 0.9.0
   WhisperKit:
     url: https://github.com/argmaxinc/WhisperKit
-    from: 0.18.0
+    exactVersion: 0.18.0
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: 2.0.0
+    exactVersion: 2.9.2
   SwiftMath:
     url: https://github.com/mgriebling/SwiftMath
-    from: 1.7.0
+    exactVersion: 1.7.3
 
 schemes:
   HitokuDraft:
