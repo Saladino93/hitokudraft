@@ -470,9 +470,10 @@ enum LiteRTLoadError: LocalizedError {
 
 /// URLSession delegate that reports download progress via a closure.
 private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
-    private let onProgress: (Double) -> Void
+    /// Called on URLSession's delegate queue.
+    private let onProgress: @Sendable (Double) -> Void
 
-    init(onProgress: @escaping (Double) -> Void) {
+    init(onProgress: @escaping @Sendable (Double) -> Void) {
         self.onProgress = onProgress
     }
 

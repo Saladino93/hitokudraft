@@ -55,6 +55,7 @@ All notable changes to Hitoku Draft are documented in this file.
   voices.
 - **Voice activity detection.** More reliable voice activity detection during long
   dictations.
+- **Audio encoding.** Fixed a potential audio encoding issue.
 
 ## [1.6.6] - 2026-06-07
 

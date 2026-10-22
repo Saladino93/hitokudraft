@@ -17,7 +17,7 @@ struct OverlayTextRenderer: View {
     /// TTS playback the view re-renders many times with unchanged text. Re-parsing the
     /// full text each time is O(n²) over a streamed generation. Bounded — overlay text
     /// is transient.
-    private enum SegmentCache {
+    @MainActor private enum SegmentCache {
         static var cache: [String: [TextSegment]] = [:]
         static func segments(for text: String) -> [TextSegment] {
             if let hit = cache[text] { return hit }

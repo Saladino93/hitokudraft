@@ -13,7 +13,8 @@ final class ContextCaptureService {
 
     /// Most recent external apps (index 0 = most recent, max 2).
     private(set) var recentExternalApps: [NSRunningApplication] = []
-    private var observer: Any?
+    // nonisolated(unsafe): written once in init on the main actor; the only other access is deinit, after the last reference is gone.
+    nonisolated(unsafe) private var observer: Any?
 
     /// The last focused external app (convenience).
     var lastExternalApp: NSRunningApplication? { recentExternalApps.first }

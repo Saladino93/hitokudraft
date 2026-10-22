@@ -1,8 +1,14 @@
-import AVFoundation
+// @preconcurrency: AVAudioPCMBuffer / AVAudioEngine / AVAudioInputNode are not Sendable. Each
+// buffer crossing to the processing queue is a fresh copy no other code touches afterwards, and
+// engine/inputNode are only torn down (removeTap/stop) from the stream's termination handler.
+@preconcurrency import AVFoundation
 import Accelerate
 import os
 
-final class AudioCaptureService {
+/// `Sendable`: stored state is immutable (a `Float` and a serial `DispatchQueue`); per-recording
+/// state lives in locals and `ContinuousSession`. The `@MainActor` coordinators call its
+/// nonisolated async methods, which hop off the main actor.
+final class AudioCaptureService: Sendable {
     private let silenceThreshold: Float = 0.015
     /// RMS below which we skip VAD entirely (muted mic gate).
     private static let mutedMicThreshold: Float = 0.001
@@ -235,7 +241,8 @@ final class AudioCaptureService {
             let silenceThreshold: Float = 0.015
             let silenceLimit = effectiveSilenceLimit
             let rawSilenceLimit = silenceDurationLimit  // for RMS fast-path (no VAD subtraction)
-            var cumulativeSamples = 0
+            // Only touched inside `queue.async` (serial); the lock makes that checkable.
+            let cumulativeSamples = OSAllocatedUnfairLock(initialState: 0)
             var silenceState = SilenceDetectionState()
 
             AudioCaptureService.log.info("ContinuousSession: starting with tapFormat=\(tapFormat, privacy: .public) useVAD=\(useVAD)")
@@ -261,7 +268,7 @@ final class AudioCaptureService {
                 queue.async {
                     let samples = AudioCaptureService.convertToSTT(copy)
                     buffer.append(samples)
-                    cumulativeSamples += samples.count
+                    let total = cumulativeSamples.withLock { $0 += samples.count; return $0 }
 
                     // Feed VAD if available and mic isn't muted. Synchronous enqueue on this
                     // serial queue keeps buffers in capture order.
@@ -269,8 +276,8 @@ final class AudioCaptureService {
                         vad.feed(samples, session: vadSession)
                     }
 
-                    if cumulativeSamples % 32_000 < samples.count {
-                        AudioCaptureService.log.info("ContinuousSession: cumulative STT samples=\(cumulativeSamples)")
+                    if total % 32_000 < samples.count {
+                        AudioCaptureService.log.info("ContinuousSession: cumulative STT samples=\(total)")
                     }
                 }
 
@@ -457,14 +464,14 @@ final class AudioCaptureService {
             return []
         }
 
-        var inputConsumed = false
+        // The input block is imported as @Sendable although `convert` calls it synchronously.
+        let inputConsumed = LockedFlag()
         var conversionError: NSError?
         converter.convert(to: output, error: &conversionError) { _, outStatus in
-            if inputConsumed {
+            guard inputConsumed.setIfClear() else {
                 outStatus.pointee = .endOfStream
                 return nil
             }
-            inputConsumed = true
             outStatus.pointee = .haveData
             return source
         }

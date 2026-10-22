@@ -48,16 +48,8 @@ enum AudioEncoder {
 // MARK: - Data helpers
 
 private extension Data {
-    mutating func append(littleEndian value: UInt32) {
-        var v = value.littleEndian
-        append(UnsafeBufferPointer(start: &v, count: 1))
-    }
-    mutating func append(littleEndian value: UInt16) {
-        var v = value.littleEndian
-        append(UnsafeBufferPointer(start: &v, count: 1))
-    }
-    mutating func append(littleEndian value: Int16) {
-        var v = value.littleEndian
-        append(UnsafeBufferPointer(start: &v, count: 1))
+    /// Appends the value's bytes in little-endian order (WAV is little-endian).
+    mutating func append<T: FixedWidthInteger>(littleEndian value: T) {
+        Swift.withUnsafeBytes(of: value.littleEndian) { append(contentsOf: $0) }
     }
 }

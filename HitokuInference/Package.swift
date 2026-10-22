@@ -1,6 +1,9 @@
 // swift-tools-version: 5.10
 import PackageDescription
 
+/// Strict concurrency checking (warnings only; tools version stays 5.10, language mode 5).
+let strictConcurrency: [SwiftSetting] = [.enableExperimentalFeature("StrictConcurrency")]
+
 let package = Package(
     name: "HitokuInference",
     platforms: [.macOS(.v14)],
@@ -27,7 +30,8 @@ let package = Package(
         .target(
             name: "HitokuInference",
             dependencies: [],
-            path: "Sources/HitokuInference"
+            path: "Sources/HitokuInference",
+            swiftSettings: strictConcurrency
         ),
         .target(
             name: "MLXBackend",
@@ -38,7 +42,8 @@ let package = Package(
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
                 .product(name: "MLX", package: "mlx-swift"),
             ],
-            path: "Sources/MLXBackend"
+            path: "Sources/MLXBackend",
+            swiftSettings: strictConcurrency
         ),
         .target(
             name: "LiteRTBackend",
@@ -46,12 +51,14 @@ let package = Package(
                 "HitokuInference",
                 .product(name: "LiteRTLM", package: "LiteRT-LM"),
             ],
-            path: "Sources/LiteRTBackend"
+            path: "Sources/LiteRTBackend",
+            swiftSettings: strictConcurrency
         ),
         .testTarget(
             name: "HitokuInferenceTests",
             dependencies: ["HitokuInference"],
-            path: "Tests/HitokuInferenceTests"
+            path: "Tests/HitokuInferenceTests",
+            swiftSettings: strictConcurrency
         ),
     ]
 )

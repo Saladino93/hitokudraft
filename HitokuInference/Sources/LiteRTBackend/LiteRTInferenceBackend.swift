@@ -1,6 +1,9 @@
 import Foundation
 import CoreGraphics
-import LiteRTLM
+// @preconcurrency: the SDK's `Conversation` is a non-Sendable class returned from the `Engine`
+// actor. Each one is freshly created per call (the engine keeps no reference) and used by one
+// task; `cancel()` from the termination handler goes through `Store`'s lock.
+@preconcurrency import LiteRTLM
 import HitokuInference
 
 #if canImport(AppKit)

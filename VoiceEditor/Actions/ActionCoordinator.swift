@@ -146,7 +146,7 @@ final class ActionCoordinator {
 
         // Phase 4: Confirm (always required — never fire-and-forget)
         // Must run on MainActor for NSAlert.runModal()
-        guard await ActionConfirmationPanel.confirm(action, conflicts: conflicts) else { return }
+        guard ActionConfirmationPanel.confirm(action, conflicts: conflicts) else { return }
 
         // Phase 5: Execute
         do {

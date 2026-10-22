@@ -4,8 +4,8 @@ import Foundation
 /// Use `extra` for backend-specific keys that don't belong on the shared surface.
 public struct BackendConfig: Sendable {
     /// MLX: template context dict, thinking toggle, etc.
-    public var templateContext: [String: Any]? {
-        extra["templateContext"] as? [String: Any]
+    public var templateContext: [String: any Sendable]? {
+        extra["templateContext"] as? [String: any Sendable]
     }
 
     /// Whether to append a disable-thinking token (e.g. " /no_think").

@@ -160,6 +160,7 @@ struct ModelOption: Identifiable, Hashable, Codable {
     }
 }
 
+@MainActor
 enum ModelRegistry {
     private static let configDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/hitokudraft")

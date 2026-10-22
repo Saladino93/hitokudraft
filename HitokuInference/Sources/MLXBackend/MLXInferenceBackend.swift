@@ -121,7 +121,7 @@ public final class MLXInferenceBackend: InferenceBackend, Sendable {
         let text = request.text ?? ""
         let effectivePrompt = config.disableThinking ? text + " /no_think" : text
 
-        let templateContext = config.extra["templateContext"] as? [String: Any]
+        let templateContext = config.extra["templateContext"] as? [String: any Sendable]
 
         // Build chat messages
         var messages: [Chat.Message] = []

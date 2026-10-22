@@ -127,7 +127,7 @@ enum OutputCleaner {
         )
         guard !instructionWords.isEmpty else { return text }
 
-        var lines = text.components(separatedBy: .newlines)
+        let lines = text.components(separatedBy: .newlines)
         var strippedCount = 0
 
         // Strip consecutive echo lines from the top (max 3 to avoid over-stripping)

@@ -9,7 +9,8 @@ final class PermissionsCoordinator {
     var microphoneGranted = false
     var screenRecordingGranted = false
 
-    @ObservationIgnored private var pollTimer: Timer?
+    // nonisolated(unsafe): read/written only on the main actor, plus the final invalidate in deinit (no other reference exists then).
+    @ObservationIgnored nonisolated(unsafe) private var pollTimer: Timer?
 
     /// Called when accessibility transitions from false → true.
     @ObservationIgnored var onAccessibilityGranted: (() -> Void)?
@@ -39,7 +40,8 @@ final class PermissionsCoordinator {
     }
 
     func requestAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        // Literal value of `kAXTrustedCheckOptionPrompt`, which is imported as a mutable C global.
+        let options = ["AXTrustedCheckOptionPrompt" as CFString: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }
 

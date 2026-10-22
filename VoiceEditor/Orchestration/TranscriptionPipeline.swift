@@ -11,7 +11,7 @@ private let log = Logger(subsystem: "com.hitokudraft.coordinator", category: "pi
 func runStreamingTranscription(
     session: AudioCaptureService.ContinuousSession,
     stt: any STTService,
-    onTextUpdate: @escaping @MainActor (String) -> Void
+    onTextUpdate: @escaping @MainActor @Sendable (String) -> Void
 ) async -> String {
     // Path B: Native streaming — any STTService that supports it
     if let streamSession = stt.makeStreamingSession() {

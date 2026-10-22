@@ -5,7 +5,8 @@ import UserNotifications
 ///
 /// Without this delegate, UNUserNotificationCenter silently drops notifications
 /// delivered while the app is running — a common problem for LSUIElement menu bar apps.
-final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+/// `Sendable`: no stored state.
+final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Sendable {
 
     static let shared = NotificationDelegate()
 

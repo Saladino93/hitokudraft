@@ -150,6 +150,58 @@ Memory.cacheLimit = 20 * 1024 * 1024  // NOT GPU.set(cacheLimit:) which is depre
 
 ---
 
+## 2026-10-22: Strict concurrency enabled (warnings)
+
+Strict concurrency checking is on in warning mode; the language mode is still Swift 5.
+
+- App target (`project.yml`): `SWIFT_STRICT_CONCURRENCY: complete`. `SWIFT_VERSION` stays `"5.10"`.
+- `HitokuInference/Package.swift`: every target (including the test target) gets `swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]`. Tools version stays 5.10.
+- Count (clean Debug build, first-party files only): 46 warnings before, 5 after. Of the 46, 36 were concurrency diagnostics (now 0) and 10 were older non-concurrency warnings (5 fixed, 5 left).
+- No warning pointed to an actual data race. Every finding was a missing annotation or a pattern the compiler cannot verify (state confined to a serial queue, a synchronous callback imported as `@Sendable`, a deinit read).
+
+| File | Before | After | Fix |
+|---|---|---|---|
+| `Services/AudioCaptureService.swift` | 11 | 0 | `@preconcurrency import AVFoundation`; class is `Sendable` (only a `Float` and a serial `DispatchQueue` are stored), which also fixes the "sending `audioCapture`" warnings at its 4 call sites; `cumulativeSamples` is an `OSAllocatedUnfairLock<Int>`; the converter input block uses `LockedFlag.setIfClear()` instead of a captured `var` |
+| `Orchestration/ConversationCoordinator.swift` | 6 | 3 | Sending `audioCapture` (×2) and `onTextUpdate`, fixed by the changes above. The 3 left are the dead `willStreamTTS` branches (see below) |
+| `Views/CodeHighlighter.swift` | 3 | 0 | `@MainActor enum CodeHighlighter` (static caches and `NSFont`, all main-actor callers) |
+| `Utilities/ObservationLoop.swift` | 3 | 0 | `isActive` / `reading` / `onChange` are `@MainActor @Sendable` |
+| `Services/AudioEncoder.swift` | 3 | 0 | Not concurrency: `UnsafeBufferPointer(start: &v, count: 1)` pointed at a temporary (dangling pointer, UB). Now one generic `append(littleEndian:)` that uses `withUnsafeBytes(of: value.littleEndian)` |
+| `Orchestration/TranscriptionPipeline.swift` | 3 | 0 | `StreamingSession: AnyObject, Sendable` (its only conformer wraps mlx-audio's `@unchecked Sendable` `StreamingInferenceSession` in `let`s); `onTextUpdate: @MainActor @Sendable` |
+| `Services/PermissionsCoordinator.swift` | 2 | 0 | `pollTimer` is `nonisolated(unsafe)` (see below); `kAXTrustedCheckOptionPrompt` (a mutable C global) replaced by its literal value `"AXTrustedCheckOptionPrompt"` |
+| `Services/LicenseManager.swift` | 2 | 2 | Not concurrency: "code after return" from the `#if DEBUG return` bypasses. Left on purpose |
+| `Orchestration/ConversationCoordinator+Dictation.swift` | 2 | 0 | Same as ConversationCoordinator (Sendable `AudioCaptureService`, `@Sendable onTextUpdate`) |
+| `Actions/ActionCoordinator.swift` | 2 | 0 | Sending `audioCapture` (fixed by Sendable class); dropped a needless `await` on the synchronous `ActionConfirmationPanel.confirm` |
+| `Views/Overlay/OverlayTextRenderer.swift` | 1 | 0 | `@MainActor private enum SegmentCache` |
+| `Services/NotificationDelegate.swift` | 1 | 0 | `Sendable` (no stored state) |
+| `Services/ModelManager.swift` | 1 | 0 | `DownloadProgressDelegate.onProgress` is `@Sendable` (called on URLSession's delegate queue; the closure only hops to the main actor) |
+| `Services/ContextCaptureService.swift` | 1 | 0 | `observer` is `nonisolated(unsafe)` (see below) |
+| `Orchestration/OutputCleaner.swift` | 1 | 0 | Not concurrency: `var lines` → `let` |
+| `Models/ModelOption.swift` | 1 | 0 | `@MainActor enum ModelRegistry` |
+| `Actions/ActionRouter.swift` | 1 | 0 | Shared `ISO8601DateFormatter` removed; `now.ISO8601Format()` gives identical output (UTC, `Z` suffix) and is Sendable |
+| `HitokuInference/.../MLXInferenceBackend.swift` | 1 | 0 | Template context cast to `[String: any Sendable]` (matches `UserInput.additionalContext` and what the app stores) |
+| `HitokuInference/.../BackendConfig.swift` | 0 | 0 | `templateContext` accessor type changed to `[String: any Sendable]` to match |
+| `HitokuInference/.../LiteRTInferenceBackend.swift` | 1 | 0 | `@preconcurrency import LiteRTLM` (see below) |
+
+**`nonisolated(unsafe)` (2, both deinit reads):**
+- `ContextCaptureService.observer`: written once in `init` on the main actor; the only other access is `deinit`, when no other reference exists. (Swift 6.2's `isolated deinit` needs a macOS 15.4 runtime; the deployment target is 14.0.)
+- `PermissionsCoordinator.pollTimer`: read and written on the main actor, plus the final `invalidate()` in `deinit`. Same reasoning.
+
+**`@preconcurrency import` (2):**
+- `AVFoundation` in `AudioCaptureService`: `AVAudioPCMBuffer`, `AVAudioEngine`, `AVAudioInputNode` are not Sendable. Each buffer sent to the processing queue is a fresh copy that nothing else touches afterwards; engine and input node are only torn down from the stream's termination handler.
+- `LiteRTLM` in `LiteRTInferenceBackend`: `Engine` is an actor that returns a non-Sendable `Conversation`. Each conversation is created fresh per request (the engine keeps no reference) and used by one task; the cross-thread `cancel()` goes through the existing lock-protected `Store`.
+
+No new `@unchecked Sendable`. No `NonisolatedNonsendingByDefault`.
+
+**Left on purpose (non-concurrency):**
+- `ConversationCoordinator.swift:576, 620, 708`: "will never be executed", the `willStreamTTS` branches behind `let willStreamTTS = false`. They hold the disabled streaming-TTS path; removing them deletes feature code, so that is a separate decision.
+- `LicenseManager.swift:98, 197`: "code after return", the `#if DEBUG` licensing bypass.
+
+**Not covered:** the `HitokuInferenceTests` target has the flag but is not compiled by the app scheme; run `swift build --build-tests` in `HitokuInference/` to check it.
+
+**Next step:** switch to Swift 6 language mode (`SWIFT_VERSION: "6.0"` in `project.yml`, tools version 6.0 / `swiftLanguageModes: [.v6]` in the package). Expect new errors where `@preconcurrency` imports no longer cover non-Sendable SDK types under region-based isolation, plus any remaining global-actor inference changes. Keep the warning build at zero concurrency warnings until then.
+
+---
+
 ## 2026-10-22: TTS/VAD concurrency fixes
 
 Four commits: TTS synthesis worker, generation-checked TTS queue, ordered VAD feed, locked MLX backend state.

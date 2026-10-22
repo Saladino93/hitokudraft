@@ -26,14 +26,9 @@ struct ActionRouter {
 
     // MARK: - Prompt Construction
 
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let fmt = ISO8601DateFormatter()
-        fmt.formatOptions = [.withInternetDateTime]
-        return fmt
-    }()
-
     static func buildPrompt(transcript: String, now: Date) -> String {
-        let nowISO = isoFormatter.string(from: now)
+        // Same output as ISO8601DateFormatter with .withInternetDateTime (UTC, "Z"); Sendable, no shared formatter.
+        let nowISO = now.ISO8601Format()
         let weekday = Calendar.current.weekdaySymbols[
             Calendar.current.component(.weekday, from: now) - 1
         ]

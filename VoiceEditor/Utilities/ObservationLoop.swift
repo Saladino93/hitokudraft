@@ -14,9 +14,9 @@ import Observation
 @MainActor
 enum ObservationLoop {
     static func track(
-        isActive: @escaping @MainActor () -> Bool,
-        reading: @escaping @MainActor () -> Void,
-        onChange: @escaping @MainActor () -> Void
+        isActive: @escaping @MainActor @Sendable () -> Bool,
+        reading: @escaping @MainActor @Sendable () -> Void,
+        onChange: @escaping @MainActor @Sendable () -> Void
     ) {
         guard isActive() else { return }
         withObservationTracking {

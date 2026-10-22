@@ -7,6 +7,7 @@ import AppKit
 ///
 /// Pattern application order: broad first (plain → comments → strings → numbers → keywords).
 /// Later patterns win, so keywords override any earlier miscoloring.
+@MainActor
 enum CodeHighlighter {
 
     // MARK: - Atom One Dark palette

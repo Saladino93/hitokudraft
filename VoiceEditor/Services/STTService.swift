@@ -8,7 +8,7 @@ enum STTEvent: Sendable {
 
 /// Minimal interface over a live streaming inference session.
 /// Callers do not need to import any backend-specific framework.
-protocol StreamingSession: AnyObject {
+protocol StreamingSession: AnyObject, Sendable {
     var events: AsyncStream<STTEvent> { get }
     func feedAudio(samples: [Float])
     func stop()
