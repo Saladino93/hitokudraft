@@ -57,11 +57,17 @@ public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
         }
 
         return AsyncThrowingStream { continuation in
-            Task {
+            // Keep the handle so a consumer that cancels or drops the stream cancels
+            // generation. Without this the task keeps MLX decoding to maxTokens/EOS
+            // in the background (and holds the container) after the caller has gone.
+            let task = Task {
                 do {
                     let lmInput = try await self.prepareInput(request: request, container: container)
                     let parameters = self.makeParameters(request: request)
+                    try Task.checkCancellation()
 
+                    // Cancelling this task ends the `for await` below; mlx-swift-lm's
+                    // stream termination handler then cancels its own decode task.
                     let stream = try await container.generate(
                         input: lmInput,
                         parameters: parameters
@@ -71,6 +77,7 @@ public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
                     recentChunks.reserveCapacity(21)
 
                     for await generation in stream {
+                        try Task.checkCancellation()
                         if let chunk = generation.chunk {
                             // Repetition detection — bail if the last 20 chunks are degenerate
                             recentChunks.append(chunk)
@@ -85,6 +92,7 @@ public final class MLXInferenceBackend: InferenceBackend, @unchecked Sendable {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 

@@ -178,6 +178,10 @@ Memory.cacheLimit = 20 * 1024 * 1024  // NOT GPU.set(cacheLimit:) which is depre
 
 **Future path:** migrate FluidAudio to a revision with `KokoroAneManager` (per-stage compute units, M5/OS 27 fixes), then drop the manual load path. Breaking ASR API changes to absorb: `AsrManager(config:models:)` and `transcribe(_:decoderState:language:)`.
 
+### MLX cancellation in the live inference path (same day)
+
+The 1ac7e72 cancellation fix (audit batch 1, item 1 below) landed in `MLXLLMService`, which was dead code: the live path is `RoutedLLMService` → `InferenceRouter` → `MLXInferenceBackend`. `MLXInferenceBackend.generate()` started an untracked `Task` with no `onTermination`, so a cancelled stream left MLX decoding to maxTokens/EOS. Ported the pattern there (task handle, `continuation.onTermination = { _ in task.cancel() }`, `Task.checkCancellation()` before generate and per chunk); cancelling ends the `for await`, and mlx-swift-lm's own stream termination handler then cancels its decode task. `MLXLLMService.swift` deleted. (`LiteRTInferenceBackend` already handled termination.)
+
 ---
 
 ## 2026-06-09 — Concurrency & Memory-Safety Hardening (audit batch 1)
