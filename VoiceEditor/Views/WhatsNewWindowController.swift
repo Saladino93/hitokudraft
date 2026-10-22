@@ -76,34 +76,34 @@ private struct WhatsNewBullet {
 
 private let whatsNewBullets: [WhatsNewBullet] = [
     WhatsNewBullet(
-        symbol: "waveform",
-        title: "Transcribe audio and video files",
-        detail: "Open Transcribe File from the menu bar, drop in one or many recordings, and get clean text on your Mac. Switch between files and refine any transcript with your voice."
+        symbol: "checkmark.seal",
+        title: "Launches reliably on macOS 27",
+        detail: "Fixed a crash at launch on macOS 27. If something fails to load at startup, Hitoku Draft now recovers on its own."
     ),
     WhatsNewBullet(
-        symbol: "questionmark.circle",
-        title: "How to use guide",
-        detail: "A new Help tab in Settings walks through dictation, voice editing, tool use, file transcription, and privacy."
+        symbol: "clock.arrow.circlepath",
+        title: "Your history in Settings",
+        detail: "A new History tab lets you search, copy, export, or delete past dictations and answers. Turn saving off anytime. Everything stays on your Mac."
     ),
     WhatsNewBullet(
         symbol: "cpu",
-        title: "More model choices",
-        detail: "A larger Gemma 4 option for Macs with plenty of memory (text and audio), plus the ability to add more on-device community models from Settings."
+        title: "Pick an AI model on first launch",
+        detail: "If you have not chosen an AI model yet, Hitoku Draft offers to install the one recommended for your Mac, or you can keep using transcription only."
     ),
     WhatsNewBullet(
-        symbol: "textformat",
-        title: "Formatted answers",
-        detail: "Answers in the overlay now show formatting such as bold and italics."
+        symbol: "speaker.wave.2",
+        title: "Better read-aloud",
+        detail: "Stop now stops right away, and the progress bar follows the voice smoothly."
     ),
     WhatsNewBullet(
-        symbol: "globe",
-        title: "Clearer web answers",
-        detail: "Web answers list their sources, and no longer get stuck while generating."
+        symbol: "lock.shield",
+        title: "Safer pasting and more privacy",
+        detail: "Results only go into the app you started from, never into password fields (they appear in the overlay instead). Web access only opens links you mention or select, and your history is private to your account."
     ),
     WhatsNewBullet(
-        symbol: "checkmark.circle",
-        title: "Reliable answers on screen",
-        detail: "Asking a question with nothing selected now keeps the answer on screen. It stays while you read and closes shortly after."
+        symbol: "stop.circle",
+        title: "Instant cancel",
+        detail: "Cancelling a response now stops the AI model immediately."
     ),
 ]
 

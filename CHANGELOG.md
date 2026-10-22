@@ -5,64 +5,61 @@ All notable changes to Hitoku Draft are documented in this file.
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [1.6.7] - 2026-10-22
+
+### Added
 - **History tab in Settings.** Browse your saved interactions: search transcripts,
   copy a result, delete single entries or clear everything, export the full history
-  as JSON, and open the storage folder. A new "Save history" switch turns saving
-  off entirely. Everything stays on your Mac.
+  as JSON, and open the storage folder. Long entries can be expanded to read them in
+  full. A new "Save history" switch turns saving off entirely. Everything stays on
+  your Mac.
 - **AI model setup on first launch.** If you have not chosen an AI model yet, Hitoku
   Draft offers to install the one recommended for your Mac, lets you pick another
   in Settings, or continue with transcription only. Once you choose, it will not ask
   again. Existing choices are kept.
 
 ### Changed
-- **History storage improvements.** The history folder is now private to your user
+- **History storage improvements.** Your history folder is now private to your user
   account, screen context is no longer stored with each entry unless you opt in, and
   you can optionally keep only the most recent entries (Settings, History, Keep).
-- **Internal architecture cleanup.** The app's central orchestration code was split
-  into focused modules (overlay result display, model loading/switching), with no
-  user-visible behavior change. Improves reliability of future updates.
-- **More efficient UI updates.** The app's interface state management was modernized
-  so views refresh only when something they actually display changes, instead of on
-  every internal state change. Reduces redundant redraw work across the menu bar,
-  Settings window, overlay, and Transcribe window.
-- **Smoother streaming display.** The overlay now does much less repeated work while
-  an answer streams in or is read aloud: text is parsed for math/code once per change
-  instead of on every redraw, read-aloud progress is computed incrementally, and
-  syntax-highlighting patterns are compiled once. Long answers and code blocks render
-  noticeably smoother, and read-aloud progress no longer jumps backwards when the
-  same sentence appears twice in an answer.
+- **Smoother, more efficient interface.** Views now refresh only when something they
+  display actually changes, and the overlay does much less repeated work while an
+  answer streams in. Long answers and code blocks render noticeably smoother across
+  the menu bar, Settings, the overlay, and the Transcribe window.
+- **Under-the-hood improvements.** Parts of the app were reorganized to make it more
+  reliable and easier to improve, with no change in how it works.
 
 ### Fixed
-- The read-aloud progress bar now follows the speech instead of jumping per sentence.
-- History entries no longer overlap when a long transcript is selected; long entries
-  can be expanded.
+- **Crash at launch on macOS 27.** Fixed a crash at launch on macOS 27 caused by
+  preparing the read-aloud voice on the GPU. The voice is now only prepared when
+  read-aloud is enabled, runs without the GPU on macOS 27, and the app recovers
+  automatically if a model fails to prepare at launch.
+- **Read-aloud stop and progress.** Read-aloud now stops cleanly: pressing stop never
+  lets a queued sentence play afterwards, and a rapid stop and restart no longer
+  overlaps voices. The progress bar now follows the speech smoothly instead of
+  jumping from sentence to sentence, and no longer jumps backwards when a sentence
+  repeats.
+- **Cancelling a response.** Cancelling a response now stops the local model
+  immediately instead of letting it finish in the background.
 - **Text goes only where it came from.** Dictated and edited text is now only
   inserted into the app it was captured from. If you switch apps while a response is
   being generated, or a password field is focused, the result is shown in the overlay
-  instead.
-- **Safer web access.** When internet access is enabled, the assistant can now only
-  open links you mention or select, and local network addresses are never contacted.
-- **Sturdier input handling.** More robust handling of custom model names and spoken
-  app names.
+  instead, with a short note explaining why.
+- **Safer web access.** When internet access is enabled, the assistant only opens
+  links you mention or select.
 - **Clearer privacy information.** The Privacy section of the Help tab now explains
   exactly when the app goes online: optional web search and link opening, license
   checks, update checks, and model downloads. Your audio and transcripts are still
   processed on your Mac.
-- **Crash at launch on macOS 27.** Fixed a crash at launch on macOS 27 caused by
-  preparing the read-aloud voice model on the GPU. The voice model is now only
-  prepared when read-aloud is enabled, runs without the GPU on macOS 27, and the app
-  recovers automatically if a model fails to prepare at launch.
-- **Cancelling a response.** Cancelling a response now stops the local model
-  immediately instead of letting it finish in the background.
-- **Memory and stability hardening.** Fixed several internal thread-safety issues in
-  the model routing and logging paths, and reduced needless allocations in the
-  overlay's audio-level animation.
-- **Stopping read-aloud.** Read-aloud now stops cleanly: pressing stop never lets
-  a queued sentence play afterwards, and rapid stop and restart no longer overlaps
-  voices.
-- **Voice activity detection.** More reliable voice activity detection during long
-  dictations.
-- **Audio encoding.** Fixed a potential audio encoding issue.
+- **Long dictations.** Speech detection is more reliable during long dictations.
+- **Stability and robustness.** Fixed several rare stability issues while running
+  models, a potential audio encoding issue, and needless memory use in the recording
+  animation. Custom model names and spoken app names are handled more robustly.
 
 ## [1.6.6] - 2026-06-07
 
