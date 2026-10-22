@@ -150,6 +150,17 @@ Memory.cacheLimit = 20 * 1024 * 1024  // NOT GPU.set(cacheLimit:) which is depre
 
 ---
 
+## 2026-10-22: Security hardening batch
+
+Internal record of the security fixes from the October audit. Public CHANGELOG entries are deliberately generic.
+
+### 1. Spoken text out of the unified log; accurate privacy help text
+
+- `TTSService` logged the first 60 characters of every synthesized and prefetched sentence with `privacy: .public`, i.e. the content of LLM answers (often derived from the user's selection or screen) was readable by anyone with `log show` access. Both lines now log `sentence.count` only.
+- `LicenseManager` logged the purchaser email `.public` on activation; it now uses default (private) interpolation, which shows `<private>` outside a debugger.
+- Help tab "Privacy" row claimed nothing ever leaves the device. Replaced (`help.privacy_text`, 4 languages) with an accurate list of outbound traffic: DuckDuckGo search and assistant-chosen pages when "Allow internet access" is on, Gumroad licence verification, Sparkle update checks (hitoku.me appcast; added beyond the audit list so the text is complete), Hugging Face model downloads. Help tab height 540 -> 600 to fit the longer text (measured with `ImageRenderer`: +60 pt for Spanish, the longest).
+- CHANGELOG: the "Memory and stability hardening" entry no longer claims that cancelling releases the model promptly; that only became true with b71f024 and is covered by the "Cancelling a response" entry.
+
 ## 2026-10-22: Launch crash on macOS 27.2 / Kokoro MPSGraph abort
 
 **Symptom:** SIGABRT at launch on macOS 27.2 (M5 Pro), "MLIR pass failed" inside MPSGraph while Core ML compiled the Kokoro TTS models.

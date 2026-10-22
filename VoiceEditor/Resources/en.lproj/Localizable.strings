@@ -254,3 +254,6 @@
 "history.mode.dictation" = "Dictation";
 "history.mode.grammar_fix" = "Grammar Fix";
 "history.mode.action" = "Action";
+
+/* Help tab */
+"help.privacy_text" = "Your audio and transcripts are processed on your Mac. If \"Allow internet access\" is on, search queries and pages the assistant chooses to open are sent to DuckDuckGo and to those websites. License checks contact Gumroad, update checks contact hitoku.me, and model downloads come from Hugging Face.";

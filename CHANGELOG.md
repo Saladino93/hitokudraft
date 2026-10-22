@@ -26,18 +26,19 @@ All notable changes to Hitoku Draft are documented in this file.
   same sentence appears twice in an answer.
 
 ### Fixed
+- **Clearer privacy information.** The Privacy section of the Help tab now explains
+  exactly when the app goes online: optional web search and link opening, license
+  checks, update checks, and model downloads. Your audio and transcripts are still
+  processed on your Mac.
 - **Crash at launch on macOS 27.** Fixed a crash at launch on macOS 27 caused by
   preparing the read-aloud voice model on the GPU. The voice model is now only
   prepared when read-aloud is enabled, runs without the GPU on macOS 27, and the app
   recovers automatically if a model fails to prepare at launch.
 - **Cancelling a response.** Cancelling a response now stops the local model
   immediately instead of letting it finish in the background.
-- **Memory and stability hardening.** Cancelling an AI generation mid-stream now
-  releases the model promptly instead of holding it until the generation would have
-  finished on its own — reduces memory pressure when switching models or retrying
-  quickly on 8 GB machines. Also fixed several internal thread-safety issues in the
-  model routing and logging paths, and reduced needless allocations in the overlay's
-  audio-level animation.
+- **Memory and stability hardening.** Fixed several internal thread-safety issues in
+  the model routing and logging paths, and reduced needless allocations in the
+  overlay's audio-level animation.
 
 ## [1.6.6] - 2026-06-07
 

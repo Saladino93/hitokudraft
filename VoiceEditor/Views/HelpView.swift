@@ -38,7 +38,7 @@ struct HelpView: View {
             helpRow(
                 icon: "lock.fill",
                 title: "Privacy",
-                text: "Everything runs on your Mac. Your audio and text never leave your device."
+                text: L("help.privacy_text")
             )
 
             Spacer(minLength: 8)

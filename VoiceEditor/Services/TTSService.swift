@@ -271,7 +271,7 @@ actor TTSService {
             } else {
                 let sentence = queuedSentences.removeFirst()
                 currentSegmentText = sentence
-                Self.log.info("TTS synth [\(voice, privacy: .public)]: \(sentence.prefix(60), privacy: .public)")
+                Self.log.info("TTS synth [\(voice, privacy: .public)]: \(sentence.count) chars")
                 do {
                     let start = ContinuousClock.now
                     audioData = try await provider.synthesize(text: sentence, voice: voice, speed: speed)
@@ -299,7 +299,7 @@ actor TTSService {
             // because CoreML inference happens off-actor on its own thread.
             if !queuedSentences.isEmpty {
                 let nextSentence = queuedSentences.removeFirst()
-                Self.log.info("TTS prefetch [\(voice, privacy: .public)]: \(nextSentence.prefix(60), privacy: .public)")
+                Self.log.info("TTS prefetch [\(voice, privacy: .public)]: \(nextSentence.count) chars")
 
                 let prefetchTask = Task { [provider] () -> Data? in
                     let start = ContinuousClock.now

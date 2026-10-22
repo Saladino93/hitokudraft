@@ -67,7 +67,7 @@ struct SettingsView: View {
         case .history: return 540
         case .appearance: return 473
         case .model: return 518
-        case .help: return 540
+        case .help: return 600
         case .updates: return 122
         }
     }

@@ -252,3 +252,6 @@
 "history.mode.dictation" = "Dictée";
 "history.mode.grammar_fix" = "Correction";
 "history.mode.action" = "Action";
+
+/* Help tab */
+"help.privacy_text" = "Votre audio et vos transcriptions sont traités sur votre Mac. Si « Autoriser l'accès internet » est activé, les recherches et les pages que l'assistant choisit d'ouvrir sont envoyées à DuckDuckGo et à ces sites. La vérification de la licence contacte Gumroad, la recherche de mises à jour contacte hitoku.me, et les modèles sont téléchargés depuis Hugging Face.";

@@ -162,7 +162,7 @@ final class LicenseManager {
             // Email in UserDefaults is for display convenience only (not a trust anchor)
             UserDefaults.standard.set(response.email, forKey: "licenseEmail")
 
-            Self.log.info("License activated for \(response.email ?? "unknown", privacy: .public)")
+            Self.log.info("License activated for \(response.email ?? "unknown")")
         } catch {
             Self.log.error("Activation failed: \(error.localizedDescription, privacy: .public)")
             activationError = L("license.network_error")
