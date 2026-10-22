@@ -197,6 +197,14 @@ final class ConversationCoordinator {
         guard state == .idle else { return }
         state = .downloading(progress: 0)
 
+        // Crash-recovery window: snapshot whether the previous launch died mid-warm-up
+        // (must be read before begin overwrites the flag), then mark launch-time model
+        // loading as in progress. Cleared by the detached task at the end of setup()
+        // once every launch-time load — including the TTS pre-warm — has finished.
+        // No early returns between here and that task. See `LaunchSafety`.
+        _ = LaunchSafety.previousLaunchCrashedDuringWarmup
+        LaunchSafety.beginRiskyLaunchWork()
+
         // Phase 0: LLM — start loading in background so STT/VAD setup can run in parallel.
         // The llmLoadTask will set llmReady = true and state = .idle when done.
         if llm == nil && !modelManager.selectedModel.isNone {
@@ -205,6 +213,8 @@ final class ConversationCoordinator {
                 await self.activateLLM(self.modelManager.selectedModel, drainAfter: false)
             }
         }
+        // Captured locally: activateLLM nils `llmLoadTask` on completion.
+        let launchLLMTask = llmLoadTask
 
         // Phase 1: STT — always load (needed for dictation even with LiteRT/Gemma 4)
         // If the user has "None" selected (e.g. from a previous Gemma-only session),
@@ -258,9 +268,18 @@ final class ConversationCoordinator {
 
         // Pre-warm TTS so the first "Read Aloud" or streaming TTS is instant.
         // CoreML compilation can take 1-2s cold — doing it at launch hides it entirely.
+        // Only when TTS is enabled (otherwise it's pure launch risk for no benefit), and
+        // never right after a launch that crashed mid-warm-up — Core ML GPU compile
+        // failures abort the process uncatchably, so the next launch must not retry it.
+        // This task also closes the LaunchSafety window: after the pre-warm (if any) and
+        // the launch LLM load have both finished, whether they succeeded or failed.
         Task.detached(priority: .background) {
-            let backend = PreferencesStore().ttsSettings.backend
-            await TTSService.shared.preWarm(backend: backend)
+            let tts = PreferencesStore().ttsSettings
+            if tts.enabled && !LaunchSafety.previousLaunchCrashedDuringWarmup {
+                await TTSService.shared.preWarm(backend: tts.backend)
+            }
+            await launchLLMTask?.value
+            await LaunchSafety.endRiskyLaunchWork()
         }
 
         // Pre-request notification permission so the system dialog appears at a predictable

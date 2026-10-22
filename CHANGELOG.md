@@ -26,6 +26,10 @@ All notable changes to Hitoku Draft are documented in this file.
   same sentence appears twice in an answer.
 
 ### Fixed
+- **Crash at launch on macOS 27.** Fixed a crash at launch on macOS 27 caused by
+  preparing the read-aloud voice model on the GPU. The voice model is now only
+  prepared when read-aloud is enabled, runs without the GPU on macOS 27, and the app
+  recovers automatically if a model fails to prepare at launch.
 - **Memory and stability hardening.** Cancelling an AI generation mid-stream now
   releases the model promptly instead of holding it until the generation would have
   finished on its own — reduces memory pressure when switching models or retrying

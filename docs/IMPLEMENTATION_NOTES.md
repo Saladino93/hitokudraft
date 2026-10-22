@@ -150,6 +150,36 @@ Memory.cacheLimit = 20 * 1024 * 1024  // NOT GPU.set(cacheLimit:) which is depre
 
 ---
 
+## 2026-10-22: Launch crash on macOS 27.2 / Kokoro MPSGraph abort
+
+**Symptom:** SIGABRT at launch on macOS 27.2 (M5 Pro), "MLIR pass failed" inside MPSGraph while Core ML compiled the Kokoro TTS models.
+
+**Root cause:**
+- 1.6.3 added an unconditional TTS pre-warm in `ConversationCoordinator.setup()`, so every launch compiled Kokoro, even with read-aloud disabled.
+- FluidAudio `843250b` (our pin) hardcodes `.cpuAndGPU` in `TtsModels.download` for Kokoro. On macOS 27 the GPU path goes through MPSGraph/MLIR, whose compile failure calls `abort()` inside Apple code. Not catchable from Swift, so no in-process fallback is possible.
+- FluidAudio upstream #843 documents the same OS 27 abort and routes stages to `.cpuOnly` on OS >= 27.
+
+**Fix (three layers):**
+1. **Gate the pre-warm** on `ttsSettings.enabled` (and skip it after a crashed warm-up).
+2. **Safe compute units** (`KokoroTTSProvider.initialize`): when `LaunchSafety.preferSafeComputeUnits` (macOS 27+, or previous launch crashed mid-warm-up), load both Kokoro variants ourselves via `DownloadUtils.loadModels(.kokoro, …, computeUnits: .cpuOnly)` into `<cache>/Models` (same layout as `TtsModels.download`, so existing downloads are reused) and pass them in with `manager.initialize(models: TtsModels(models:))`. No warm-up prediction on this path, so the first synthesis is slightly slower. macOS 26 and earlier keep the default `.cpuAndGPU` path.
+3. **Cross-launch sentinel** (`Services/LaunchSafety.swift`): UserDefaults flag `launchModelWarmupInProgress` set by `beginRiskyLaunchWork()` at the start of setup, cleared by `endRiskyLaunchWork()` after the pre-warm and the launch LLM load both finish (success or caught error). Flag still set at next launch means the process died mid-warm-up: safe mode for that session.
+
+**Invariants:**
+- Both Kokoro variants must be supplied to `TtsModels(models:)`. A missing variant is lazily reloaded by FluidAudio with `.cpuAndGPU`, reintroducing the crash.
+- `previousLaunchCrashedDuringWarmup` is a one-shot snapshot; it must be read before `beginRiskyLaunchWork()` overwrites the flag (begin touches it first, and setup reads it explicitly).
+- `activeWindows` counts overlapping setup windows (e.g. manual "Download & Set Up" during initial warm-up); the flag clears only when the last one ends.
+- `NSApplication.willTerminateNotification` clears the flag, so a clean quit during a long first-run download does not trigger safe mode next launch.
+- No early returns between `beginRiskyLaunchWork()` and the detached task that calls `endRiskyLaunchWork()`.
+
+**Known residuals:**
+- Kokoro's internal G2P model (`G2PModel.swift`) is still `.cpuAndGPU` and loads lazily on the first out-of-vocabulary word, so a macOS 27 abort is still possible there, mid-session rather than at launch. No override at this pin.
+- PocketTTS is `.cpuAndGPU`-only at this pin (`PocketTtsModelStore` hardcodes it); `LaunchSafety` cannot apply to it.
+- The sentinel only changes TTS behaviour. A crash in STT/LLM loading sets safe mode but safe mode only affects TTS.
+
+**Future path:** migrate FluidAudio to a revision with `KokoroAneManager` (per-stage compute units, M5/OS 27 fixes), then drop the manual load path. Breaking ASR API changes to absorb: `AsrManager(config:models:)` and `transcribe(_:decoderState:language:)`.
+
+---
+
 ## 2026-06-09 — Concurrency & Memory-Safety Hardening (audit batch 1)
 
 Five fixes from the full-codebase audit (architecture / memory / concurrency / performance / modernization). Build verified clean.

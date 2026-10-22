@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreML
 import FluidAudio
 import os
 
@@ -34,14 +35,50 @@ protocol TTSProvider: AnyObject {
 /// Synthesizes all frames at once — low latency for short to medium text.
 final class KokoroTTSProvider: TTSProvider {
 
+    private static let log = Logger(subsystem: "com.hitokudraft.app", category: "KokoroTTSProvider")
+
     private let manager: KokoroTtsManager
+    private let cacheDirectory: URL?
 
     init(cacheDirectory: URL? = nil) {
+        self.cacheDirectory = cacheDirectory
         manager = KokoroTtsManager(directory: cacheDirectory)
     }
 
     func initialize() async throws {
-        try await manager.initialize()
+        let units = LaunchSafety.ttsComputeUnits
+        Self.log.info("Kokoro compute units: \(LaunchSafety.describe(units), privacy: .public)")
+
+        guard LaunchSafety.preferSafeComputeUnits else {
+            // Default FluidAudio path: `.cpuAndGPU` plus a warm-up prediction per variant.
+            try await manager.initialize()
+            return
+        }
+
+        // Safe path: FluidAudio's `TtsModels.download` hardcodes `.cpuAndGPU`, whose MPSGraph
+        // compile can abort the process (see `LaunchSafety`). Load both variants ourselves with
+        // safe compute units and hand them to the manager. Both variants must be supplied —
+        // a missing one is lazily re-loaded by FluidAudio with `.cpuAndGPU`.
+        // Trade-off: no warm-up prediction, so the first synthesis is slightly slower.
+        // Directory mirrors `TtsModels.download`: `<cacheRoot>/Models`, models in `Models/kokoro/`,
+        // so existing downloads are reused (`loadModels` downloads only if files are missing).
+        let root = try cacheDirectory ?? TtsModels.cacheDirectoryURL()
+        let modelsDirectory = root.appendingPathComponent(TtsConstants.defaultModelsSubdirectory)
+        let variants = ModelNames.TTS.Variant.allCases
+        let loaded = try await DownloadUtils.loadModels(
+            .kokoro,
+            modelNames: variants.map(\.fileName),
+            directory: modelsDirectory,
+            computeUnits: units
+        )
+        var models: [ModelNames.TTS.Variant: MLModel] = [:]
+        for variant in variants {
+            guard let model = loaded[variant.fileName] else {
+                throw TTSError.modelNotFound(variant.fileName)
+            }
+            models[variant] = model
+        }
+        try await manager.initialize(models: TtsModels(models: models))
     }
 
     func synthesize(text: String, voice: String, speed: Float) async throws -> Data {
@@ -75,6 +112,9 @@ final class PocketTTSProvider: TTSProvider {
     private var initialized = false
 
     init(cacheDirectory: URL? = nil) {
+        // Note: PocketTTS is still `.cpuAndGPU`-only at the pinned FluidAudio revision —
+        // `PocketTtsModelStore` hardcodes its compute units and exposes no override, so
+        // `LaunchSafety.ttsComputeUnits` cannot be applied here.
         manager = PocketTtsManager(directory: cacheDirectory)
     }
 
